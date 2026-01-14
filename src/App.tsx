@@ -94,6 +94,16 @@ export default function App() {
     confirmDeleteDialogRef.current?.showModal()
   }
 
+  function renameCollection(collectionId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+    setCollections(prev => {
+      const next = prev.map(c => c.id === collectionId ? { ...c, name: nextName } : c)
+      saveCollections(next)
+      return next
+    })
+  }
+
   function confirmDeleteCollection() {
     const collectionId = confirmDeleteId
     if (!collectionId) return
@@ -223,6 +233,7 @@ export default function App() {
           activeRequestId={activeRequestId}
           onPickRequest={pick}
           onOpenEnv={setEnvModalCollectionId}
+          onRenameCollection={renameCollection}
           onDeleteCollection={requestDeleteCollection}
         />
       </aside>
