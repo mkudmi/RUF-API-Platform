@@ -1,6 +1,5 @@
 import { safeJsonParse } from '../../shared/utils/http'
 import type { RunResult } from './runRequest'
-import { useState } from 'react'
 
 function statusClass(status: number) {
   if (status >= 200 && status < 300) return 'status2xx'
@@ -10,14 +9,18 @@ function statusClass(status: number) {
   return 'statusOther'
 }
 
-export function ResponseViewer(props: { result: RunResult | null }) {
+export function ResponseViewer(props: {
+  result: RunResult | null
+  tab: 'body' | 'headers'
+  onTabChange: (tab: 'body' | 'headers') => void
+}) {
   if (!props.result) {
     return <div className="small">Нет ответа — отправь запрос.</div>
   }
 
   const parsed = safeJsonParse(props.result.bodyText)
   const pretty = parsed ? JSON.stringify(parsed, null, 2) : props.result.bodyText
-  const [tab, setTab] = useState<'body' | 'headers'>('body')
+  const tab = props.tab
 
   return (
     <div>
@@ -28,10 +31,10 @@ export function ResponseViewer(props: { result: RunResult | null }) {
       </div>
 
       <div className="tabs">
-        <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => setTab('body')}>
+        <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('body')}>
           Body
         </button>
-        <button className={`tab ${tab === 'headers' ? 'tabActive' : ''}`} onClick={() => setTab('headers')}>
+        <button className={`tab ${tab === 'headers' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('headers')}>
           Headers
         </button>
       </div>

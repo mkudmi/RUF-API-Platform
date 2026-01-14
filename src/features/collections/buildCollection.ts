@@ -112,7 +112,7 @@ function buildBody(op: any) {
   const media = (content as any)[ct]
   const exFromExamples = media?.examples?.[Object.keys(media.examples || {})[0]]?.value
   const schemaEx = media?.schema?.example ?? media?.schema?.default
-  const ex = media?.example ?? exFromExamples ?? schemaEx ?? exampleFromSchema(media?.schema)
+  const ex: any = media?.example ?? exFromExamples ?? schemaEx ?? exampleFromSchema(media?.schema)
 
   if (ex !== undefined) return { contentType: ct, example: ex }
   return { contentType: ct, example: ct.toLowerCase().includes('json') ? {} : '' }
@@ -140,13 +140,17 @@ export function buildCollectionFromV3(spec: any, name = 'Imported API', sourceOr
         path,
         urlTemplate: joinUrlParts('{{baseUrl}}', path),
         params: collectParams(op),
-        headers: {},
         body: buildBody(op),
+        headers: {},
+      }
+
+      if (req.body?.contentType) {
+        req.headers = { ...req.headers, 'Content-Type': req.body.contentType }
       }
 
       for (const tag of tags) {
         if (!folderMap.has(tag)) {
-          folderMap.set(tag, { id: uid('folder'), name: tag, requests: [] })
+          folderMap.set(tag, { id: uid('folder'), name: tag, requests: [], folders: [] })
         }
         folderMap.get(tag)!.requests.push(req)
       }

@@ -1,6 +1,30 @@
-import { useEffect, useRef, useState } from 'react'
-import type { Collection, RequestItem } from '../../shared/types/collection'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { Collection, Folder, RequestItem } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
+
+const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
+
+type TreeOpenState = {
+  collections: string[]
+  folders: string[]
+}
+
+function loadTreeOpenState(): TreeOpenState {
+  try {
+    const raw = localStorage.getItem(TREE_OPEN_STATE_KEY)
+    if (!raw) return { collections: [], folders: [] }
+    const parsed = JSON.parse(raw) as any
+    const collections = Array.isArray(parsed?.collections) ? parsed.collections.filter((x: any) => typeof x === 'string') : []
+    const folders = Array.isArray(parsed?.folders) ? parsed.folders.filter((x: any) => typeof x === 'string') : []
+    return { collections, folders }
+  } catch {
+    return { collections: [], folders: [] }
+  }
+}
+
+function saveTreeOpenState(state: TreeOpenState) {
+  localStorage.setItem(TREE_OPEN_STATE_KEY, JSON.stringify(state))
+}
 
 export function CollectionsTree(props: {
   collections: Collection[]
@@ -9,12 +33,33 @@ export function CollectionsTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onRenameCollection: (collectionId: string, name: string) => void
+  onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onDeleteCollection: (collectionId: string) => void
 }) {
   const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const nameEditableRef = useRef<HTMLElement | null>(null)
   const suppressNextBlurRef = useRef(false)
+  const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set(loadTreeOpenState().collections))
+  const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
+  const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
+
+  function countRequests(folder: Folder): number {
+    const nested = (folder.folders ?? []).reduce((n, f) => n + countRequests(f), 0)
+    return folder.requests.length + nested
+  }
+
+  const requestCountByCollection = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const col of props.collections) {
+      out[col.id] = col.folders.reduce((n, f) => n + countRequests(f), 0)
+    }
+    return out
+  }, [props.collections])
+
+  useEffect(() => {
+    saveTreeOpenState({ collections: Array.from(openCollections), folders: Array.from(openFolders) })
+  }, [openCollections, openFolders])
 
   useEffect(() => {
     if (!editingCollectionId) return
@@ -35,12 +80,115 @@ export function CollectionsTree(props: {
     return m === 'DELETE' ? 'DEL' : m
   }
 
+  function onFolderDragStart(e: React.DragEvent, collectionId: string, folderId: string) {
+    setDraggingFolder({ collectionId, folderId })
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-ruf-folder', JSON.stringify({ collectionId, folderId }))
+    e.dataTransfer.setData('text/plain', folderId)
+  }
+
+  function onFolderDragEnd() {
+    setDraggingFolder(null)
+  }
+
+  function tryReadDraggedFolder(e: React.DragEvent): { collectionId: string, folderId: string } | null {
+    try {
+      const raw = e.dataTransfer.getData('application/x-ruf-folder')
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as any
+      const collectionId = typeof parsed?.collectionId === 'string' ? parsed.collectionId : ''
+      const folderId = typeof parsed?.folderId === 'string' ? parsed.folderId : ''
+      if (!collectionId || !folderId) return null
+      return { collectionId, folderId }
+    } catch {
+      return null
+    }
+  }
+
+  function renderFolder(col: Collection, folder: Folder) {
+    const childFolders = folder.folders ?? []
+    const reqCount = countRequests(folder)
+    return (
+      <details
+        key={folder.id}
+        className="treeGroup treeGroupInner"
+        open={openFolders.has(folder.id)}
+        onToggle={e => {
+          const isOpen = (e.currentTarget as HTMLDetailsElement).open
+          setOpenFolders(prev => {
+            const next = new Set(prev)
+            if (isOpen) next.add(folder.id)
+            else next.delete(folder.id)
+            return next
+          })
+        }}
+      >
+        <summary
+          className="treeSummary treeSummaryFolder"
+          draggable
+          onDragStart={e => onFolderDragStart(e, col.id, folder.id)}
+          onDragEnd={onFolderDragEnd}
+          onDragOver={e => {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+          }}
+          onDrop={e => {
+            e.preventDefault()
+            e.stopPropagation()
+            const dragged = tryReadDraggedFolder(e)
+            if (!dragged) return
+            if (dragged.collectionId !== col.id) return
+            if (dragged.folderId === folder.id) return
+            props.onMoveFolder(col.id, dragged.folderId, folder.id)
+          }}
+        >
+          <span className="treeChevron" aria-hidden="true" />
+          <div className="treeSummaryLeft">
+            <span className="treeFolderName">{folder.name}</span>
+            <span className="small">{reqCount}</span>
+          </div>
+        </summary>
+
+        {childFolders.map(f => renderFolder(col, f))}
+
+        <div className="treeItems">
+          {folder.requests.map(r => {
+            const active = props.activeRequestId === r.id
+            return (
+              <div
+                key={r.id}
+                className={`treeItem ${active ? 'treeItemActive' : ''}`}
+                onClick={() => props.onPickRequest(r, col)}
+              >
+                <span className="mono small treeMethod">{displayMethod(r.method)}</span>
+                <span className="treeItemName">{r.name}</span>
+              </div>
+            )
+          })}
+        </div>
+      </details>
+    )
+  }
+
   return (
     <div className="tree">
       {props.collections.map(col => (
-        <details key={col.id} className="treeGroup">
+        <details
+          key={col.id}
+          className="treeGroup"
+          open={openCollections.has(col.id)}
+          onToggle={e => {
+            const isOpen = (e.currentTarget as HTMLDetailsElement).open
+            setOpenCollections(prev => {
+              const next = new Set(prev)
+              if (isOpen) next.add(col.id)
+              else next.delete(col.id)
+              return next
+            })
+          }}
+        >
           {(() => {
-            const reqCount = col.folders.reduce((n, f) => n + f.requests.length, 0)
+            const reqCount = requestCountByCollection[col.id] ?? 0
             const isEditing = editingCollectionId === col.id
 
             function startRename() {
@@ -76,6 +224,18 @@ export function CollectionsTree(props: {
                     e.stopPropagation()
                     suppressNextBlurRef.current = true
                     cancelRename()
+                  }}
+                  onDragOver={e => {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }}
+                  onDrop={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const dragged = tryReadDraggedFolder(e)
+                    if (!dragged) return
+                    if (dragged.collectionId !== col.id) return
+                    props.onMoveFolder(col.id, dragged.folderId, null)
                   }}
                 >
                   <span className="treeChevron" aria-hidden="true" />
@@ -195,33 +355,7 @@ export function CollectionsTree(props: {
             )
           })()}
 
-          {col.folders.map(folder => (
-            <details key={folder.id} className="treeGroup treeGroupInner">
-              <summary className="treeSummary treeSummaryFolder">
-                <span className="treeChevron" aria-hidden="true" />
-                <div className="treeSummaryLeft">
-                  <span className="treeFolderName">{folder.name}</span>
-                  <span className="small">{folder.requests.length}</span>
-                </div>
-              </summary>
-
-              <div className="treeItems">
-                {folder.requests.map(r => {
-                  const active = props.activeRequestId === r.id
-                  return (
-                    <div
-                      key={r.id}
-                      className={`treeItem ${active ? 'treeItemActive' : ''}`}
-                      onClick={() => props.onPickRequest(r, col)}
-                    >
-                      <span className="mono small treeMethod">{displayMethod(r.method)}</span>
-                      <span className="treeItemName">{r.name}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </details>
-          ))}
+          {col.folders.map(folder => renderFolder(col, folder))}
         </details>
       ))}
     </div>

@@ -11,6 +11,7 @@ export type Folder = {
   id: string
   name: string
   requests: RequestItem[]
+  folders?: Folder[]
 }
 
 export type RequestParam = {

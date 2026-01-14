@@ -14,6 +14,32 @@ function applyPathParams(url: string, values: Record<string,string>) {
   return url.replaceAll(/\{([^}]+)\}/g, (_, key) => encodeURIComponent(values[key] ?? `{${key}}`))
 }
 
+function getHeader(headers: Record<string, string>, name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === needle) return v
+  }
+  return undefined
+}
+
+function setHeader(headers: Record<string, string>, name: string, value: string) {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) {
+      headers[k] = value
+      return
+    }
+  }
+  headers[name] = value
+}
+
+function deleteHeader(headers: Record<string, string>, name: string) {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) delete headers[k]
+  }
+}
+
 export async function runRequest(args: {
   request: RequestItem
   baseUrl: string
@@ -21,6 +47,9 @@ export async function runRequest(args: {
   queryParams: Record<string,string>
   headers: Record<string,string>
   bodyText?: string
+  file?: File | null
+  fileFieldName?: string
+  formFields?: Record<string, string>
 }): Promise<RunResult> {
   const start = performance.now()
 
@@ -44,8 +73,30 @@ export async function runRequest(args: {
   }
 
   if (args.request.body && args.request.method !== 'GET' && args.request.method !== 'HEAD') {
-    init.headers = { 'Content-Type': args.request.body.contentType, ...init.headers }
-    init.body = args.bodyText ?? ''
+    const desiredCt = (getHeader(init.headers as any, 'Content-Type') || args.request.body.contentType || '').trim()
+    const ct = desiredCt.toLowerCase()
+    const file = args.file ?? null
+
+    if (ct.includes('multipart/form-data') && (file || (args.formFields && Object.keys(args.formFields).length))) {
+      const form = new FormData()
+      for (const [k, v] of Object.entries(args.formFields ?? {})) form.set(k, v)
+      if (file) form.set(args.fileFieldName?.trim() || 'file', file)
+
+      const headers = { ...(init.headers as any) } as Record<string, string>
+      deleteHeader(headers, 'Content-Type')
+      init.headers = headers as any
+      init.body = form
+    } else if (file && ct.includes('application/octet-stream')) {
+      const headers = { ...(init.headers as any) } as Record<string, string>
+      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
+      init.headers = headers as any
+      init.body = file
+    } else {
+      const headers = { ...(init.headers as any) } as Record<string, string>
+      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
+      init.headers = headers as any
+      init.body = args.bodyText ?? ''
+    }
   }
 
   const res = await fetch(url, init)

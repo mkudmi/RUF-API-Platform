@@ -19,9 +19,64 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
 }
 
+const ACTIVE_SELECTION_KEY = 'ruf_active_request_v1'
+const RESPONSE_TAB_BY_REQUEST_KEY = 'ruf_response_tab_by_request_v1'
+
+type SavedActiveSelection = { collectionId: string, requestId: string }
+
+function safeParseJson<T>(raw: string | null): T | null {
+  try {
+    if (!raw) return null
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
+}
+
+function loadActiveSelection(): SavedActiveSelection | null {
+  const parsed = safeParseJson<any>(localStorage.getItem(ACTIVE_SELECTION_KEY))
+  if (!parsed || typeof parsed !== 'object') return null
+  const collectionId = typeof parsed.collectionId === 'string' ? parsed.collectionId : ''
+  const requestId = typeof parsed.requestId === 'string' ? parsed.requestId : ''
+  if (!collectionId || !requestId) return null
+  return { collectionId, requestId }
+}
+
+function saveActiveSelection(sel: SavedActiveSelection) {
+  localStorage.setItem(ACTIVE_SELECTION_KEY, JSON.stringify(sel))
+}
+
+function clearActiveSelection() {
+  localStorage.removeItem(ACTIVE_SELECTION_KEY)
+}
+
+function findRequestByIds(collections: Collection[], collectionId: string, requestId: string) {
+  const col = collections.find(c => c.id === collectionId)
+  if (!col) return null
+  const collection = col
+  function walk(folders: any[]): { col: Collection, req: RequestItem } | null {
+    for (const folder of folders) {
+      const req = (folder?.requests ?? []).find((r: RequestItem) => r.id === requestId)
+      if (req) return { col: collection, req }
+      const nested = Array.isArray(folder?.folders) ? folder.folders : []
+      const found = walk(nested)
+      if (found) return found
+    }
+    return null
+  }
+  const found = walk(col.folders as any)
+  if (found) return found
+  return null
+}
+
 export default function App() {
   const [collections, setCollections] = useState<Collection[]>(() => loadCollections())
-  const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(null)
+  const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => {
+    const saved = loadActiveSelection()
+    if (!saved) return null
+    const cols = loadCollections()
+    return findRequestByIds(cols, saved.collectionId, saved.requestId)
+  })
   const [result, setResult] = useState<RunResult | null>(null)
   const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => loadEnvironmentsByCollection())
   const [envModalCollectionId, setEnvModalCollectionId] = useState<string | null>(null)
@@ -44,6 +99,15 @@ export default function App() {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const sidebarWidthRef = useRef(sidebarWidth)
   const editorWidthRef = useRef(editorWidth)
+  const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers'>>(() => {
+    const parsed = safeParseJson<any>(localStorage.getItem(RESPONSE_TAB_BY_REQUEST_KEY))
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, 'body' | 'headers'> = {}
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof k === 'string' && (v === 'body' || v === 'headers')) out[k] = v
+    }
+    return out
+  })
 
   useEffect(() => {
     sidebarWidthRef.current = sidebarWidth
@@ -54,10 +118,26 @@ export default function App() {
   }, [editorWidth])
 
   const activeRequestId = useMemo(() => active?.req.id, [active])
+  const activeResponseTab = useMemo(() => {
+    if (!activeRequestId) return 'body' as const
+    return responseTabByRequest[activeRequestId] ?? 'body'
+  }, [activeRequestId, responseTabByRequest])
   const envModalCollection = useMemo(() => {
     if (!envModalCollectionId) return null
     return collections.find(c => c.id === envModalCollectionId) ?? null
   }, [collections, envModalCollectionId])
+
+  useEffect(() => {
+    if (!active) return
+    const found = findRequestByIds(collections, active.col.id, active.req.id)
+    if (!found) {
+      setActive(null)
+      setResult(null)
+      clearActiveSelection()
+      return
+    }
+    if (found.col !== active.col || found.req !== active.req) setActive(found)
+  }, [active, collections])
 
   function addCollection(col: Collection) {
     const next = [col, ...collections]
@@ -77,6 +157,7 @@ export default function App() {
   function pick(req: RequestItem, col: Collection) {
     setActive({ req, col })
     setResult(null)
+    saveActiveSelection({ collectionId: col.id, requestId: req.id })
   }
 
   function saveEnvForCollection(collectionId: string, next: Environment) {
@@ -104,6 +185,82 @@ export default function App() {
     })
   }
 
+  function moveFolder(collectionId: string, folderId: string, targetParentFolderId: string | null) {
+    setCollections(prev => {
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+
+        function containsFolderId(folder: any, id: string): boolean {
+          if (!folder) return false
+          if (folder.id === id) return true
+          const nested = Array.isArray(folder.folders) ? folder.folders : []
+          return nested.some((f: any) => containsFolderId(f, id))
+        }
+
+        function removeFolder(folders: any[]): { folders: any[], removed: any | null } {
+          let removed: any | null = null
+          const nextFolders: any[] = []
+
+          for (const f of folders) {
+            if (!removed && f?.id === folderId) {
+              removed = f
+              continue
+            }
+            if (removed) {
+              nextFolders.push(f)
+              continue
+            }
+            const nested = Array.isArray(f?.folders) ? f.folders : []
+            const child = removeFolder(nested)
+            if (child.removed) {
+              removed = child.removed
+              nextFolders.push({ ...f, folders: child.folders })
+              continue
+            }
+            nextFolders.push(f)
+          }
+
+          return { folders: nextFolders, removed }
+        }
+
+        function insertFolder(folders: any[], parentId: string, folder: any): { folders: any[], inserted: boolean } {
+          let inserted = false
+          const nextFolders = folders.map(f => {
+            if (inserted) return f
+            if (f?.id === parentId) {
+              inserted = true
+              const kids = Array.isArray(f?.folders) ? f.folders : []
+              return { ...f, folders: [...kids, folder] }
+            }
+            const nested = Array.isArray(f?.folders) ? f.folders : []
+            if (!nested.length) return f
+            const child = insertFolder(nested, parentId, folder)
+            if (!child.inserted) return f
+            inserted = true
+            return { ...f, folders: child.folders }
+          })
+          return { folders: nextFolders, inserted }
+        }
+
+        const removedRes = removeFolder(c.folders as any)
+        const removed = removedRes.removed
+        if (!removed) return c
+        if (targetParentFolderId && containsFolderId(removed, targetParentFolderId)) return c
+
+        let nextFolders: any[]
+        if (!targetParentFolderId) {
+          nextFolders = [...removedRes.folders, removed]
+        } else {
+          const inserted = insertFolder(removedRes.folders, targetParentFolderId, removed)
+          nextFolders = inserted.inserted ? inserted.folders : [...removedRes.folders, removed]
+        }
+        return { ...c, folders: nextFolders }
+      })
+      saveCollections(next)
+      return next
+    })
+  }
+
   function confirmDeleteCollection() {
     const collectionId = confirmDeleteId
     if (!collectionId) return
@@ -124,6 +281,7 @@ export default function App() {
     if (active?.col.id === collectionId) {
       setActive(null)
       setResult(null)
+      clearActiveSelection()
     }
     if (envModalCollectionId === collectionId) setEnvModalCollectionId(null)
     setConfirmDeleteId(null)
@@ -221,6 +379,12 @@ export default function App() {
     <div className="layout" style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}>
       <ImportFab onImported={addCollection} />
       <aside className="sidebar">
+        <div className="sidebarBrand">
+          <div className="sidebarBrandRow">
+            <span className="appTitle">Ruf</span> <span className="small">(web-only)</span>
+          </div>
+          <div className="small sidebarTagline">API platform</div>
+        </div>
         <div style={{marginBottom: 12}}>
           <div style={{display:'grid', gap:10}}>
             <button onClick={openCreateProject}>Создать проект</button>
@@ -234,6 +398,7 @@ export default function App() {
           onPickRequest={pick}
           onOpenEnv={setEnvModalCollectionId}
           onRenameCollection={renameCollection}
+          onMoveFolder={moveFolder}
           onDeleteCollection={requestDeleteCollection}
         />
       </aside>
@@ -261,7 +426,19 @@ export default function App() {
           <div className="resizer" onPointerDown={onPanelResizePointerDown} />
 
           <section className="card">
-            <ResponseViewer result={result} />
+            <ResponseViewer
+              result={result}
+              tab={activeResponseTab}
+              onTabChange={tab => {
+                const requestId = activeRequestId
+                if (!requestId) return
+                setResponseTabByRequest(prev => {
+                  const next = { ...prev, [requestId]: tab }
+                  localStorage.setItem(RESPONSE_TAB_BY_REQUEST_KEY, JSON.stringify(next))
+                  return next
+                })
+              }}
+            />
           </section>
         </div>
       </main>
