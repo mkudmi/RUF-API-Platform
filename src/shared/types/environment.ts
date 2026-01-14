@@ -1,10 +1,11 @@
 export type Environment = {
-  baseUrl: string
+  baseUrlKey: string
+  variables: Record<string, string>
   headers: Record<string, string>
 }
 
 export const DEFAULT_ENVIRONMENT: Environment = {
-  baseUrl: '',
+  baseUrlKey: 'baseUrl',
+  variables: { baseUrl: '', scheme: 'http' },
   headers: {},
 }
-

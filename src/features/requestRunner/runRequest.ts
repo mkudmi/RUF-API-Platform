@@ -10,6 +10,23 @@ export type RunResult = {
   bodyText: string
 }
 
+function maybeProxyUrl(url: string) {
+  if (!import.meta.env.DEV) return url
+  try {
+    const u = new URL(url)
+    if (typeof location !== 'undefined' && u.origin !== location.origin) {
+      return `/__ruf_proxy?url=${encodeURIComponent(u.toString())}`
+    }
+  } catch {
+    // ignore
+  }
+  return url
+}
+
+function applyVariables(text: string, vars: Record<string, string>) {
+  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => vars[name] ?? '')
+}
+
 function applyPathParams(url: string, values: Record<string,string>) {
   return url.replaceAll(/\{([^}]+)\}/g, (_, key) => encodeURIComponent(values[key] ?? `{${key}}`))
 }
@@ -43,6 +60,7 @@ function deleteHeader(headers: Record<string, string>, name: string) {
 export async function runRequest(args: {
   request: RequestItem
   baseUrl: string
+  variables?: Record<string, string>
   pathParams: Record<string,string>
   queryParams: Record<string,string>
   headers: Record<string,string>
@@ -52,24 +70,33 @@ export async function runRequest(args: {
   formFields?: Record<string, string>
 }): Promise<RunResult> {
   const start = performance.now()
+  const vars = args.variables ?? {}
 
   const baseUrl = (args.baseUrl || '').trim()
   let url =
     baseUrl
       ? joinUrlParts(baseUrl, args.request.path)
       : args.request.urlTemplate.replace('{{baseUrl}}', '')
-  url = applyPathParams(url, args.pathParams)
+
+  const pathParams = Object.fromEntries(
+    Object.entries(args.pathParams).map(([k, v]) => [k, applyVariables(v, vars)]),
+  )
+  url = applyPathParams(url, pathParams)
+  url = applyVariables(url, vars)
 
   const usp = new URLSearchParams()
   for (const [k,v] of Object.entries(args.queryParams)) {
-    if (v !== '') usp.set(k, v)
+    const nextV = applyVariables(v, vars)
+    if (nextV !== '') usp.set(k, nextV)
   }
   const qs = usp.toString()
   if (qs) url += (url.includes('?') ? '&' : '?') + qs
 
   const init: RequestInit = {
     method: args.request.method,
-    headers: { ...args.headers },
+    headers: Object.fromEntries(
+      Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)]),
+    ),
   }
 
   if (args.request.body && args.request.method !== 'GET' && args.request.method !== 'HEAD') {
@@ -79,7 +106,7 @@ export async function runRequest(args: {
 
     if (ct.includes('multipart/form-data') && (file || (args.formFields && Object.keys(args.formFields).length))) {
       const form = new FormData()
-      for (const [k, v] of Object.entries(args.formFields ?? {})) form.set(k, v)
+      for (const [k, v] of Object.entries(args.formFields ?? {})) form.set(k, applyVariables(v, vars))
       if (file) form.set(args.fileFieldName?.trim() || 'file', file)
 
       const headers = { ...(init.headers as any) } as Record<string, string>
@@ -95,11 +122,27 @@ export async function runRequest(args: {
       const headers = { ...(init.headers as any) } as Record<string, string>
       if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
       init.headers = headers as any
-      init.body = args.bodyText ?? ''
+      init.body = applyVariables(args.bodyText ?? '', vars)
     }
   }
 
-  const res = await fetch(url, init)
+  if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
+
+  const finalUrl = maybeProxyUrl(url)
+  let res: Response
+  try {
+    res = await fetch(finalUrl, init)
+  } catch (e: any) {
+    const timeMs = Math.round(performance.now() - start)
+    return {
+      ok: false,
+      status: 0,
+      statusText: 'Failed to fetch',
+      timeMs,
+      headers: {},
+      bodyText: e?.message || String(e),
+    }
+  }
   const timeMs = Math.round(performance.now() - start)
 
   const headersObj: Record<string,string> = {}

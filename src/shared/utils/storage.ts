@@ -28,13 +28,28 @@ export function loadEnvironmentsByCollection(): Record<string, Environment> {
     const out: Record<string, Environment> = {}
     for (const [id, env] of Object.entries(parsed)) {
       if (typeof id !== 'string' || !id) continue
-      const baseUrl = typeof (env as any)?.baseUrl === 'string' ? (env as any).baseUrl : ''
+      const baseUrlKey = typeof (env as any)?.baseUrlKey === 'string' && (env as any).baseUrlKey.trim()
+        ? (env as any).baseUrlKey.trim()
+        : 'baseUrl'
+
+      const varsObj = (env as any)?.variables && typeof (env as any).variables === 'object' ? (env as any).variables : {}
+      const variables: Record<string, string> = {}
+      for (const [k, v] of Object.entries(varsObj)) {
+        if (typeof k === 'string' && k.trim() && typeof v === 'string') variables[k.trim()] = v
+      }
+
+      // backward-compat: old env schema stored { baseUrl, headers }
+      const legacyBaseUrl = typeof (env as any)?.baseUrl === 'string' ? (env as any).baseUrl : ''
+      if (!variables[baseUrlKey] && legacyBaseUrl) variables[baseUrlKey] = legacyBaseUrl
+      if (!variables[baseUrlKey]) variables[baseUrlKey] = ''
+      if (typeof variables.scheme !== 'string' || !variables.scheme.trim()) variables.scheme = 'http'
+
       const headersObj = (env as any)?.headers && typeof (env as any).headers === 'object' ? (env as any).headers : {}
       const headers: Record<string, string> = {}
       for (const [k, v] of Object.entries(headersObj)) {
         if (typeof k === 'string' && typeof v === 'string' && k.trim()) headers[k] = v
       }
-      out[id] = { baseUrl, headers }
+      out[id] = { baseUrlKey, variables, headers }
     }
     return out
   } catch {

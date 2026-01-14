@@ -4,6 +4,7 @@ export type Collection = {
   id: string
   name: string
   baseUrl?: string
+  variables?: Record<string, string>
   folders: Folder[]
 }
 

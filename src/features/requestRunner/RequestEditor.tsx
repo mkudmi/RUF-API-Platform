@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { Collection, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
-import { computeEffectiveBaseUrl, joinUrlParts } from '../../shared/utils/url'
+import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { runRequest, type RunResult } from './runRequest'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
@@ -12,6 +12,7 @@ type RequestDraft = {
   headers?: Record<string, string>
   bodyText?: string
   fileFieldName?: string
+  baseUrlKey?: string
 }
 
 function safeParseJson<T>(raw: string | null): T | null {
@@ -43,6 +44,37 @@ function applyPathParamsForDisplay(url: string, values: Record<string, string>) 
     const v = values[key]
     return v ? v : `{${key}}`
   })
+}
+
+function applyVariablesForDisplay(text: string, vars: Record<string, string>) {
+  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => vars[name] ?? '')
+}
+
+function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
+  const raw = url.trim().replace(/\/+$/, '')
+  if (!raw) return ''
+  if (isAbsoluteUrl(raw) || raw.startsWith('/') || raw.startsWith('//')) return raw
+
+  const looksLikeHost =
+    /^localhost(?::\d+)?(?:\/.*)?$/i.test(raw) ||
+    /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:\/.*)?$/.test(raw) ||
+    /^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(?:\/.*)?$/i.test(raw)
+
+  if (!looksLikeHost) return raw
+  return `${scheme}://${raw}`.replace(/\/+$/, '')
+}
+
+function defaultQueryParamsFromSpec(params: RequestParam[]) {
+  const out: Record<string, string> = {}
+  for (const p of params) {
+    if (p.in !== 'query') continue
+    const ex = p.example
+    if (ex === undefined || ex === null) continue
+    if (typeof ex === 'string' || typeof ex === 'number' || typeof ex === 'boolean') {
+      out[p.name] = String(ex)
+    }
+  }
+  return out
 }
 
 function ParamRow(props: {
@@ -146,7 +178,6 @@ export function RequestEditor(props: {
   request: RequestItem
   onResult: (r: RunResult) => void
 }) {
-  const baseUrl = computeEffectiveBaseUrl(props.environment?.baseUrl, props.collection.baseUrl)
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
@@ -161,13 +192,56 @@ export function RequestEditor(props: {
   const [newParamValue, setNewParamValue] = useState('')
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [fileFieldName, setFileFieldName] = useState('file')
+  const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
+  const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
+
+  const baseUrl = useMemo(() => {
+    const envVars = props.environment?.variables ?? {}
+    const envKey = props.environment?.baseUrlKey || 'baseUrl'
+    const preferredKey = baseUrlKey || envKey
+    const resolvedKey = Object.prototype.hasOwnProperty.call(envVars, preferredKey) ? preferredKey : envKey
+    const envBaseUrl = envVars[resolvedKey] ?? ''
+    const scheme = String(envVars.scheme || '').trim().toLowerCase() === 'https' ? 'https' : 'http'
+    const effective = computeEffectiveBaseUrl(envBaseUrl, props.collection.baseUrl)
+    return applySchemeIfHostLike(effective, scheme)
+  }, [baseUrlKey, props.collection.baseUrl, props.environment])
+
+  const variables = useMemo(() => {
+    const envVars = props.environment?.variables ?? {}
+    const envKey = props.environment?.baseUrlKey || 'baseUrl'
+    const preferredKey = baseUrlKey || envKey
+    const resolvedKey = Object.prototype.hasOwnProperty.call(envVars, preferredKey) ? preferredKey : envKey
+    const selectedBaseUrl = envVars[resolvedKey] ?? ''
+    const scheme = String(envVars.scheme || '').trim().toLowerCase() === 'https' ? 'https' : 'http'
+    const effective = computeEffectiveBaseUrl(selectedBaseUrl, props.collection.baseUrl)
+    const effectiveWithScheme = applySchemeIfHostLike(effective, scheme)
+    return { ...envVars, scheme, baseUrl: effectiveWithScheme }
+  }, [baseUrlKey, props.collection.baseUrl, props.environment])
 
   const displayUrl = useMemo(() => {
     const url = baseUrl
       ? joinUrlParts(baseUrl, props.request.path)
       : props.request.urlTemplate
-    return applyPathParamsForDisplay(url, pathParams)
-  }, [baseUrl, pathParams, props.request.path, props.request.urlTemplate])
+    const withPathParams = applyPathParamsForDisplay(url, pathParams)
+
+    const usp = new URLSearchParams()
+    for (const [k, v] of Object.entries(queryParams)) {
+      const nextK = applyVariablesForDisplay(k, variables)
+      const nextV = applyVariablesForDisplay(v, variables)
+      if (nextK && nextV !== '') usp.set(nextK, nextV)
+    }
+    const qs = usp.toString()
+    if (!qs) return withPathParams
+    return withPathParams + (withPathParams.includes('?') ? '&' : '?') + qs
+  }, [baseUrl, pathParams, props.request.path, props.request.urlTemplate, queryParams, variables])
+
+  const variableKeys = useMemo(() => {
+    const envVars = props.environment?.variables ?? {}
+    const keys = Object.keys(envVars).filter(k => k !== 'scheme').sort((a, b) => a.localeCompare(b))
+    if (!keys.length && baseUrlKey) return [baseUrlKey]
+    if (baseUrlKey && !keys.includes(baseUrlKey)) return [...keys, baseUrlKey].sort((a, b) => a.localeCompare(b))
+    return keys
+  }, [baseUrlKey, props.environment])
 
   const [bodyText, setBodyText] = useState('')
   const [sending, setSending] = useState(false)
@@ -183,12 +257,13 @@ export function RequestEditor(props: {
   useEffect(() => {
     const draft = loadDraft(props.request.id)
     setPathParams(draft?.pathParams ?? {})
-    setQueryParams(draft?.queryParams ?? {})
+    setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
     setHeaders({
       ...(props.environment?.headers ?? {}),
       ...(props.request.headers ?? {}),
       ...(draft?.headers ?? {}),
     })
+    setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
     setNewHeaderName('')
     setNewHeaderValue('')
@@ -196,6 +271,7 @@ export function RequestEditor(props: {
     setNewParamValue('')
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
+    setShowBaseUrlPicker(false)
   }, [props.environment, props.request.id])
 
   useEffect(() => {
@@ -208,13 +284,14 @@ export function RequestEditor(props: {
         headers,
         bodyText,
         fileFieldName,
+        baseUrlKey,
       })
     }, 200)
     return () => {
       if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
       draftSaveTimerRef.current = null
     }
-  }, [bodyText, fileFieldName, headers, pathParams, props.request.id, queryParams])
+  }, [baseUrlKey, bodyText, fileFieldName, headers, pathParams, props.request.id, queryParams])
 
   const grouped = useMemo(() => {
     const p = props.request.params
@@ -283,6 +360,7 @@ export function RequestEditor(props: {
       const result = await runRequest({
         request: props.request,
         baseUrl,
+        variables,
         pathParams,
         queryParams,
         headers,
@@ -309,8 +387,39 @@ export function RequestEditor(props: {
         </button>
       </div>
 
-      <div className="mono editorUrl" title={displayUrl}>
-        {displayUrl}
+      <div>
+        <div
+          className="mono editorUrl"
+          title={displayUrl}
+          role="button"
+          tabIndex={0}
+          onClick={() => setShowBaseUrlPicker(v => !v)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ' ') setShowBaseUrlPicker(v => !v)
+            if (e.key === 'Escape') setShowBaseUrlPicker(false)
+          }}
+          style={{ cursor: 'pointer' }}
+        >
+          {displayUrl}
+        </div>
+
+        {showBaseUrlPicker && (
+          <div style={{ marginTop: 6, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="small">Base URL var:</span>
+            <select
+              className="mono"
+              value={baseUrlKey}
+              onChange={e => {
+                setBaseUrlKey(e.target.value)
+                setShowBaseUrlPicker(false)
+              }}
+            >
+              {variableKeys.map(k => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {!baseUrl && (

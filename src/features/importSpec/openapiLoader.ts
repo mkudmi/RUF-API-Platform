@@ -1,7 +1,7 @@
 import { parse as parseYaml } from 'yaml'
 import { normalizeToV3 } from './normalizeToV3'
 
-function parseJsonOrYaml(text: string): any {
+export function parseJsonOrYaml(text: string): any {
   const trimmed = text.trim()
   if (!trimmed) throw new Error('Empty spec')
 
@@ -81,4 +81,3 @@ export async function loadOpenApiFromText(text: string) {
   const deref = dereferenceLocalRefs(parsed)
   return normalizeToV3(deref)
 }
-

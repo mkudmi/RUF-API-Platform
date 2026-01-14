@@ -147,7 +147,12 @@ export default function App() {
     setEnvByCollection(prev => {
       if (prev[col.id]) return prev
       const seededBaseUrl = col.baseUrl && isAbsoluteUrl(col.baseUrl) ? col.baseUrl.trim() : ''
-      const nextEnvs = { ...prev, [col.id]: { ...DEFAULT_ENVIRONMENT, baseUrl: seededBaseUrl } }
+      const seededVariables = {
+        ...DEFAULT_ENVIRONMENT.variables,
+        ...(col.variables ?? {}),
+        [DEFAULT_ENVIRONMENT.baseUrlKey]: seededBaseUrl || (col.variables?.[DEFAULT_ENVIRONMENT.baseUrlKey] ?? ''),
+      }
+      const nextEnvs = { ...prev, [col.id]: { ...DEFAULT_ENVIRONMENT, variables: seededVariables } }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     }

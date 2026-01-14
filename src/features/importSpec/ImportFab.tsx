@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { loadOpenApiFromText } from './openapiLoader'
+import { loadOpenApiFromText, parseJsonOrYaml } from './openapiLoader'
 import { buildCollectionFromV3 } from '../collections/buildCollection'
+import { buildCollectionFromPostman, isPostmanCollection } from '../importPostman/postmanCollection'
 import type { Collection } from '../../shared/types/collection'
 
 function inferCollectionName(spec: any) {
@@ -24,9 +25,14 @@ export function ImportFab(props: { onImported: (c: Collection) => void }) {
   const [loadingUrl, setLoadingUrl] = useState(false)
 
   async function importFromText(text: string, origin?: string) {
+    const parsed = parseJsonOrYaml(text)
+    if (isPostmanCollection(parsed)) {
+      props.onImported(buildCollectionFromPostman(parsed))
+      return
+    }
+
     const specV3 = await loadOpenApiFromText(text)
-    const col = buildCollectionFromV3(specV3, inferCollectionName(specV3), origin)
-    props.onImported(col)
+    props.onImported(buildCollectionFromV3(specV3, inferCollectionName(specV3), origin))
   }
 
   function openMenu() {
