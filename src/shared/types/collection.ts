@@ -1,0 +1,36 @@
+export type HttpMethod = 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'|'HEAD'|'OPTIONS'
+
+export type Collection = {
+  id: string
+  name: string
+  baseUrl?: string
+  folders: Folder[]
+}
+
+export type Folder = {
+  id: string
+  name: string
+  requests: RequestItem[]
+}
+
+export type RequestParam = {
+  name: string
+  in: 'path'|'query'|'header'
+  required?: boolean
+  schemaType?: string
+  example?: any
+}
+
+export type RequestItem = {
+  id: string
+  name: string
+  method: HttpMethod
+  path: string                 // /users/{id}
+  urlTemplate: string          // {{baseUrl}}/users/{id}
+  params: RequestParam[]
+  headers: Record<string, string>
+  body?: {
+    contentType: string
+    example: any
+  }
+}
