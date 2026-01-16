@@ -39,6 +39,49 @@ function saveDraft(requestId: string, draft: RequestDraft) {
   localStorage.setItem(REQUEST_DRAFTS_KEY, JSON.stringify(next))
 }
 
+function CopyIcon(props: { size?: number }) {
+  const size = props.size ?? 16
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M9 9h10v12H9V9Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+async function copyText(text: string) {
+  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
 function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
   return url.replaceAll(/\{([^}]+)\}/g, (_, key) => {
     const v = values[key]
@@ -194,6 +237,7 @@ export function RequestEditor(props: {
   const [fileFieldName, setFileFieldName] = useState('file')
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
+  const [urlCopied, setUrlCopied] = useState(false)
 
   const baseUrl = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
@@ -244,6 +288,7 @@ export function RequestEditor(props: {
   }, [baseUrlKey, props.environment])
 
   const [bodyText, setBodyText] = useState('')
+  const [bodyCopied, setBodyCopied] = useState(false)
   const [sending, setSending] = useState(false)
   const draftSaveTimerRef = useRef<number | null>(null)
 
@@ -375,6 +420,18 @@ export function RequestEditor(props: {
     }
   }
 
+  async function copyBodyText() {
+    await copyText(bodyText)
+    setBodyCopied(true)
+    setTimeout(() => setBodyCopied(false), 900)
+  }
+
+  async function copyUrlText() {
+    await copyText(displayUrl)
+    setUrlCopied(true)
+    setTimeout(() => setUrlCopied(false), 900)
+  }
+
   return (
     <div className="editor">
       <div className="editorHeader">
@@ -400,7 +457,23 @@ export function RequestEditor(props: {
           }}
           style={{ cursor: 'pointer' }}
         >
-          {displayUrl}
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              void copyUrlText()
+            }}
+            aria-label="Copy URL"
+            title="Copy URL"
+            style={{ width: 28, height: 28 }}
+          >
+            {urlCopied ? 'OK' : <CopyIcon />}
+          </button>
+          <span className="editorUrlText">
+            {displayUrl}
+          </span>
         </div>
 
         {showBaseUrlPicker && (
@@ -556,7 +629,24 @@ export function RequestEditor(props: {
 
       {props.request.body && (
         <details className="accordion" open>
-          <summary>Body</summary>
+          <summary>
+            <span>Body</span>
+            <span style={{ marginLeft: 'auto' }} />
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                void copyBodyText()
+              }}
+              aria-label="Copy body"
+              title="Copy body"
+              style={{ width: 32, height: 32 }}
+            >
+              {bodyCopied ? 'OK' : <CopyIcon />}
+            </button>
+          </summary>
           {supportsFile && (
             <div className="section" style={{ marginBottom: 10 }}>
               <div className="formRow">

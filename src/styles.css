@@ -325,7 +325,22 @@ button:hover { background: rgba(255,255,255,.10); }
 .editor { display: grid; gap: 10px; }
 .editorHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .editorTitle { display: flex; gap: 10px; align-items: center; overflow: hidden; }
-.editorUrl { padding: 10px; border-radius: var(--radius); border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editorUrl {
+  padding: 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.editorUrlText {
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .editorTextarea { width: 100%; margin-top: 10px; }
 
 .accordion { border: 1px solid rgba(255,255,255,.10); border-radius: var(--radius); padding: 8px 10px; background: rgba(255,255,255,.03); }

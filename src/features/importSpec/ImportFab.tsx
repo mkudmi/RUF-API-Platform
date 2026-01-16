@@ -10,9 +10,15 @@ function inferCollectionName(spec: any) {
   return 'Imported API'
 }
 
-export function ImportFab(props: { onImported: (c: Collection) => void }) {
+export function ImportFab(props: {
+  onImported: (c: Collection) => void
+  variant?: 'fab' | 'button'
+  label?: string
+}) {
   const menuRef = useRef<HTMLDialogElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const variant = props.variant ?? 'fab'
+  const label = props.label ?? 'Импорт'
 
   const [view, setView] = useState<'menu' | 'json' | 'url'>('menu')
   const [menuError, setMenuError] = useState<string | null>(null)
@@ -130,11 +136,15 @@ export function ImportFab(props: { onImported: (c: Collection) => void }) {
         onChange={onFileSelected}
       />
 
-      <button className="fab" onClick={openMenu} aria-label="Import">
-        <span className="fabIcon">+</span>
-      </button>
+      {variant === 'button' ? (
+        <button onClick={openMenu}>{label}</button>
+      ) : (
+        <button className="fab" onClick={openMenu} aria-label="Import">
+          <span className="fabIcon">+</span>
+        </button>
+      )}
 
-      <dialog ref={menuRef} className="modal fabMenu">
+      <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
         <div className="modalHeader">
           <b>Импорт</b>
           <button className="iconBtn" onClick={closeMenu} aria-label="Close">✕</button>

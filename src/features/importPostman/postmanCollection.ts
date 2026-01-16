@@ -105,6 +105,56 @@ function extractPathFromRawUrl(raw: string): string {
   return '/'
 }
 
+function isNumericSegment(s: string) {
+  return /^\d+$/.test(s)
+}
+
+function toCamelCase(s: string) {
+  const parts = s.split(/[-_]+/g).filter(Boolean)
+  if (!parts.length) return s
+  return parts[0].toLowerCase() + parts.slice(1).map(p => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('')
+}
+
+function suggestParamName(prevSegment: string | undefined, used: Set<string>) {
+  const prev = (prevSegment || '').trim()
+  let base = 'id'
+  if (prev && /^[A-Za-z][A-Za-z0-9_-]*$/.test(prev)) {
+    const singular = prev.endsWith('s') && prev.length > 1 ? prev.slice(0, -1) : prev
+    base = `${toCamelCase(singular)}Id`
+  }
+
+  if (!used.has(base)) return base
+
+  let i = 2
+  while (used.has(`${base}${i}`)) i++
+  return `${base}${i}`
+}
+
+function inferPathParamsFromConcreteSegments(path: string, params: RequestParam[]) {
+  const segments = path.split('/').filter(Boolean)
+  if (!segments.length) return { path, params }
+
+  const used = new Set(params.filter(p => p.in === 'path').map(p => p.name))
+  const outSegments = [...segments]
+  const outParams = [...params]
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+    if (!seg) continue
+    if (seg.startsWith('{') && seg.endsWith('}')) continue
+    if (!isNumericSegment(seg)) continue
+
+    const name = suggestParamName(segments[i - 1], used)
+    used.add(name)
+    outSegments[i] = `{${name}}`
+    if (!outParams.some(p => p.in === 'path' && p.name === name)) {
+      outParams.push({ name, in: 'path', required: true, example: seg })
+    }
+  }
+
+  return { path: '/' + outSegments.join('/'), params: outParams }
+}
+
 function parseUrl(url: any): { path: string, params: RequestParam[] } {
   const params: RequestParam[] = []
 
@@ -116,6 +166,10 @@ function parseUrl(url: any): { path: string, params: RequestParam[] } {
         : ''
 
   let path = extractPathFromRawUrl(raw)
+  if ((!path || path === '/') && raw.trim() === '' && Array.isArray(url?.path) && url.path.length) {
+    const segments = url.path.filter((s: any) => typeof s === 'string' && s.trim()).map((s: string) => s.trim())
+    path = '/' + segments.join('/')
+  }
   path = replaceColonPathParams(path)
   if (!path.startsWith('/')) path = `/${path}`
 
@@ -147,7 +201,8 @@ function parseUrl(url: any): { path: string, params: RequestParam[] } {
     return _m
   })
 
-  return { path, params }
+  const inferred = inferPathParamsFromConcreteSegments(path, params)
+  return { path: inferred.path, params: inferred.params }
 }
 
 function parseBody(body: any, headers: Record<string, string>) {

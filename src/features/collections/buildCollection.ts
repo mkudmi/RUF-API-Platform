@@ -46,17 +46,26 @@ function opDisplayName(method: string, path: string, op: any): string {
   return op?.summary || op?.operationId || `${method.toUpperCase()} ${path}`
 }
 
-function collectParams(op: any): RequestParam[] {
-  const params: any[] = Array.isArray(op?.parameters) ? op.parameters : []
-  return params
-    .filter(p => p && (p.in === 'path' || p.in === 'query' || p.in === 'header'))
-    .map(p => ({
+function collectParams(op: any, pathItem?: any): RequestParam[] {
+  const pathParams: any[] = Array.isArray(pathItem?.parameters) ? pathItem.parameters : []
+  const opParams: any[] = Array.isArray(op?.parameters) ? op.parameters : []
+  const merged = [...pathParams, ...opParams]
+
+  const byKey = new Map<string, RequestParam>()
+  for (const p of merged) {
+    if (!p || (p.in !== 'path' && p.in !== 'query' && p.in !== 'header')) continue
+    if (typeof p.name !== 'string' || !p.name.trim()) continue
+    const key = `${p.in}:${p.name}`
+    byKey.set(key, {
       name: p.name,
       in: p.in,
       required: !!p.required,
       schemaType: p.schema?.type || p.type,
       example: p.example ?? p.schema?.example,
-    }))
+    })
+  }
+
+  return Array.from(byKey.values())
 }
 
 function exampleFromSchema(schema: any, depth = 0): any {
@@ -139,7 +148,7 @@ export function buildCollectionFromV3(spec: any, name = 'Imported API', sourceOr
         method,
         path,
         urlTemplate: joinUrlParts('{{baseUrl}}', path),
-        params: collectParams(op),
+        params: collectParams(op, pathItem),
         body: buildBody(op),
         headers: {},
       }

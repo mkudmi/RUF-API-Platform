@@ -382,7 +382,6 @@ export default function App() {
 
   return (
     <div className="layout" style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}>
-      <ImportFab onImported={addCollection} />
       <aside className="sidebar">
         <div className="sidebarBrand">
           <div className="sidebarBrandRow">
@@ -392,6 +391,7 @@ export default function App() {
         </div>
         <div style={{marginBottom: 12}}>
           <div style={{display:'grid', gap:10}}>
+            <ImportFab variant="button" label="Импорт" onImported={addCollection} />
             <button onClick={openCreateProject}>Создать проект</button>
           </div>
         </div>
@@ -460,7 +460,7 @@ export default function App() {
 
       <dialog
         ref={createProjectDialogRef}
-        className="modal"
+        className="modal modalSmall"
         onClose={() => {
           setProjectError(null)
           setProjectName('')
@@ -468,12 +468,12 @@ export default function App() {
       >
         <div className="modalHeader">
           <b>Создать проект</b>
-          <button onClick={closeCreateProject}>Закрыть</button>
+          <button className="iconBtn" onClick={closeCreateProject} aria-label="Close">✕</button>
         </div>
 
-        <div style={{display:'grid', gridTemplateColumns:'200px 1fr', gap:10, alignItems:'center'}}>
+        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
           <div className="small">Имя</div>
-          <input value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="My API" />
+          <input style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="My API" />
         </div>
 
         {projectError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{projectError}</div>}
