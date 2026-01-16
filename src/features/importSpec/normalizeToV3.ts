@@ -19,7 +19,44 @@ function swagger2ParamsToV3(opOrPathItem: any): any[] {
   return params.filter(Boolean)
 }
 
-function buildRequestBodyFromSwagger2Params(params: any[], consumes: string[]) {
+function resolveRef(doc: any, ref: string): any {
+  if (typeof ref !== 'string' || !ref.startsWith('#/')) return undefined
+  const parts = ref.slice(2).split('/').filter(Boolean).map(p => p.replaceAll('~1', '/').replaceAll('~0', '~'))
+  let cur: any = doc
+  for (const part of parts) {
+    if (!cur || typeof cur !== 'object') return undefined
+    cur = cur[part]
+  }
+  return cur
+}
+
+function exampleFromSwagger2SchemaShallow(schema: any, doc: any, depth = 0): any {
+  if (!schema || typeof schema !== 'object') return undefined
+  if (depth > 6) return undefined
+
+  if (typeof schema.$ref === 'string') {
+    const resolved = resolveRef(doc, schema.$ref)
+    if (resolved) return exampleFromSwagger2SchemaShallow(resolved, doc, depth + 1)
+  }
+
+  if (schema.example !== undefined) return schema.example
+  if (schema['x-example'] !== undefined) return schema['x-example']
+  if (schema.default !== undefined) return schema.default
+  if (schema.const !== undefined) return schema.const
+  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0]
+
+  return undefined
+}
+
+function exampleFromSwagger2BodyParam(bodyParam: any, doc: any): any {
+  if (!bodyParam || typeof bodyParam !== 'object') return undefined
+  if (bodyParam.example !== undefined) return bodyParam.example
+  if (bodyParam['x-example'] !== undefined) return bodyParam['x-example']
+  if (bodyParam.schema) return exampleFromSwagger2SchemaShallow(bodyParam.schema, doc)
+  return undefined
+}
+
+function buildRequestBodyFromSwagger2Params(params: any[], consumes: string[], doc: any) {
   const ct =
     consumes.find(x => x === 'application/json') ||
     consumes[0] ||
@@ -27,9 +64,10 @@ function buildRequestBodyFromSwagger2Params(params: any[], consumes: string[]) {
 
   const bodyParam = params.find(p => p?.in === 'body' && p?.schema)
   if (bodyParam?.schema) {
+    const example = exampleFromSwagger2BodyParam(bodyParam, doc)
     return {
       content: {
-        [ct]: { schema: bodyParam.schema, example: bodyParam.example ?? bodyParam.schema?.example ?? {} },
+        [ct]: example === undefined ? { schema: bodyParam.schema } : { schema: bodyParam.schema, example },
       },
     }
   }
@@ -38,7 +76,8 @@ function buildRequestBodyFromSwagger2Params(params: any[], consumes: string[]) {
   if (formParams.length) {
     const props: Record<string, any> = {}
     for (const p of formParams) {
-      props[p.name] = { type: p.type || 'string', example: p.example }
+      const ex = p.example ?? p['x-example']
+      props[p.name] = ex === undefined ? { type: p.type || 'string' } : { type: p.type || 'string', example: ex }
     }
 
     const formCt =
@@ -101,7 +140,7 @@ function swagger2ToV3Like(swagger2: any): any {
       const opParams = swagger2ParamsToV3(op)
       const mergedParams = [...pathLevelParams, ...opParams]
 
-      const requestBody = buildRequestBodyFromSwagger2Params(mergedParams, ctList)
+      const requestBody = buildRequestBodyFromSwagger2Params(mergedParams, ctList, swagger2)
       const parameters = mergedParams
         .map(swagger2ParamToV3Param)
         .filter(Boolean)
@@ -130,4 +169,3 @@ export async function normalizeToV3(api: any): Promise<any> {
   if (api?.swagger === '2.0') return swagger2ToV3Like(api)
   return api
 }
-
