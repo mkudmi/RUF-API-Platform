@@ -430,7 +430,7 @@ export default function App() {
 
           <div className="resizer" onPointerDown={onPanelResizePointerDown} />
 
-          <section className="card">
+          <section className="card" style={{ overflow: 'hidden' }}>
             <ResponseViewer
               result={result}
               tab={activeResponseTab}
