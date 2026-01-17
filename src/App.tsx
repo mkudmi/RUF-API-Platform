@@ -11,6 +11,8 @@ import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnv
 import type { RunResult } from './features/requestRunner/runRequest'
 import { uid } from './shared/utils/id'
 
+//TODO: сделать историю запросов, редактируемые уже добавленные параметры, коннект к бд, пре-пост скрипты
+
 function isAbsoluteUrl(url: string) {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
 }
