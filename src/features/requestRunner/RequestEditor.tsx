@@ -225,6 +225,7 @@ export function RequestEditor(props: {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
   const urlInputRef = useRef<HTMLInputElement | null>(null)
   const urlEditStartRef = useRef('')
+  const ignoreNextUrlBlurCommitRef = useRef(false)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -556,7 +557,13 @@ export function RequestEditor(props: {
                 if (e.key === 'Enter') commitUrlEdit()
                 if (e.key === 'Escape') cancelUrlEdit()
               }}
-              onBlur={commitUrlEdit}
+              onBlur={() => {
+                if (ignoreNextUrlBlurCommitRef.current) {
+                  ignoreNextUrlBlurCommitRef.current = false
+                  return
+                }
+                commitUrlEdit()
+              }}
               style={{ flex: 1, minWidth: 0 }}
             />
           ) : (
@@ -568,17 +575,26 @@ export function RequestEditor(props: {
           <button
             type="button"
             className="iconBtn"
+            onMouseDown={e => {
+              if (!isEditingUrl) return
+              e.preventDefault()
+              e.stopPropagation()
+              ignoreNextUrlBlurCommitRef.current = true
+            }}
             onClick={e => {
               e.preventDefault()
               e.stopPropagation()
-              if (isEditingUrl) return
+              if (isEditingUrl) {
+                cancelUrlEdit()
+                return
+              }
               startUrlEdit()
             }}
-            aria-label="Edit URL"
-            title="Edit URL"
+            aria-label={isEditingUrl ? 'Close URL editor' : 'Edit URL'}
+            title={isEditingUrl ? 'Close' : 'Edit URL'}
             style={{ width: 28, height: 28 }}
           >
-            ✎
+            {isEditingUrl ? '✕' : '✎'}
           </button>
         </div>
 
