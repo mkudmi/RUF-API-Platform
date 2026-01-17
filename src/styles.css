@@ -271,7 +271,14 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeSummaryRight { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .treeCollectionName { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .treeCollectionNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; }
+.treeFolderNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; }
+.treeItemNameWrap { display: inline-flex; align-items: baseline; gap: 6px; overflow: hidden; min-width: 0; flex: 1; }
+.treeNameEditing { cursor: text; outline: none; }
+.treeNameEditing:focus { outline: none; }
 .treeRenameIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 0;
   padding: 0;
@@ -279,7 +286,10 @@ button:hover { background: rgba(255,255,255,.10); }
   cursor: pointer;
   font: inherit;
   line-height: 1;
+  font-size: 0;
 }
+.treeRenameIcon::before { content: '✎'; font-size: 14px; line-height: 1; }
+.treeRenameIconConfirm::before { content: '✓'; }
 .treeRenameIcon:hover { color: rgba(255,255,255,.9); }
 .treeRenameIconConfirm { color: rgba(255,255,255,.95); }
 .treeRenameIconConfirm:hover { color: #fff; }

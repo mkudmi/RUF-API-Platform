@@ -33,10 +33,14 @@ export function CollectionsTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onRenameCollection: (collectionId: string, name: string) => void
+  onRenameFolder: (collectionId: string, folderId: string, name: string) => void
+  onRenameRequest: (collectionId: string, requestId: string, name: string) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onDeleteCollection: (collectionId: string) => void
 }) {
-  const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null)
+  type EditingTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
+
+  const [editing, setEditing] = useState<EditingTarget>(null)
   const [draftName, setDraftName] = useState('')
   const nameEditableRef = useRef<HTMLElement | null>(null)
   const suppressNextBlurRef = useRef(false)
@@ -62,7 +66,7 @@ export function CollectionsTree(props: {
   }, [openCollections, openFolders])
 
   useEffect(() => {
-    if (!editingCollectionId) return
+    if (!editing) return
     requestAnimationFrame(() => {
       const el = nameEditableRef.current
       if (!el) return
@@ -74,7 +78,7 @@ export function CollectionsTree(props: {
       sel?.removeAllRanges()
       sel?.addRange(range)
     })
-  }, [editingCollectionId])
+  }, [editing])
 
   function displayMethod(m: string) {
     return m === 'DELETE' ? 'DEL' : m
@@ -108,6 +112,26 @@ export function CollectionsTree(props: {
   function renderFolder(col: Collection, folder: Folder) {
     const childFolders = folder.folders ?? []
     const reqCount = countRequests(folder)
+    const isEditing = editing?.kind === 'folder' && editing.id === folder.id
+
+    function startRename() {
+      suppressNextBlurRef.current = false
+      setEditing({ kind: 'folder', id: folder.id })
+      setDraftName(folder.name)
+    }
+
+    function cancelRename() {
+      setEditing(null)
+      setDraftName('')
+    }
+
+    function submitRename() {
+      const next = (nameEditableRef.current?.innerText ?? draftName).trim()
+      cancelRename()
+      if (!next || next === folder.name) return
+      props.onRenameFolder(col.id, folder.id, next)
+    }
+
     return (
       <details
         key={folder.id}
@@ -125,9 +149,27 @@ export function CollectionsTree(props: {
       >
         <summary
           className="treeSummary treeSummaryFolder"
-          draggable
-          onDragStart={e => onFolderDragStart(e, col.id, folder.id)}
-          onDragEnd={onFolderDragEnd}
+          draggable={!isEditing}
+          onPointerDown={e => {
+            if (!isEditing) return
+            const target = e.target as HTMLElement | null
+            const nameEl = nameEditableRef.current
+            const clickedConfirm = !!target?.closest?.('.treeRenameIconConfirm')
+            const clickedName = !!(nameEl && target && nameEl.contains(target))
+            if (clickedConfirm || clickedName) return
+            e.preventDefault()
+            e.stopPropagation()
+            suppressNextBlurRef.current = true
+            cancelRename()
+          }}
+          onDragStart={e => {
+            if (isEditing) return
+            onFolderDragStart(e, col.id, folder.id)
+          }}
+          onDragEnd={() => {
+            if (isEditing) return
+            onFolderDragEnd()
+          }}
           onDragOver={e => {
             e.preventDefault()
             e.dataTransfer.dropEffect = 'move'
@@ -144,7 +186,89 @@ export function CollectionsTree(props: {
         >
           <span className="treeChevron" aria-hidden="true" />
           <div className="treeSummaryLeft">
-            <span className="treeFolderName">{folder.name}</span>
+            {isEditing ? (
+              <span className="treeFolderNameWrap">
+                <span
+                  ref={nameEditableRef as any}
+                  className="treeFolderName treeNameEditing"
+                  contentEditable
+                  suppressContentEditableWarning
+                  onClick={e => e.stopPropagation()}
+                  onPointerDown={e => e.stopPropagation()}
+                  onKeyDown={e => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      suppressNextBlurRef.current = true
+                      submitRename()
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      suppressNextBlurRef.current = true
+                      cancelRename()
+                    }
+                  }}
+                  onBlur={() => {
+                    if (suppressNextBlurRef.current) {
+                      suppressNextBlurRef.current = false
+                      return
+                    }
+                    cancelRename()
+                  }}
+                  role="textbox"
+                  aria-label="Folder name"
+                >
+                  {draftName}
+                </span>
+                <button
+                  className="treeRenameIcon treeRenameIconConfirm"
+                  onPointerDown={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    suppressNextBlurRef.current = true
+                  }}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    submitRename()
+                  }}
+                  aria-label="Save folder name"
+                  title="Save"
+                >
+                  ƒo"
+                </button>
+              </span>
+            ) : (
+              <span className="treeFolderNameWrap">
+                <span
+                  className="treeFolderName"
+                  onDoubleClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    startRename()
+                  }}
+                  title="Double-click to rename"
+                >
+                  {folder.name}
+                </span>
+                <button
+                  className="treeRenameIcon"
+                  onPointerDown={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    startRename()
+                  }}
+                  aria-label="Rename folder"
+                  title="Rename"
+                >
+                  ƒoZ
+                </button>
+              </span>
+            )}
             <span className="small">{reqCount}</span>
           </div>
         </summary>
@@ -154,14 +278,119 @@ export function CollectionsTree(props: {
         <div className="treeItems">
           {folder.requests.map(r => {
             const active = props.activeRequestId === r.id
+            const isEditingRequest = editing?.kind === 'request' && editing.id === r.id
+
+            function startRenameRequest() {
+              suppressNextBlurRef.current = false
+              setEditing({ kind: 'request', id: r.id })
+              setDraftName(r.name)
+            }
+
+            function cancelRenameRequest() {
+              setEditing(null)
+              setDraftName('')
+            }
+
+            function submitRenameRequest() {
+              const next = (nameEditableRef.current?.innerText ?? draftName).trim()
+              cancelRenameRequest()
+              if (!next || next === r.name) return
+              props.onRenameRequest(col.id, r.id, next)
+            }
+
             return (
               <div
                 key={r.id}
                 className={`treeItem ${active ? 'treeItemActive' : ''}`}
-                onClick={() => props.onPickRequest(r, col)}
+                onClick={() => {
+                  if (isEditingRequest) return
+                  props.onPickRequest(r, col)
+                }}
               >
                 <span className="mono small treeMethod">{displayMethod(r.method)}</span>
-                <span className="treeItemName">{r.name}</span>
+                {isEditingRequest ? (
+                  <span className="treeItemNameWrap">
+                    <span
+                      ref={nameEditableRef as any}
+                      className="treeItemName treeNameEditing"
+                      contentEditable
+                      suppressContentEditableWarning
+                      onClick={e => e.stopPropagation()}
+                      onPointerDown={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        e.stopPropagation()
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          suppressNextBlurRef.current = true
+                          submitRenameRequest()
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          suppressNextBlurRef.current = true
+                          cancelRenameRequest()
+                        }
+                      }}
+                      onBlur={() => {
+                        if (suppressNextBlurRef.current) {
+                          suppressNextBlurRef.current = false
+                          return
+                        }
+                        cancelRenameRequest()
+                      }}
+                      role="textbox"
+                      aria-label="Request name"
+                    >
+                      {draftName}
+                    </span>
+                    <button
+                      className="treeRenameIcon treeRenameIconConfirm"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        suppressNextBlurRef.current = true
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        submitRenameRequest()
+                      }}
+                      aria-label="Save request name"
+                      title="Save"
+                    >
+                      ƒo"
+                    </button>
+                  </span>
+                ) : (
+                  <span className="treeItemNameWrap">
+                    <span
+                      className="treeItemName"
+                      onDoubleClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        startRenameRequest()
+                      }}
+                      title="Double-click to rename"
+                    >
+                      {r.name}
+                    </span>
+                    <button
+                      className="treeRenameIcon"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        startRenameRequest()
+                      }}
+                      aria-label="Rename request"
+                      title="Rename"
+                    >
+                      ƒoZ
+                    </button>
+                  </span>
+                )}
               </div>
             )
           })}
@@ -189,16 +418,16 @@ export function CollectionsTree(props: {
         >
           {(() => {
             const reqCount = requestCountByCollection[col.id] ?? 0
-            const isEditing = editingCollectionId === col.id
+            const isEditing = editing?.kind === 'collection' && editing.id === col.id
 
             function startRename() {
               suppressNextBlurRef.current = false
-              setEditingCollectionId(col.id)
+              setEditing({ kind: 'collection', id: col.id })
               setDraftName(col.name)
             }
 
             function cancelRename() {
-              setEditingCollectionId(null)
+              setEditing(null)
               setDraftName('')
             }
 

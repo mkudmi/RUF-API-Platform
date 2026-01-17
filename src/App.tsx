@@ -190,6 +190,87 @@ export default function App() {
     })
   }
 
+  function renameFolder(collectionId: string, folderId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+
+    setCollections(prev => {
+      function renameInFolders(folders: any[]): { folders: any[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          if (!f) return f
+          if (f.id === folderId) {
+            changed = true
+            return { ...f, name: nextName }
+          }
+          const hasNested = Array.isArray(f.folders)
+          if (!hasNested || f.folders.length === 0) return f
+          const child = renameInFolders(f.folders)
+          if (!child.changed) return f
+          changed = true
+          return { ...f, folders: child.folders }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      let didChange = false
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const res = renameInFolders(c.folders as any)
+        if (!res.changed) return c
+        didChange = true
+        return { ...c, folders: res.folders }
+      })
+      if (!didChange) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function renameRequest(collectionId: string, requestId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+
+    setCollections(prev => {
+      function renameInFolders(folders: any[]): { folders: any[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          if (!f) return f
+          let folderChanged = false
+
+          const requests = Array.isArray(f.requests) ? f.requests : []
+          const nextRequests = requests.map((r: any) => {
+            if (r?.id !== requestId) return r
+            folderChanged = true
+            return { ...r, name: nextName }
+          })
+
+          const hasNested = Array.isArray(f.folders)
+          const nested = hasNested ? f.folders : []
+          const child = hasNested && nested.length ? renameInFolders(nested) : { folders: nested, changed: false }
+          if (child.changed) folderChanged = true
+
+          if (!folderChanged) return f
+          changed = true
+          return { ...f, requests: nextRequests, ...(hasNested ? { folders: child.folders } : {}) }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      let didChange = false
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const res = renameInFolders(c.folders as any)
+        if (!res.changed) return c
+        didChange = true
+        return { ...c, folders: res.folders }
+      })
+      if (!didChange) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
   function moveFolder(collectionId: string, folderId: string, targetParentFolderId: string | null) {
     setCollections(prev => {
       const next = prev.map(c => {
@@ -403,6 +484,8 @@ export default function App() {
           onPickRequest={pick}
           onOpenEnv={setEnvModalCollectionId}
           onRenameCollection={renameCollection}
+          onRenameFolder={renameFolder}
+          onRenameRequest={renameRequest}
           onMoveFolder={moveFolder}
           onDeleteCollection={requestDeleteCollection}
         />
