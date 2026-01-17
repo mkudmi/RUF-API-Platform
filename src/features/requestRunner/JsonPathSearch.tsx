@@ -195,8 +195,10 @@ export function JsonPathSearch(props: {
   onQueryChange: (query: string) => void
   matchesCount: number | null
   error: string | null
+  disabled?: boolean
 }) {
   const query = props.query
+  const disabled = !!props.disabled
   const [copyError, setCopyError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const helpDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -239,6 +241,7 @@ export function JsonPathSearch(props: {
           className="mono"
           value={query}
           onChange={e => props.onQueryChange(e.target.value)}
+          disabled={disabled}
           placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
         />
         <button onClick={() => props.onQueryChange('')} disabled={!q}>Clear</button>

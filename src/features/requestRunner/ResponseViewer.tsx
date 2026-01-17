@@ -183,6 +183,7 @@ export function ResponseViewer(props: {
   const headersText = result ? JSON.stringify(result.headers, null, 2) : ''
   const historyItems = props.historyItems ?? []
   const copyPayload = tab === 'body' ? bodyView.text : headersText
+  const canCopyBody = !!result && result.bodyText.length > 0
 
   async function onCopy() {
     await copyText(copyPayload)
@@ -296,19 +297,20 @@ export function ResponseViewer(props: {
   }
 
   const inFlightCount = props.inFlightCount ?? 0
-  if (!result) {
-    if (inFlightCount > 0) return <div className="small">Sending...</div>
-    return <div className="small">Run a request to see the response.</div>
-  }
+  const statusLine = inFlightCount > 0 ? 'Sending...' : 'Run a request to see the response.'
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <span className={`badge ${statusClass(result.status)}`}>HTTP {result.status}</span>
-        <span className="small">{result.statusText}</span>
-        <span className="small">Time {result.timeMs} ms</span>
-        {inFlightCount > 0 ? <span className="small" style={{ marginLeft: 'auto' }}>Sending…</span> : null}
-      </div>
+      {result ? (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span className={`badge ${statusClass(result.status)}`}>HTTP {result.status}</span>
+          <span className="small">{result.statusText}</span>
+          <span className="small">Time {result.timeMs} ms</span>
+          {inFlightCount > 0 ? <span className="small" style={{ marginLeft: 'auto' }}>Sending…</span> : null}
+        </div>
+      ) : (
+        <div className="small">{statusLine}</div>
+      )}
 
       <div className="tabs" style={{ marginTop: 10 }}>
         <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('body')}>
@@ -378,18 +380,13 @@ export function ResponseViewer(props: {
       ) : tab === 'body' ? (
         <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}>
           <div style={{ marginTop: 10 }}>
-            {isJson ? (
-              <JsonPathSearch
-                query={bodyQuery}
-                onQueryChange={setBodyQuery}
-                matchesCount={bodyView.matchesCount}
-                error={bodyView.error}
-              />
-            ) : (
-              <div className="small" style={{ opacity: 0.75 }}>
-                Body is not valid JSON - search is disabled.
-              </div>
-            )}
+            <JsonPathSearch
+              query={bodyQuery}
+              onQueryChange={setBodyQuery}
+              matchesCount={bodyView.matchesCount}
+              error={bodyView.error}
+              disabled={!isJson}
+            />
           </div>
           <div style={{ position: 'relative', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
             <div style={{ position: 'absolute', top: 8, right: 24, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -444,9 +441,11 @@ export function ResponseViewer(props: {
                   ) : null}
                 </div>
               ) : null}
-              <button className="iconBtn" onClick={onCopy} title="Copy body" aria-label="Copy body">
-                {copied ? 'OK' : <CopyIcon />}
-              </button>
+              {canCopyBody ? (
+                <button className="iconBtn" onClick={onCopy} title="Copy body" aria-label="Copy body">
+                  {copied ? 'OK' : <CopyIcon />}
+                </button>
+              ) : null}
             </div>
             <div style={{ overflow: 'auto', height: '100%', paddingRight: isJson ? 260 : 48 }}>
               <pre className="mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
