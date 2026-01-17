@@ -276,7 +276,9 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeNameEditing { cursor: text; outline: none; }
 .treeNameEditing:focus { outline: none; }
 .treeCollectionNameWrap > .treeRenameIcon:not(.treeRenameIconConfirm) { display: none; }
+.treeCollectionNameWrap > .treeRenameIconConfirm { display: none; }
 .treeFolderNameWrap > .treeRenameIcon:not(.treeRenameIconConfirm) { display: none; }
+.treeFolderNameWrap > .treeRenameIconConfirm { display: none; }
 .treeItemNameWrap > .treeRenameIcon:not(.treeRenameIconConfirm) { display: none; }
 .treeSummaryRight .envBtn, .treeSummaryRight .deleteBtn { display: none; }
 .treeItem .treeMenuWrap { margin-left: auto; }
@@ -292,6 +294,8 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .treeMenuBtn::before { content: '⋯'; font-size: 18px; line-height: 1; }
 .treeMenuBtn:hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
+.treeMenuBtn:disabled { opacity: .6; cursor: default; }
+.treeMenuBtn:disabled:hover { background: transparent; color: rgba(255,255,255,.75); }
 .treeMenuPanel {
   position: absolute;
   right: 0;

@@ -338,12 +338,6 @@ export function CollectionsTree(props: {
               <span className="treeFolderNameWrap">
                 <span
                   className="treeFolderName"
-                  onDoubleClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    startRename()
-                  }}
-                  title="Double-click to rename"
                 >
                   {folder.name}
                 </span>
@@ -368,15 +362,38 @@ export function CollectionsTree(props: {
             <span className="small">{reqCount}</span>
           </div>
           <div className="treeSummaryRight">
+            {isEditing ? (
+              <button
+                className="treeRenameIcon treeRenameIconConfirm"
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  suppressNextBlurRef.current = true
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  submitRename()
+                }}
+                aria-label="Save folder name"
+                title="Save"
+              >
+                OK
+              </button>
+            ) : null}
+
             <div ref={isFolderMenuOpen ? folderMenuWrapRef : null} className="treeMenuWrap">
               <button
                 type="button"
                 className="iconBtn treeMenuBtn"
+                disabled={isEditing}
                 onPointerDown={e => {
+                  if (isEditing) return
                   e.preventDefault()
                   e.stopPropagation()
                 }}
                 onClick={e => {
+                  if (isEditing) return
                   e.preventDefault()
                   e.stopPropagation()
                   setOpenMenuCollectionId(null)
@@ -812,15 +829,38 @@ export function CollectionsTree(props: {
                     <span className="small">{reqCount}</span>
                   </div>
                   <div className="treeSummaryRight">
+                    {isEditing ? (
+                      <button
+                        className="treeRenameIcon treeRenameIconConfirm"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          suppressNextBlurRef.current = true
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          submitRename()
+                        }}
+                        aria-label="Save collection name"
+                        title="Save"
+                      >
+                        OK
+                      </button>
+                    ) : null}
+
                     <div ref={isMenuOpen ? collectionMenuWrapRef : null} className="treeMenuWrap">
                       <button
                         type="button"
                         className="iconBtn treeMenuBtn"
+                        disabled={isEditing}
                         onPointerDown={e => {
+                          if (isEditing) return
                           e.preventDefault()
                           e.stopPropagation()
                         }}
                         onClick={e => {
+                          if (isEditing) return
                           e.preventDefault()
                           e.stopPropagation()
                           setOpenMenuFolderId(null)
