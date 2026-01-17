@@ -26,16 +26,38 @@ function saveTreeOpenState(state: TreeOpenState) {
   localStorage.setItem(TREE_OPEN_STATE_KEY, JSON.stringify(state))
 }
 
+async function copyText(text: string) {
+  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
 export function CollectionsTree(props: {
   collections: Collection[]
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
+  onAddRequest: (collectionId: string) => void
+  onAddFolder: (collectionId: string) => void
+  onAddRequestToFolder: (collectionId: string, folderId: string) => void
+  onAddFolderToFolder: (collectionId: string, folderId: string) => void
   onRenameCollection: (collectionId: string, name: string) => void
   onRenameFolder: (collectionId: string, folderId: string, name: string) => void
   onRenameRequest: (collectionId: string, requestId: string, name: string) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
+  onDeleteFolder: (collectionId: string, folderId: string) => void
+  onDeleteRequest: (collectionId: string, requestId: string) => void
   onDeleteCollection: (collectionId: string) => void
 }) {
   type EditingTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
@@ -45,7 +67,11 @@ export function CollectionsTree(props: {
   const nameEditableRef = useRef<HTMLElement | null>(null)
   const suppressNextBlurRef = useRef(false)
   const [openMenuCollectionId, setOpenMenuCollectionId] = useState<string | null>(null)
-  const menuWrapRef = useRef<HTMLDivElement | null>(null)
+  const collectionMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const [openMenuFolderId, setOpenMenuFolderId] = useState<string | null>(null)
+  const folderMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const [openMenuRequestId, setOpenMenuRequestId] = useState<string | null>(null)
+  const requestMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set(loadTreeOpenState().collections))
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
@@ -58,7 +84,7 @@ export function CollectionsTree(props: {
   const requestCountByCollection = useMemo(() => {
     const out: Record<string, number> = {}
     for (const col of props.collections) {
-      out[col.id] = col.folders.reduce((n, f) => n + countRequests(f), 0)
+      out[col.id] = (col.requests ?? []).length + col.folders.reduce((n, f) => n + countRequests(f), 0)
     }
     return out
   }, [props.collections])
@@ -87,7 +113,7 @@ export function CollectionsTree(props: {
 
     function onPointerDown(e: PointerEvent) {
       const t = e.target as Node | null
-      const wrap = menuWrapRef.current
+      const wrap = collectionMenuWrapRef.current
       if (t && wrap && wrap.contains(t)) return
       setOpenMenuCollectionId(null)
     }
@@ -103,6 +129,50 @@ export function CollectionsTree(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [openMenuCollectionId])
+
+  useEffect(() => {
+    if (!openMenuFolderId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = folderMenuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      setOpenMenuFolderId(null)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenMenuFolderId(null)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [openMenuFolderId])
+
+  useEffect(() => {
+    if (!openMenuRequestId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = requestMenuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      setOpenMenuRequestId(null)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenMenuRequestId(null)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [openMenuRequestId])
 
   function displayMethod(m: string) {
     return m === 'DELETE' ? 'DEL' : m
@@ -137,9 +207,11 @@ export function CollectionsTree(props: {
     const childFolders = folder.folders ?? []
     const reqCount = countRequests(folder)
     const isEditing = editing?.kind === 'folder' && editing.id === folder.id
+    const isFolderMenuOpen = openMenuFolderId === folder.id && !isEditing
 
     function startRename() {
       suppressNextBlurRef.current = false
+      setOpenMenuFolderId(null)
       setEditing({ kind: 'folder', id: folder.id })
       setDraftName(folder.name)
     }
@@ -295,6 +367,102 @@ export function CollectionsTree(props: {
             )}
             <span className="small">{reqCount}</span>
           </div>
+          <div className="treeSummaryRight">
+            <div ref={isFolderMenuOpen ? folderMenuWrapRef : null} className="treeMenuWrap">
+              <button
+                type="button"
+                className="iconBtn treeMenuBtn"
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setOpenMenuCollectionId(null)
+                  setOpenMenuFolderId(prev => (prev === folder.id ? null : folder.id))
+                }}
+                aria-label="Folder menu"
+                title="Menu"
+              >
+                ...
+              </button>
+
+              {isFolderMenuOpen ? (
+                <div
+                  className="treeMenuPanel"
+                  role="menu"
+                  onPointerDown={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
+                      setOpenFolders(prev => new Set(prev).add(folder.id))
+                      props.onAddRequestToFolder(col.id, folder.id)
+                    }}
+                  >
+                    Add Request
+                  </button>
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
+                      setOpenFolders(prev => new Set(prev).add(folder.id))
+                      props.onAddFolderToFolder(col.id, folder.id)
+                    }}
+                  >
+                    Add Folder
+                  </button>
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
+                      void copyText(folder.name)
+                    }}
+                  >
+                    Copy Name
+                  </button>
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
+                      startRename()
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <div className="treeMenuDivider" role="separator" />
+                  <button
+                    type="button"
+                    className="treeMenuItem treeMenuItemDanger"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
+                      props.onDeleteFolder(col.id, folder.id)
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </summary>
 
         {childFolders.map(f => renderFolder(col, f))}
@@ -303,9 +471,11 @@ export function CollectionsTree(props: {
           {folder.requests.map(r => {
             const active = props.activeRequestId === r.id
             const isEditingRequest = editing?.kind === 'request' && editing.id === r.id
+            const isRequestMenuOpen = openMenuRequestId === r.id && !isEditingRequest
 
             function startRenameRequest() {
               suppressNextBlurRef.current = false
+              setOpenMenuRequestId(null)
               setEditing({ kind: 'request', id: r.id })
               setDraftName(r.name)
             }
@@ -415,6 +585,67 @@ export function CollectionsTree(props: {
                     </button>
                   </span>
                 )}
+
+                <div ref={isRequestMenuOpen ? requestMenuWrapRef : null} className="treeMenuWrap">
+                  <button
+                    type="button"
+                    className="iconBtn treeMenuBtn"
+                    onPointerDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setOpenMenuCollectionId(null)
+                      setOpenMenuFolderId(null)
+                      setOpenMenuRequestId(prev => (prev === r.id ? null : r.id))
+                    }}
+                    aria-label="Request menu"
+                    title="Menu"
+                  >
+                    ...
+                  </button>
+
+                  {isRequestMenuOpen ? (
+                    <div
+                      className="treeMenuPanel"
+                      role="menu"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuRequestId(null)
+                          startRenameRequest()
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <div className="treeMenuDivider" role="separator" />
+                      <button
+                        type="button"
+                        className="treeMenuItem treeMenuItemDanger"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuRequestId(null)
+                          props.onDeleteRequest(col.id, r.id)
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             )
           })}
@@ -581,7 +812,7 @@ export function CollectionsTree(props: {
                     <span className="small">{reqCount}</span>
                   </div>
                   <div className="treeSummaryRight">
-                    <div ref={isMenuOpen ? menuWrapRef : null} className="treeMenuWrap">
+                    <div ref={isMenuOpen ? collectionMenuWrapRef : null} className="treeMenuWrap">
                       <button
                         type="button"
                         className="iconBtn treeMenuBtn"
@@ -592,12 +823,13 @@ export function CollectionsTree(props: {
                         onClick={e => {
                           e.preventDefault()
                           e.stopPropagation()
+                          setOpenMenuFolderId(null)
                           setOpenMenuCollectionId(prev => (prev === col.id ? null : col.id))
                         }}
                         aria-label="Collection menu"
                         title="Menu"
                       >
-                        ⋯
+                        ...
                       </button>
 
                       {isMenuOpen ? (
@@ -613,6 +845,28 @@ export function CollectionsTree(props: {
                             e.stopPropagation()
                           }}
                         >
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              props.onAddRequest(col.id)
+                            }}
+                          >
+                            Add Request
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              props.onAddFolder(col.id)
+                            }}
+                          >
+                            Add Folder
+                          </button>
                           <button
                             type="button"
                             className="treeMenuItem"
@@ -678,6 +932,190 @@ export function CollectionsTree(props: {
               </>
             )
           })()}
+
+          <div className="treeItems">
+            {(col.requests ?? []).map(r => {
+              const active = props.activeRequestId === r.id
+              const isEditingRequest = editing?.kind === 'request' && editing.id === r.id
+              const isRequestMenuOpen = openMenuRequestId === r.id && !isEditingRequest
+
+              function startRenameRequest() {
+                suppressNextBlurRef.current = false
+                setOpenMenuRequestId(null)
+                setEditing({ kind: 'request', id: r.id })
+                setDraftName(r.name)
+              }
+
+              function cancelRenameRequest() {
+                setEditing(null)
+                setDraftName('')
+              }
+
+              function submitRenameRequest() {
+                const next = (nameEditableRef.current?.innerText ?? draftName).trim()
+                cancelRenameRequest()
+                if (!next || next === r.name) return
+                props.onRenameRequest(col.id, r.id, next)
+              }
+
+              return (
+                <div
+                  key={r.id}
+                  className={`treeItem ${active ? 'treeItemActive' : ''}`}
+                  onClick={() => {
+                    if (isEditingRequest) return
+                    props.onPickRequest(r, col)
+                  }}
+                >
+                  <span className="mono small treeMethod">{displayMethod(r.method)}</span>
+                  {isEditingRequest ? (
+                    <span className="treeItemNameWrap">
+                      <span
+                        ref={nameEditableRef as any}
+                        className="treeItemName treeNameEditing"
+                        contentEditable
+                        suppressContentEditableWarning
+                        onClick={e => e.stopPropagation()}
+                        onPointerDown={e => e.stopPropagation()}
+                        onKeyDown={e => {
+                          e.stopPropagation()
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            suppressNextBlurRef.current = true
+                            submitRenameRequest()
+                          }
+                          if (e.key === 'Escape') {
+                            e.preventDefault()
+                            suppressNextBlurRef.current = true
+                            cancelRenameRequest()
+                          }
+                        }}
+                        onBlur={() => {
+                          if (suppressNextBlurRef.current) {
+                            suppressNextBlurRef.current = false
+                            return
+                          }
+                          cancelRenameRequest()
+                        }}
+                        role="textbox"
+                        aria-label="Request name"
+                      >
+                        {draftName}
+                      </span>
+                      <button
+                        className="treeRenameIcon treeRenameIconConfirm"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          suppressNextBlurRef.current = true
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          submitRenameRequest()
+                        }}
+                        aria-label="Save request name"
+                        title="Save"
+                      >
+                        ’'o"
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="treeItemNameWrap">
+                      <span
+                        className="treeItemName"
+                        onDoubleClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          startRenameRequest()
+                        }}
+                        title="Double-click to rename"
+                      >
+                        {r.name}
+                      </span>
+                      <button
+                        className="treeRenameIcon"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          startRenameRequest()
+                        }}
+                        aria-label="Rename request"
+                        title="Rename"
+                      >
+                        ’'oZ
+                      </button>
+                    </span>
+                  )}
+
+                  <div ref={isRequestMenuOpen ? requestMenuWrapRef : null} className="treeMenuWrap">
+                    <button
+                      type="button"
+                      className="iconBtn treeMenuBtn"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setOpenMenuCollectionId(null)
+                        setOpenMenuFolderId(null)
+                        setOpenMenuRequestId(prev => (prev === r.id ? null : r.id))
+                      }}
+                      aria-label="Request menu"
+                      title="Menu"
+                    >
+                      ...
+                    </button>
+
+                    {isRequestMenuOpen ? (
+                      <div
+                        className="treeMenuPanel"
+                        role="menu"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="treeMenuItem"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuRequestId(null)
+                            startRenameRequest()
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <div className="treeMenuDivider" role="separator" />
+                        <button
+                          type="button"
+                          className="treeMenuItem treeMenuItemDanger"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuRequestId(null)
+                            props.onDeleteRequest(col.id, r.id)
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
 
           {col.folders.map(folder => renderFolder(col, folder))}
         </details>

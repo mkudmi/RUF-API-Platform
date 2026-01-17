@@ -5,6 +5,7 @@ export type Collection = {
   name: string
   baseUrl?: string
   variables?: Record<string, string>
+  requests?: RequestItem[]
   folders: Folder[]
 }
 

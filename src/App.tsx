@@ -4,7 +4,7 @@ import { CollectionsTree } from './features/collections/CollectionsTree'
 import { RequestEditor } from './features/requestRunner/RequestEditor'
 import { ResponseViewer } from './features/requestRunner/ResponseViewer'
 import { EnvironmentSettings } from './features/environment/EnvironmentSettings'
-import type { Collection, RequestItem } from './shared/types/collection'
+import type { Collection, HttpMethod, RequestItem } from './shared/types/collection'
 import type { Environment } from './shared/types/environment'
 import { DEFAULT_ENVIRONMENT } from './shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from './shared/utils/storage'
@@ -54,6 +54,8 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
   const col = collections.find(c => c.id === collectionId)
   if (!col) return null
   const collection = col
+  const direct = (collection.requests ?? []).find(r => r.id === requestId)
+  if (direct) return { col: collection, req: direct }
   function walk(folders: any[]): { col: Collection, req: RequestItem } | null {
     for (const folder of folders) {
       const req = (folder?.requests ?? []).find((r: RequestItem) => r.id === requestId)
@@ -232,6 +234,8 @@ export default function App() {
     if (!nextName) return
 
     setCollections(prev => {
+      let didChange = false
+
       function renameInFolders(folders: any[]): { folders: any[], changed: boolean } {
         let changed = false
         const nextFolders = folders.map(f => {
@@ -257,13 +261,15 @@ export default function App() {
         return { folders: nextFolders, changed }
       }
 
-      let didChange = false
       const next = prev.map(c => {
         if (c.id !== collectionId) return c
+
+        const nextRequests = (c.requests ?? []).map(r => (r.id === requestId ? { ...r, name: nextName } : r))
+        const changedDirect = (c.requests ?? []).some(r => r.id === requestId && r.name !== nextName)
         const res = renameInFolders(c.folders as any)
-        if (!res.changed) return c
+        if (!changedDirect && !res.changed) return c
         didChange = true
-        return { ...c, folders: res.folders }
+        return { ...c, requests: nextRequests, folders: res.folders }
       })
       if (!didChange) return prev
       saveCollections(next)
@@ -271,11 +277,11 @@ export default function App() {
     })
   }
 
-  function setRequestMethod(collectionId: string, requestId: string, method: string) {
-    const nextMethod = method.trim().toUpperCase()
-    if (!nextMethod) return
-
+  function setRequestMethod(collectionId: string, requestId: string, method: HttpMethod) {
+    const nextMethod = method
     setCollections(prev => {
+      let didChange = false
+
       function setInFolders(folders: any[]): { folders: any[], changed: boolean } {
         let changed = false
         const nextFolders = folders.map(f => {
@@ -302,16 +308,242 @@ export default function App() {
         return { folders: nextFolders, changed }
       }
 
-      let didChange = false
       const next = prev.map(c => {
         if (c.id !== collectionId) return c
+
+        const nextRequests = (c.requests ?? []).map(r => (r.id === requestId ? { ...r, method: nextMethod } : r))
+        const changedDirect = (c.requests ?? []).some(r => r.id === requestId && r.method !== nextMethod)
         const res = setInFolders(c.folders as any)
-        if (!res.changed) return c
+        if (!changedDirect && !res.changed) return c
         didChange = true
-        return { ...c, folders: res.folders }
+        return { ...c, requests: nextRequests, folders: res.folders }
       })
       if (!didChange) return prev
       saveCollections(next)
+      return next
+    })
+  }
+
+  function addRequestToCollection(collectionId: string) {
+    const req: RequestItem = {
+      id: uid('req'),
+      name: 'New Request',
+      method: 'GET',
+      path: '/',
+      urlTemplate: '{{baseUrl}}/',
+      params: [],
+      headers: {},
+    }
+
+    setCollections(prev => {
+      let createdInCol: Collection | null = null
+      const next: Collection[] = []
+
+      for (const c of prev) {
+        if (c.id !== collectionId) {
+          next.push(c)
+          continue
+        }
+        createdInCol = { ...c, requests: [...(c.requests ?? []), req] }
+        next.push(createdInCol)
+      }
+
+      saveCollections(next)
+
+      if (createdInCol) {
+        setActive({ col: createdInCol, req })
+        setResult(null)
+        saveActiveSelection({ collectionId: createdInCol.id, requestId: req.id })
+      }
+
+      return next
+    })
+  }
+
+  function addFolderToCollection(collectionId: string) {
+    const folder = { id: uid('folder'), name: 'New Folder', requests: [], folders: [] }
+    setCollections(prev => {
+      const next = prev.map(c => (c.id === collectionId ? { ...c, folders: [folder, ...c.folders] } : c))
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function addRequestToFolder(collectionId: string, folderId: string) {
+    const req: RequestItem = {
+      id: uid('req'),
+      name: 'New Request',
+      method: 'GET',
+      path: '/',
+      urlTemplate: '{{baseUrl}}/',
+      params: [],
+      headers: {},
+    }
+
+    setCollections(prev => {
+      function addToFolders(folders: any[]): { folders: any[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          if (!f) return f
+          if (f.id === folderId) {
+            changed = true
+            const requests = Array.isArray(f.requests) ? f.requests : []
+            return { ...f, requests: [...requests, req] }
+          }
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          if (!nested.length) return f
+          const child = addToFolders(nested)
+          if (!child.changed) return f
+          changed = true
+          return { ...f, folders: child.folders }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      let createdInCol: Collection | null = null
+      let didAdd = false
+      const next: Collection[] = []
+
+      for (const c of prev) {
+        if (c.id !== collectionId) {
+          next.push(c)
+          continue
+        }
+        const res = addToFolders(c.folders as any)
+        if (!res.changed) {
+          next.push(c)
+          continue
+        }
+        didAdd = true
+        createdInCol = { ...c, folders: res.folders }
+        next.push(createdInCol)
+      }
+
+      if (!didAdd || !createdInCol) return prev
+      saveCollections(next)
+
+      setActive({ col: createdInCol, req })
+      setResult(null)
+      saveActiveSelection({ collectionId: createdInCol.id, requestId: req.id })
+
+      return next
+    })
+  }
+
+  function addFolderToFolder(collectionId: string, parentFolderId: string) {
+    const newFolder = { id: uid('folder'), name: 'New Folder', requests: [], folders: [] }
+
+    setCollections(prev => {
+      function addToFolders(folders: any[]): { folders: any[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          if (!f) return f
+          if (f.id === parentFolderId) {
+            changed = true
+            const nested = Array.isArray(f.folders) ? f.folders : []
+            return { ...f, folders: [newFolder, ...nested] }
+          }
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          if (!nested.length) return f
+          const child = addToFolders(nested)
+          if (!child.changed) return f
+          changed = true
+          return { ...f, folders: child.folders }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      let didAdd = false
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const res = addToFolders(c.folders as any)
+        if (!res.changed) return c
+        didAdd = true
+        return { ...c, folders: res.folders }
+      })
+
+      if (!didAdd) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function deleteFolder(collectionId: string, folderId: string) {
+    setCollections(prev => {
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+
+        function removeFolder(folders: any[]): { folders: any[], removed: boolean } {
+          let removed = false
+          const nextFolders: any[] = []
+
+          for (const f of folders) {
+            if (f?.id === folderId) {
+              removed = true
+              continue
+            }
+            const nested = Array.isArray(f?.folders) ? f.folders : []
+            if (nested.length) {
+              const child = removeFolder(nested)
+              if (child.removed) {
+                removed = true
+                nextFolders.push({ ...f, folders: child.folders })
+                continue
+              }
+            }
+            nextFolders.push(f)
+          }
+
+          return { folders: nextFolders, removed }
+        }
+
+        const res = removeFolder(c.folders as any)
+        if (!res.removed) return c
+        return { ...c, folders: res.folders }
+      })
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function deleteRequest(collectionId: string, requestId: string) {
+    setCollections(prev => {
+      let didRemove = false
+
+      function removeFromFolders(folders: any[]): any[] {
+        return folders.map(f => {
+          const reqs = Array.isArray(f?.requests) ? f.requests : []
+          const nextReqs = reqs.filter((r: any) => r?.id !== requestId)
+          if (nextReqs.length !== reqs.length) didRemove = true
+
+          const nested = Array.isArray(f?.folders) ? f.folders : []
+          const nextNested = nested.length ? removeFromFolders(nested) : nested
+          if (nextNested !== nested) didRemove = true
+
+          if (nextReqs === reqs && nextNested === nested) return f
+          return { ...f, requests: nextReqs, folders: nextNested }
+        })
+      }
+
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const direct = c.requests ?? []
+        const nextDirect = direct.filter(r => r.id !== requestId)
+        if (nextDirect.length !== direct.length) didRemove = true
+
+        const nextFolders = removeFromFolders(c.folders as any)
+        return { ...c, requests: nextDirect, folders: nextFolders }
+      })
+
+      if (!didRemove) return prev
+      saveCollections(next)
+
+      if (active?.req.id === requestId && active.col.id === collectionId) {
+        setActive(null)
+        setResult(null)
+        clearActiveSelection()
+      }
+
       return next
     })
   }
@@ -528,10 +760,16 @@ export default function App() {
           activeRequestId={activeRequestId}
           onPickRequest={pick}
           onOpenEnv={setEnvModalCollectionId}
+          onAddRequest={addRequestToCollection}
+          onAddFolder={addFolderToCollection}
+          onAddRequestToFolder={addRequestToFolder}
+          onAddFolderToFolder={addFolderToFolder}
           onRenameCollection={renameCollection}
           onRenameFolder={renameFolder}
           onRenameRequest={renameRequest}
           onMoveFolder={moveFolder}
+          onDeleteFolder={deleteFolder}
+          onDeleteRequest={deleteRequest}
           onDeleteCollection={requestDeleteCollection}
         />
       </aside>
