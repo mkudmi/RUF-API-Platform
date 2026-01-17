@@ -448,7 +448,7 @@ export function ResponseViewer(props: {
               ) : null}
             </div>
             <div style={{ overflow: 'auto', height: '100%', paddingRight: isJson ? 260 : 48 }}>
-              <pre className="mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+              <pre className="mono" style={{ whiteSpace: 'pre', margin: 0, fontSize: 14 }}>
                 {bodyView.text}
               </pre>
             </div>
@@ -497,7 +497,7 @@ export function ResponseViewer(props: {
             {copied ? 'OK' : <CopyIcon />}
           </button>
           <div style={{ overflow: 'auto', height: '100%', paddingRight: 48 }}>
-            <pre className="mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+            <pre className="mono" style={{ whiteSpace: 'pre', margin: 0, fontSize: 12 }}>
               {headersText}
             </pre>
           </div>
