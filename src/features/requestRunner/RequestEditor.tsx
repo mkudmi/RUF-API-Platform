@@ -209,7 +209,7 @@ function HeaderRow(props: {
           placeholder="Key"
         />
       )}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <input
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
@@ -269,7 +269,7 @@ function QueryRow(props: {
         />
         {props.required ? <span className="reqStar">*</span> : null}
       </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <input
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
@@ -307,7 +307,7 @@ function QueryDraftRow(props: {
         onChange={e => props.onChangeName(e.target.value)}
         placeholder="Key"
       />
-      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <input
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
@@ -343,7 +343,7 @@ function HeaderDraftRow(props: {
         onChange={e => props.onChangeName(e.target.value)}
         placeholder="Key"
       />
-      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <input
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
@@ -519,17 +519,29 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     const draft = loadDraft(props.request.id)
-    setPathParams(draft?.pathParams ?? {})
-    setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
-    setQueryDraftRows([])
-    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
-    setHeaders({
+    const nextPathParams = draft?.pathParams ?? {}
+    const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextHeaders = {
       ...(props.environment?.headers ?? {}),
       ...(props.request.headers ?? {}),
       ...(draft?.headers ?? {}),
-    })
-    setHeaderDraftRows([])
+    }
+
+    const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
+    const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
+    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
+
+    const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
+    const hasHeadersStore = Object.keys(nextHeaders).some(k => k.toLowerCase() !== 'authorization')
+    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
+
+    setPathParams(nextPathParams)
+    setQueryParams(nextQueryParams)
+    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
+    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
+    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setHeaders(nextHeaders)
+    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
@@ -545,17 +557,29 @@ export function RequestEditor(props: {
     if (!applyDraftToken || !props.applyDraft) return
     const draft = props.applyDraft.draft
 
-    setPathParams(draft?.pathParams ?? {})
-    setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
-    setQueryDraftRows([])
-    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
-    setHeaders({
+    const nextPathParams = draft?.pathParams ?? {}
+    const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextHeaders = {
       ...(props.environment?.headers ?? {}),
       ...(props.request.headers ?? {}),
       ...(draft?.headers ?? {}),
-    })
-    setHeaderDraftRows([])
+    }
+
+    const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
+    const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
+    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
+
+    const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
+    const hasHeadersStore = Object.keys(nextHeaders).some(k => k.toLowerCase() !== 'authorization')
+    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
+
+    setPathParams(nextPathParams)
+    setQueryParams(nextQueryParams)
+    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
+    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
+    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setHeaders(nextHeaders)
+    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
@@ -1046,7 +1070,7 @@ export function RequestEditor(props: {
           <span style={{ marginLeft: 'auto' }} />
           <button
             type="button"
-            className="iconBtn"
+            className="iconBtn addRowBtn"
             onClick={e => {
               e.preventDefault()
               e.stopPropagation()
@@ -1056,7 +1080,7 @@ export function RequestEditor(props: {
             title="Add header"
             style={{ width: 28, height: 28 }}
           >
-            +
+            <span className="addRowGlyph">+</span>
           </button>
         </summary>
 
@@ -1119,7 +1143,7 @@ export function RequestEditor(props: {
           <span style={{ marginLeft: 'auto' }} />
           <button
             type="button"
-            className="iconBtn"
+            className="iconBtn addRowBtn"
             onClick={e => {
               e.preventDefault()
               e.stopPropagation()
@@ -1129,7 +1153,7 @@ export function RequestEditor(props: {
             title="Add query param"
             style={{ width: 28, height: 28 }}
           >
-            +
+            <span className="addRowGlyph">+</span>
           </button>
         </summary>
         {grouped.path.length > 0 && (

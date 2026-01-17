@@ -148,6 +148,11 @@ button:hover { background: rgba(255,255,255,.10); }
   place-items: center;
   border-radius: var(--radius);
 }
+.addRowBtn {
+  font-size: 22px;
+  line-height: 1;
+}
+.addRowGlyph { display: block; transform: translateY(-2px); }
 
 .modalTextarea {
   width: 100%;
@@ -456,9 +461,13 @@ button:hover { background: rgba(255,255,255,.10); }
 .reqStar { color: #ff9a9a; margin-left: 4px; }
 .headerAdd { display: grid; grid-template-columns: 220px 1fr auto; gap: 10px; }
 .headerAdd button { width: 64px; }
+.editor .formRow input { height: 36px; padding: 8px 10px; }
+.editor .headerDeleteBtn, .editor .rowDeleteBtn { height: 36px; }
 .headerDeleteBtn {
   width: 64px;
-  padding: 10px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -473,7 +482,9 @@ button:hover { background: rgba(255,255,255,.10); }
 
 .rowDeleteBtn {
   width: 64px;
-  padding: 10px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
