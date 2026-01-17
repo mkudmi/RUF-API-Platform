@@ -271,6 +271,51 @@ export default function App() {
     })
   }
 
+  function setRequestMethod(collectionId: string, requestId: string, method: string) {
+    const nextMethod = method.trim().toUpperCase()
+    if (!nextMethod) return
+
+    setCollections(prev => {
+      function setInFolders(folders: any[]): { folders: any[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          if (!f) return f
+          let folderChanged = false
+
+          const requests = Array.isArray(f.requests) ? f.requests : []
+          const nextRequests = requests.map((r: any) => {
+            if (r?.id !== requestId) return r
+            if (r?.method === nextMethod) return r
+            folderChanged = true
+            return { ...r, method: nextMethod }
+          })
+
+          const hasNested = Array.isArray(f.folders)
+          const nested = hasNested ? f.folders : []
+          const child = hasNested && nested.length ? setInFolders(nested) : { folders: nested, changed: false }
+          if (child.changed) folderChanged = true
+
+          if (!folderChanged) return f
+          changed = true
+          return { ...f, requests: nextRequests, ...(hasNested ? { folders: child.folders } : {}) }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      let didChange = false
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const res = setInFolders(c.folders as any)
+        if (!res.changed) return c
+        didChange = true
+        return { ...c, folders: res.folders }
+      })
+      if (!didChange) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
   function moveFolder(collectionId: string, folderId: string, targetParentFolderId: string | null) {
     setCollections(prev => {
       const next = prev.map(c => {
@@ -506,7 +551,7 @@ export default function App() {
         }}>
           <section className="card">
             {active
-              ? <RequestEditor environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT} collection={active.col} request={active.req} onResult={setResult} />
+              ? <RequestEditor environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT} collection={active.col} request={active.req} onResult={setResult} onChangeMethod={m => setRequestMethod(active.col.id, active.req.id, m)} />
               : <div className="small">Импортируй OpenAPI или выбери запрос слева.</div>
             }
           </section>

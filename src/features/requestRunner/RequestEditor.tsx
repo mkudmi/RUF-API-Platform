@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
-import type { Collection, RequestItem, RequestParam } from '../../shared/types/collection'
+import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { runRequest, type RunResult } from './runRequest'
@@ -221,11 +221,13 @@ export function RequestEditor(props: {
   collection: Collection
   request: RequestItem
   onResult: (r: RunResult) => void
+  onChangeMethod?: (method: HttpMethod) => void
 }) {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
   const urlInputRef = useRef<HTMLInputElement | null>(null)
   const urlEditStartRef = useRef('')
   const ignoreNextUrlBlurCommitRef = useRef(false)
+  const methodMenuWrapRef = useRef<HTMLDivElement | null>(null)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -245,6 +247,7 @@ export function RequestEditor(props: {
   const [urlTemplateOverride, setUrlTemplateOverride] = useState('')
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
+  const [methodMenuOpen, setMethodMenuOpen] = useState(false)
 
   function parseUrlInput(raw: string) {
     const trimmed = raw.trim()
@@ -502,12 +505,90 @@ export function RequestEditor(props: {
     if (parsed.hasQuery) setQueryParams(parsed.query)
   }
 
+  useEffect(() => {
+    setMethodMenuOpen(false)
+  }, [props.request.id])
+
+  useEffect(() => {
+    if (!methodMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = methodMenuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      setMethodMenuOpen(false)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMethodMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [methodMenuOpen])
+
+  const methodOptions: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
   return (
     <div className="editor">
       <div className="editorHeader">
         <div className="editorTitle">
-          <span className="badge mono">{props.request.method}</span>
-          <span style={{ fontWeight: 600 }}>{props.request.name}</span>
+          <div ref={methodMenuOpen ? methodMenuWrapRef : null} className="methodMenuWrap">
+            <button
+              type="button"
+              className="badge mono methodBadgeBtn"
+              disabled={!props.onChangeMethod}
+              onPointerDown={e => {
+                if (!props.onChangeMethod) return
+                e.stopPropagation()
+              }}
+              onClick={e => {
+                if (!props.onChangeMethod) return
+                e.preventDefault()
+                e.stopPropagation()
+                setMethodMenuOpen(v => !v)
+              }}
+              aria-label="Change method"
+              title="Change method"
+            >
+              {props.request.method}
+            </button>
+
+            {methodMenuOpen ? (
+              <div
+                className="methodMenuPanel"
+                role="menu"
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+              >
+                {methodOptions.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    className={`methodMenuItem mono ${m === props.request.method ? 'methodMenuItemActive' : ''}`}
+                    role="menuitem"
+                    onClick={() => {
+                      setMethodMenuOpen(false)
+                      props.onChangeMethod?.(m)
+                    }}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <span className="editorRequestName">{props.request.name}</span>
         </div>
         <button onClick={send} disabled={sending || !canSend}>
           {sending ? 'Sending...' : 'Send'}

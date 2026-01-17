@@ -373,7 +373,40 @@ button:hover { background: rgba(255,255,255,.10); }
 /* Editor */
 .editor { display: grid; gap: 10px; }
 .editorHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.editorTitle { display: flex; gap: 10px; align-items: center; overflow: hidden; }
+.editorTitle { display: flex; gap: 10px; align-items: center; min-width: 0; overflow: visible; }
+.editorRequestName { font-weight: 600; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.methodMenuWrap { position: relative; display: inline-flex; align-items: center; }
+.methodBadgeBtn { cursor: pointer; font-size: 14px; padding: 8px 10px; line-height: 1; }
+.methodBadgeBtn::after { content: '▾'; display: inline-block; margin-left: 6px; opacity: .85; font-size: 12px; }
+.methodBadgeBtn:disabled { opacity: .7; cursor: default; }
+.methodBadgeBtn:disabled::after { display: none; }
+.methodMenuPanel {
+  position: absolute;
+  left: 0;
+  top: 34px;
+  min-width: 140px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0f1117;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  z-index: 40;
+}
+.methodMenuItem {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: rgba(255,255,255,.92);
+  font-size: 13px;
+  cursor: pointer;
+}
+.methodMenuItem:hover { background: rgba(255,255,255,.08); }
+.methodMenuItemActive { background: rgba(255,255,255,.10); }
 .editorUrl {
   padding: 10px;
   border-radius: var(--radius);
