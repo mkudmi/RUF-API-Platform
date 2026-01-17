@@ -231,8 +231,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeGroupInner > .treeSummary:hover { background: rgba(255,255,255,.05); }
 .treeSummary { list-style: none; display: flex; justify-content: flex-start; align-items: center; gap: 10px; cursor: pointer; }
 .treeSummary::-webkit-details-marker { display: none; }
-.treeSummaryFolder[draggable="true"] { cursor: grab; }
-.treeSummaryFolder[draggable="true"]:active { cursor: grabbing; }
+.treeSummaryFolder { cursor: default; }
 .treeChevron {
   width: 16px;
   height: 16px;
