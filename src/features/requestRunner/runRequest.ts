@@ -1,5 +1,5 @@
 import type { RequestItem } from '../../shared/types/collection'
-import { joinUrlParts } from '../../shared/utils/url'
+import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 
 export type RunResult = {
   ok: boolean
@@ -60,6 +60,7 @@ function deleteHeader(headers: Record<string, string>, name: string) {
 export async function runRequest(args: {
   request: RequestItem
   baseUrl: string
+  urlTemplateOverride?: string
   variables?: Record<string, string>
   pathParams: Record<string,string>
   queryParams: Record<string,string>
@@ -73,10 +74,21 @@ export async function runRequest(args: {
   const vars = args.variables ?? {}
 
   const baseUrl = (args.baseUrl || '').trim()
-  let url =
-    baseUrl
+  const urlTemplateOverride = (args.urlTemplateOverride || '').trim()
+  let url = ''
+  if (urlTemplateOverride) {
+    if (isAbsoluteUrl(urlTemplateOverride) || urlTemplateOverride.startsWith('//')) {
+      url = urlTemplateOverride
+    } else if (baseUrl) {
+      url = joinUrlParts(baseUrl, urlTemplateOverride)
+    } else {
+      url = urlTemplateOverride
+    }
+  } else {
+    url = baseUrl
       ? joinUrlParts(baseUrl, args.request.path)
       : args.request.urlTemplate.replace('{{baseUrl}}', '')
+  }
 
   const pathParams = Object.fromEntries(
     Object.entries(args.pathParams).map(([k, v]) => [k, applyVariables(v, vars)]),

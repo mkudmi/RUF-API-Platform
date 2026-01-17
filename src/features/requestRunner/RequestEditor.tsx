@@ -13,6 +13,7 @@ type RequestDraft = {
   bodyText?: string
   fileFieldName?: string
   baseUrlKey?: string
+  urlTemplateOverride?: string
 }
 
 function safeParseJson<T>(raw: string | null): T | null {
@@ -222,6 +223,8 @@ export function RequestEditor(props: {
   onResult: (r: RunResult) => void
 }) {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const urlInputRef = useRef<HTMLInputElement | null>(null)
+  const urlEditStartRef = useRef('')
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -238,6 +241,29 @@ export function RequestEditor(props: {
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
   const [urlCopied, setUrlCopied] = useState(false)
+  const [urlTemplateOverride, setUrlTemplateOverride] = useState('')
+  const [isEditingUrl, setIsEditingUrl] = useState(false)
+  const [urlDraftText, setUrlDraftText] = useState('')
+
+  function parseUrlInput(raw: string) {
+    const trimmed = raw.trim()
+    if (!trimmed) return { template: '', hasQuery: false, query: {} as Record<string, string> }
+
+    const hashIdx = trimmed.indexOf('#')
+    const withoutHash = hashIdx >= 0 ? trimmed.slice(0, hashIdx) : trimmed
+    const qIdx = withoutHash.indexOf('?')
+
+    const template = (qIdx >= 0 ? withoutHash.slice(0, qIdx) : withoutHash).trim()
+    const qs = qIdx >= 0 ? withoutHash.slice(qIdx + 1) : ''
+    if (!qs) return { template, hasQuery: false, query: {} as Record<string, string> }
+
+    const usp = new URLSearchParams(qs)
+    const query: Record<string, string> = {}
+    usp.forEach((v, k) => {
+      query[k] = v
+    })
+    return { template, hasQuery: true, query }
+  }
 
   const baseUrl = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
@@ -263,9 +289,17 @@ export function RequestEditor(props: {
   }, [baseUrlKey, props.collection.baseUrl, props.environment])
 
   const displayUrl = useMemo(() => {
-    const url = baseUrl
-      ? joinUrlParts(baseUrl, props.request.path)
-      : props.request.urlTemplate
+    const override = urlTemplateOverride.trim()
+    const url =
+      override
+        ? (isAbsoluteUrl(override) || override.startsWith('//'))
+            ? override
+            : baseUrl
+              ? joinUrlParts(baseUrl, override)
+              : override
+        : baseUrl
+          ? joinUrlParts(baseUrl, props.request.path)
+          : props.request.urlTemplate
     const withPathParams = applyPathParamsForDisplay(url, pathParams)
 
     const usp = new URLSearchParams()
@@ -277,7 +311,14 @@ export function RequestEditor(props: {
     const qs = usp.toString()
     if (!qs) return withPathParams
     return withPathParams + (withPathParams.includes('?') ? '&' : '?') + qs
-  }, [baseUrl, pathParams, props.request.path, props.request.urlTemplate, queryParams, variables])
+  }, [baseUrl, pathParams, props.request.path, props.request.urlTemplate, queryParams, variables, urlTemplateOverride])
+
+  const canSend = useMemo(() => {
+    const override = urlTemplateOverride.trim()
+    if (!override) return !!baseUrl
+    if (isAbsoluteUrl(override) || override.startsWith('//')) return true
+    return !!baseUrl
+  }, [baseUrl, urlTemplateOverride])
 
   const variableKeys = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
@@ -314,6 +355,9 @@ export function RequestEditor(props: {
     setNewHeaderValue('')
     setNewParamKey('')
     setNewParamValue('')
+    setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
+    setIsEditingUrl(false)
+    setUrlDraftText('')
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
     setShowBaseUrlPicker(false)
@@ -330,13 +374,14 @@ export function RequestEditor(props: {
         bodyText,
         fileFieldName,
         baseUrlKey,
+        urlTemplateOverride,
       })
     }, 200)
     return () => {
       if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
       draftSaveTimerRef.current = null
     }
-  }, [baseUrlKey, bodyText, fileFieldName, headers, pathParams, props.request.id, queryParams])
+  }, [baseUrlKey, bodyText, fileFieldName, headers, pathParams, props.request.id, queryParams, urlTemplateOverride])
 
   const grouped = useMemo(() => {
     const p = props.request.params
@@ -405,6 +450,7 @@ export function RequestEditor(props: {
       const result = await runRequest({
         request: props.request,
         baseUrl,
+        urlTemplateOverride,
         variables,
         pathParams,
         queryParams,
@@ -432,6 +478,29 @@ export function RequestEditor(props: {
     setTimeout(() => setUrlCopied(false), 900)
   }
 
+  function startUrlEdit() {
+    setShowBaseUrlPicker(false)
+    urlEditStartRef.current = displayUrl.trim()
+    setUrlDraftText(displayUrl)
+    setIsEditingUrl(true)
+    window.setTimeout(() => urlInputRef.current?.focus(), 0)
+  }
+
+  function cancelUrlEdit() {
+    setIsEditingUrl(false)
+    setUrlDraftText('')
+  }
+
+  function commitUrlEdit() {
+    const raw = urlDraftText.trim()
+    setIsEditingUrl(false)
+    if (raw === urlEditStartRef.current) return
+    if (!raw) return
+    const parsed = parseUrlInput(raw)
+    if (parsed.template) setUrlTemplateOverride(parsed.template)
+    if (parsed.hasQuery) setQueryParams(parsed.query)
+  }
+
   return (
     <div className="editor">
       <div className="editorHeader">
@@ -439,7 +508,7 @@ export function RequestEditor(props: {
           <span className="badge mono">{props.request.method}</span>
           <span style={{ fontWeight: 600 }}>{props.request.name}</span>
         </div>
-        <button onClick={send} disabled={sending || !baseUrl}>
+        <button onClick={send} disabled={sending || !canSend}>
           {sending ? 'Sending...' : 'Send'}
         </button>
       </div>
@@ -450,8 +519,12 @@ export function RequestEditor(props: {
           title={displayUrl}
           role="button"
           tabIndex={0}
-          onClick={() => setShowBaseUrlPicker(v => !v)}
+          onClick={() => {
+            if (isEditingUrl) return
+            setShowBaseUrlPicker(v => !v)
+          }}
           onKeyDown={e => {
+            if (isEditingUrl) return
             if (e.key === 'Enter' || e.key === ' ') setShowBaseUrlPicker(v => !v)
             if (e.key === 'Escape') setShowBaseUrlPicker(false)
           }}
@@ -471,9 +544,42 @@ export function RequestEditor(props: {
           >
             {urlCopied ? 'OK' : <CopyIcon />}
           </button>
-          <span className="editorUrlText">
-            {displayUrl}
-          </span>
+
+          {isEditingUrl ? (
+            <input
+              ref={urlInputRef}
+              className="mono"
+              value={urlDraftText}
+              onChange={e => setUrlDraftText(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitUrlEdit()
+                if (e.key === 'Escape') cancelUrlEdit()
+              }}
+              onBlur={commitUrlEdit}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+          ) : (
+            <span className="editorUrlText">
+              {displayUrl}
+            </span>
+          )}
+
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (isEditingUrl) return
+              startUrlEdit()
+            }}
+            aria-label="Edit URL"
+            title="Edit URL"
+            style={{ width: 28, height: 28 }}
+          >
+            ✎
+          </button>
         </div>
 
         {showBaseUrlPicker && (
@@ -495,7 +601,7 @@ export function RequestEditor(props: {
         )}
       </div>
 
-      {!baseUrl && (
+      {!canSend && (
         <div className="small" style={{ color: '#ff9a9a' }}>
           Укажи Base URL в «Окружение», иначе запрос не отправится.
         </div>
