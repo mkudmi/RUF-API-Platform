@@ -185,7 +185,7 @@ function HeaderRow(props: {
   function commitRename() {
     if (!props.onRename) return
     const next = draftName.trim()
-    if (!next || next === props.name) {
+    if (next === props.name) {
       setDraftName(props.name)
       return
     }
@@ -245,7 +245,7 @@ function QueryRow(props: {
   function commitRename() {
     if (!props.onRename) return
     const next = draftName.trim()
-    if (!next || next === props.name) {
+    if (next === props.name) {
       setDraftName(props.name)
       return
     }
@@ -292,6 +292,73 @@ function QueryRow(props: {
   )
 }
 
+function QueryDraftRow(props: {
+  name: string
+  value: string
+  onChangeName: (nextName: string) => void
+  onChangeValue: (nextValue: string) => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="formRow">
+      <input
+        className="mono"
+        value={props.name}
+        onChange={e => props.onChangeName(e.target.value)}
+        placeholder="Key"
+      />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+        <input
+          className="mono"
+          style={{ flex: 1, minWidth: 0 }}
+          value={props.value}
+          onChange={e => props.onChangeValue(e.target.value)}
+          placeholder="Value"
+        />
+        <button
+          className="rowDeleteBtn"
+          onClick={props.onDelete}
+          aria-label="Delete query param"
+          title="Delete"
+        >
+          aŸ?
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function HeaderDraftRow(props: {
+  name: string
+  value: string
+  onChangeName: (nextName: string) => void
+  onChangeValue: (nextValue: string) => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="formRow">
+      <input
+        className="mono"
+        value={props.name}
+        onChange={e => props.onChangeName(e.target.value)}
+        placeholder="Key"
+      />
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+        <input
+          className="mono"
+          style={{ flex: 1, minWidth: 0 }}
+          value={props.value}
+          onChange={e => props.onChangeValue(e.target.value)}
+          placeholder="Value"
+        />
+        <button className="headerDeleteBtn" onClick={props.onDelete} aria-label="Delete header" title="Delete">
+          ƒo
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function RequestEditor(props: {
   environment?: Environment
   collection: Collection
@@ -312,16 +379,14 @@ export function RequestEditor(props: {
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
+  const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
   const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
   const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
   const [headers, setHeaders] = useState<Record<string, string>>(() => ({
     ...(props.environment?.headers ?? {}),
     ...(props.request.headers ?? {}),
   }))
-  const [newHeaderName, setNewHeaderName] = useState('')
-  const [newHeaderValue, setNewHeaderValue] = useState('')
-  const [newParamKey, setNewParamKey] = useState('')
-  const [newParamValue, setNewParamValue] = useState('')
+  const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [fileFieldName, setFileFieldName] = useState('file')
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
@@ -375,6 +440,28 @@ export function RequestEditor(props: {
     return { ...envVars, scheme, baseUrl: effectiveWithScheme }
   }, [baseUrlKey, props.collection.baseUrl, props.environment])
 
+  const effectiveQueryParams = useMemo(() => {
+    const next: Record<string, string> = { ...queryParams }
+    for (const row of queryDraftRows) {
+      const k = row.name.trim()
+      if (!k) continue
+      if (row.value === '') continue
+      next[k] = row.value
+    }
+    return next
+  }, [queryDraftRows, queryParams])
+
+  const effectiveHeaders = useMemo(() => {
+    const next: Record<string, string> = { ...headers }
+    for (const row of headerDraftRows) {
+      const k = row.name.trim()
+      if (!k) continue
+      if (row.value === '') continue
+      next[k] = row.value
+    }
+    return next
+  }, [headerDraftRows, headers])
+
   const displayUrl = useMemo(() => {
     const override = urlTemplateOverride.trim()
     const url =
@@ -390,7 +477,7 @@ export function RequestEditor(props: {
     const withPathParams = applyPathParamsForDisplay(url, pathParams)
 
     const usp = new URLSearchParams()
-    for (const [k, v] of Object.entries(queryParams)) {
+    for (const [k, v] of Object.entries(effectiveQueryParams)) {
       const nextK = applyVariablesForDisplay(k, variables)
       const nextV = applyVariablesForDisplay(v, variables)
       if (nextK && nextV !== '') usp.set(nextK, nextV)
@@ -398,7 +485,7 @@ export function RequestEditor(props: {
     const qs = usp.toString()
     if (!qs) return withPathParams
     return withPathParams + (withPathParams.includes('?') ? '&' : '?') + qs
-  }, [baseUrl, pathParams, props.request.path, props.request.urlTemplate, queryParams, variables, urlTemplateOverride])
+  }, [baseUrl, effectiveQueryParams, pathParams, props.request.path, props.request.urlTemplate, variables, urlTemplateOverride])
 
   const canSend = useMemo(() => {
     const override = urlTemplateOverride.trim()
@@ -434,6 +521,7 @@ export function RequestEditor(props: {
     const draft = loadDraft(props.request.id)
     setPathParams(draft?.pathParams ?? {})
     setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
+    setQueryDraftRows([])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
     setHeaders({
@@ -441,12 +529,9 @@ export function RequestEditor(props: {
       ...(props.request.headers ?? {}),
       ...(draft?.headers ?? {}),
     })
+    setHeaderDraftRows([])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
-    setNewHeaderName('')
-    setNewHeaderValue('')
-    setNewParamKey('')
-    setNewParamValue('')
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
@@ -462,6 +547,7 @@ export function RequestEditor(props: {
 
     setPathParams(draft?.pathParams ?? {})
     setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
+    setQueryDraftRows([])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
     setHeaders({
@@ -469,6 +555,7 @@ export function RequestEditor(props: {
       ...(props.request.headers ?? {}),
       ...(draft?.headers ?? {}),
     })
+    setHeaderDraftRows([])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
@@ -547,7 +634,7 @@ export function RequestEditor(props: {
       if (overriddenKeys.has(k)) continue
       out.push({ name: k, in: 'query', required: false })
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name))
+    return out
   }, [disabledQuerySpecNames, grouped.query, queryParams, queryParamKeyOverrides, querySpecNames])
 
   const headerParams = useMemo(() => normalizeHeaderParams(grouped.header, headers), [grouped.header, headers])
@@ -558,19 +645,19 @@ export function RequestEditor(props: {
   )
 
   const effectiveContentType = useMemo(() => {
-    return (headers['Content-Type'] || headers['content-type'] || props.request.body?.contentType || '').trim()
-  }, [headers, props.request.body?.contentType])
+    return (effectiveHeaders['Content-Type'] || effectiveHeaders['content-type'] || props.request.body?.contentType || '').trim()
+  }, [effectiveHeaders, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
   const supportsFile = props.request.method !== 'GET' && props.request.method !== 'HEAD' && (
     isMultipartForm || effectiveContentType.toLowerCase().includes('application/octet-stream')
   )
 
-  function addHeader() {
-    const name = newHeaderName.trim()
-    if (!name) return
-    setHeaders(prev => ({ ...prev, [name]: newHeaderValue }))
-    setNewHeaderName('')
-    setNewHeaderValue('')
+  function addHeaderDraftRow() {
+    setHeaderDraftRows(prev => [...prev, { id: uid('hrow'), name: '', value: '' }])
+  }
+
+  function addQueryDraftRow() {
+    setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value: '' }])
   }
 
   function parseFormFieldsFromBodyText(text: string): Record<string, string> {
@@ -591,42 +678,42 @@ export function RequestEditor(props: {
     }
   }
 
-  function addQueryParam() {
-    const key = newParamKey.trim()
-    if (!key) return
-    const overrideKey = queryParamKeyOverrides[key]
-    if (overrideKey && overrideKey !== key) {
-      setQueryParamKeyOverrides(prev => {
-        if (!(key in prev)) return prev
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
-      setQueryParams(prev => {
-        const next = { ...prev, [key]: newParamValue }
-        delete next[overrideKey]
-        return next
-      })
-    } else {
-      setQueryParams(prev => ({ ...prev, [key]: newParamValue }))
-    }
-
-    if (querySpecNames.has(key)) {
-      setDisabledQueryParamNames(prev => {
-        if (!(key in prev)) return prev
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
-    }
-    setNewParamKey('')
-    setNewParamValue('')
-  }
-
   async function send() {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
+      const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
+      const effectiveHeadersForSend = hasDraftHeadersToCommit ? effectiveHeaders : headers
+      const hasDraftQueryToCommit = queryDraftRows.some(r => r.name.trim() && r.value !== '')
+      const effectiveQueryParamsForSend = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
+      const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
+        ? (() => {
+            let changed = false
+            const next = { ...disabledQueryParamNames }
+            for (const row of queryDraftRows) {
+              const key = row.name.trim()
+              if (!key) continue
+              if (!querySpecNames.has(key)) continue
+              if (key in next) {
+                delete next[key]
+                changed = true
+              }
+            }
+            return changed ? next : disabledQueryParamNames
+          })()
+        : disabledQueryParamNames
+
+      if (hasDraftHeadersToCommit) {
+        setHeaders(effectiveHeadersForSend)
+        setHeaderDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
+      }
+
+      if (hasDraftQueryToCommit) {
+        setQueryParams(effectiveQueryParamsForSend)
+        setQueryDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
+        setDisabledQueryParamNames(effectiveDisabledQueryParamNamesForSend)
+      }
+
       props.onBeforeSend?.(props.request.id, {
         id: uid('hist'),
         createdAt: Date.now(),
@@ -634,10 +721,10 @@ export function RequestEditor(props: {
         url: displayUrl,
         draft: {
           pathParams,
-          queryParams,
+          queryParams: effectiveQueryParamsForSend,
           queryParamKeyOverrides,
-          disabledQueryParamNames,
-          headers,
+          disabledQueryParamNames: effectiveDisabledQueryParamNamesForSend,
+          headers: effectiveHeadersForSend,
           bodyText,
           fileFieldName,
           baseUrlKey,
@@ -654,8 +741,8 @@ export function RequestEditor(props: {
         urlTemplateOverride,
         variables,
         pathParams,
-        queryParams,
-        headers,
+        queryParams: effectiveQueryParamsForSend,
+        headers: effectiveHeadersForSend,
         bodyText,
         file: supportsFile ? bodyFile : undefined,
         fileFieldName: supportsFile ? fileFieldName : undefined,
@@ -725,6 +812,7 @@ export function RequestEditor(props: {
       setQueryParams(parsed.query)
       setQueryParamKeyOverrides({})
       setDisabledQueryParamNames({})
+      setQueryDraftRows([])
     }
   }
 
@@ -953,7 +1041,24 @@ export function RequestEditor(props: {
       </details>
 
       <details className="accordion" open>
-        <summary>Headers</summary>
+        <summary>
+          <span>Headers</span>
+          <span style={{ marginLeft: 'auto' }} />
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              addHeaderDraftRow()
+            }}
+            aria-label="Add header"
+            title="Add header"
+            style={{ width: 28, height: 28 }}
+          >
+            +
+          </button>
+        </summary>
 
         <div className="section">
           {visibleHeaderParams.map(h => {
@@ -971,7 +1076,12 @@ export function RequestEditor(props: {
                     ? undefined
                     : nextName => setHeaders(prev => {
                         const nextKey = nextName.trim()
-                        if (!nextKey || nextKey === h.name) return prev
+                        if (nextKey === h.name) return prev
+                        if (!nextKey) {
+                          setHeaderDraftRows(draftPrev => [...draftPrev, { id: uid('hrow'), name: '', value }])
+                          const { [h.name]: _removed, ...rest } = prev
+                          return rest
+                        }
                         if (Object.prototype.hasOwnProperty.call(prev, nextKey)) return prev
                         const { [h.name]: oldValue, ...rest } = prev
                         return { ...rest, [nextKey]: oldValue ?? '' }
@@ -989,29 +1099,39 @@ export function RequestEditor(props: {
             )
           })}
 
-          <div className="headerAdd">
-            <input
-              className="mono"
-              value={newHeaderName}
-              onChange={e => setNewHeaderName(e.target.value)}
-              placeholder="Key"
+          {headerDraftRows.map(row => (
+            <HeaderDraftRow
+              key={row.id}
+              name={row.name}
+              value={row.value}
+              onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
+              onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+              onDelete={() => setHeaderDraftRows(prev => prev.filter(r => r.id !== row.id))}
             />
-            <input
-              className="mono"
-              value={newHeaderValue}
-              onChange={e => setNewHeaderValue(e.target.value)}
-              placeholder="Value"
-            />
-            <button onClick={addHeader} disabled={!newHeaderName.trim()}>
-              Add
-            </button>
-          </div>
+          ))}
 
         </div>
       </details>
 
       <details className="accordion" open>
-        <summary>Params</summary>
+        <summary>
+          <span>Params</span>
+          <span style={{ marginLeft: 'auto' }} />
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              addQueryDraftRow()
+            }}
+            aria-label="Add query param"
+            title="Add query param"
+            style={{ width: 28, height: 28 }}
+          >
+            +
+          </button>
+        </summary>
         {grouped.path.length > 0 && (
           <div className="section">
             <div className="sectionTitle">Path</div>
@@ -1043,27 +1163,43 @@ export function RequestEditor(props: {
                 onChangeValue={nextValue => {
                   setQueryParams(prev => {
                     const next = { ...prev }
-                    if (nextValue !== '') {
-                      next[effectiveName] = nextValue
-                      if (isSpec && effectiveName !== rawName) delete next[rawName]
-                      return next
-                    }
-                    if (!(effectiveName in prev)) return prev
-                    delete next[effectiveName]
+                    next[effectiveName] = nextValue
+                    if (isSpec && effectiveName !== rawName) delete next[rawName]
                     return next
                   })
                 }}
                 onRename={
                   nextName => {
                     const trimmed = nextName.trim()
-                    if (!trimmed || trimmed === effectiveName) return
+                    if (trimmed === effectiveName) return
 
                     if (isSpec) {
+                      if (!trimmed) {
+                        setQueryParams(prev => {
+                          if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                          const next = { ...prev }
+                          delete next[effectiveName]
+                          if (rawName !== effectiveName) delete next[rawName]
+                          return next
+                        })
+                        return
+                      }
                       setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
                       setQueryParamKeyOverrides(prev => {
                         const next = { ...prev }
                         if (trimmed === rawName) delete next[rawName]
                         else next[rawName] = trimmed
+                        return next
+                      })
+                      return
+                    }
+
+                    if (!trimmed) {
+                      setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value }])
+                      setQueryParams(prev => {
+                        if (!(effectiveName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[effectiveName]
                         return next
                       })
                       return
@@ -1094,23 +1230,16 @@ export function RequestEditor(props: {
             )
           })}
 
-          <div className="headerAdd">
-            <input
-              className="mono"
-              value={newParamKey}
-              onChange={e => setNewParamKey(e.target.value)}
-              placeholder="Key"
+          {queryDraftRows.map(row => (
+            <QueryDraftRow
+              key={row.id}
+              name={row.name}
+              value={row.value}
+              onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
+              onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+              onDelete={() => setQueryDraftRows(prev => prev.filter(r => r.id !== row.id))}
             />
-            <input
-              className="mono"
-              value={newParamValue}
-              onChange={e => setNewParamValue(e.target.value)}
-              placeholder="Value"
-            />
-            <button onClick={addQueryParam} disabled={!newParamKey.trim()}>
-              Add
-            </button>
-          </div>
+          ))}
         </div>
       </details>
 

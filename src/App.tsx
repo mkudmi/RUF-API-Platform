@@ -13,7 +13,7 @@ import { uid } from './shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 
-//TODO: редактируемые уже добавленные параметры, коннект к бд, пре-пост скрипты, если добавлено через урл, возможность обновлять коллекцию через релоад
+//TODO: коннект к бд, пре-пост скрипты, если добавлено через урл, возможность обновлять коллекцию через релоад
 
 function isAbsoluteUrl(url: string) {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
