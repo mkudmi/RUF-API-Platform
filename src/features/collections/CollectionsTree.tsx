@@ -44,6 +44,8 @@ export function CollectionsTree(props: {
   const [draftName, setDraftName] = useState('')
   const nameEditableRef = useRef<HTMLElement | null>(null)
   const suppressNextBlurRef = useRef(false)
+  const [openMenuCollectionId, setOpenMenuCollectionId] = useState<string | null>(null)
+  const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set(loadTreeOpenState().collections))
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
@@ -79,6 +81,28 @@ export function CollectionsTree(props: {
       sel?.addRange(range)
     })
   }, [editing])
+
+  useEffect(() => {
+    if (!openMenuCollectionId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = menuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      setOpenMenuCollectionId(null)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpenMenuCollectionId(null)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [openMenuCollectionId])
 
   function displayMethod(m: string) {
     return m === 'DELETE' ? 'DEL' : m
@@ -419,9 +443,11 @@ export function CollectionsTree(props: {
           {(() => {
             const reqCount = requestCountByCollection[col.id] ?? 0
             const isEditing = editing?.kind === 'collection' && editing.id === col.id
+            const isMenuOpen = !isEditing && openMenuCollectionId === col.id
 
             function startRename() {
               suppressNextBlurRef.current = false
+              setOpenMenuCollectionId(null)
               setEditing({ kind: 'collection', id: col.id })
               setDraftName(col.name)
             }
@@ -555,6 +581,75 @@ export function CollectionsTree(props: {
                     <span className="small">{reqCount}</span>
                   </div>
                   <div className="treeSummaryRight">
+                    <div ref={isMenuOpen ? menuWrapRef : null} className="treeMenuWrap">
+                      <button
+                        type="button"
+                        className="iconBtn treeMenuBtn"
+                        onPointerDown={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setOpenMenuCollectionId(prev => (prev === col.id ? null : col.id))
+                        }}
+                        aria-label="Collection menu"
+                        title="Menu"
+                      >
+                        ⋯
+                      </button>
+
+                      {isMenuOpen ? (
+                        <div
+                          className="treeMenuPanel"
+                          role="menu"
+                          onPointerDown={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                          onClick={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              startRename()
+                            }}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              props.onOpenEnv(col.id)
+                            }}
+                          >
+                            Enviroment
+                          </button>
+                          <div className="treeMenuDivider" role="separator" />
+                          <button
+                            type="button"
+                            className="treeMenuItem treeMenuItemDanger"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              props.onDeleteCollection(col.id)
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <button
                       className="envBtn"
                       onClick={e => {
