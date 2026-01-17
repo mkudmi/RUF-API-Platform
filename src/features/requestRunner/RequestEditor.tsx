@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
+import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
@@ -220,7 +221,10 @@ export function RequestEditor(props: {
   environment?: Environment
   collection: Collection
   request: RequestItem
-  onResult: (r: RunResult) => void
+  inFlightCount?: number
+  onSendStart?: (requestId: string, runId: string) => void
+  onSendEnd?: (requestId: string, runId: string) => void
+  onResult: (requestId: string, result: RunResult, runId: string) => void
   onChangeMethod?: (method: HttpMethod) => void
 }) {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -334,8 +338,11 @@ export function RequestEditor(props: {
 
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
-  const [sending, setSending] = useState(false)
   const draftSaveTimerRef = useRef<number | null>(null)
+
+  const inFlightCount = props.inFlightCount ?? 0
+  const isSending = inFlightCount > 0
+  const sendRef = useRef<(() => void) | null>(null)
 
   function requestDefaultBodyText() {
     const b = props.request.body?.example
@@ -446,7 +453,8 @@ export function RequestEditor(props: {
   }
 
   async function send() {
-    setSending(true)
+    const runId = uid('run')
+    props.onSendStart?.(props.request.id, runId)
     try {
       const formFields = supportsFile && effectiveContentType.toLowerCase().includes('multipart/form-data')
         ? parseFormFieldsFromBodyText(bodyText)
@@ -464,11 +472,33 @@ export function RequestEditor(props: {
         fileFieldName: supportsFile ? fileFieldName : undefined,
         formFields,
       })
-      props.onResult(result)
+      props.onResult(props.request.id, result, runId)
     } finally {
-      setSending(false)
+      props.onSendEnd?.(props.request.id, runId)
     }
   }
+
+  useEffect(() => {
+    sendRef.current = () => void send()
+    return () => {
+      sendRef.current = null
+    }
+  }, [send])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
+      const target = e.target as HTMLElement | null
+      if (target?.closest('dialog')) return
+      if (!canSend || isSending) return
+      e.preventDefault()
+      e.stopPropagation()
+      sendRef.current?.()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canSend, isSending])
 
   async function copyBodyText() {
     await copyText(bodyText)
@@ -590,8 +620,8 @@ export function RequestEditor(props: {
           </div>
           <span className="editorRequestName">{props.request.name}</span>
         </div>
-        <button onClick={send} disabled={sending || !canSend}>
-          {sending ? 'Sending...' : 'Send'}
+        <button onClick={send} disabled={isSending || !canSend}>
+          {isSending ? 'Sending...' : 'Send'}
         </button>
       </div>
 

@@ -79,7 +79,8 @@ export default function App() {
     const cols = loadCollections()
     return findRequestByIds(cols, saved.collectionId, saved.requestId)
   })
-  const [result, setResult] = useState<RunResult | null>(null)
+  const [resultByRequestId, setResultByRequestId] = useState<Record<string, RunResult | null>>({})
+  const [inFlightCountByRequestId, setInFlightCountByRequestId] = useState<Record<string, number>>({})
   const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => loadEnvironmentsByCollection())
   const [envModalCollectionId, setEnvModalCollectionId] = useState<string | null>(null)
   const createProjectDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -111,6 +112,24 @@ export default function App() {
     return out
   })
 
+  function onRequestSendStart(requestId: string) {
+    setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
+  }
+
+  function onRequestSendEnd(requestId: string) {
+    setInFlightCountByRequestId(prev => {
+      const next = { ...prev }
+      const n = (next[requestId] ?? 0) - 1
+      if (n <= 0) delete next[requestId]
+      else next[requestId] = n
+      return next
+    })
+  }
+
+  function onRequestResult(requestId: string, result: RunResult) {
+    setResultByRequestId(prev => ({ ...prev, [requestId]: result }))
+  }
+
   useEffect(() => {
     sidebarWidthRef.current = sidebarWidth
   }, [sidebarWidth])
@@ -134,7 +153,6 @@ export default function App() {
     const found = findRequestByIds(collections, active.col.id, active.req.id)
     if (!found) {
       setActive(null)
-      setResult(null)
       clearActiveSelection()
       return
     }
@@ -163,7 +181,6 @@ export default function App() {
 
   function pick(req: RequestItem, col: Collection) {
     setActive({ req, col })
-    setResult(null)
     saveActiveSelection({ collectionId: col.id, requestId: req.id })
   }
 
@@ -352,7 +369,6 @@ export default function App() {
 
       if (createdInCol) {
         setActive({ col: createdInCol, req })
-        setResult(null)
         saveActiveSelection({ collectionId: createdInCol.id, requestId: req.id })
       }
 
@@ -423,7 +439,6 @@ export default function App() {
       saveCollections(next)
 
       setActive({ col: createdInCol, req })
-      setResult(null)
       saveActiveSelection({ collectionId: createdInCol.id, requestId: req.id })
 
       return next
@@ -540,7 +555,6 @@ export default function App() {
 
       if (active?.req.id === requestId && active.col.id === collectionId) {
         setActive(null)
-        setResult(null)
         clearActiveSelection()
       }
 
@@ -643,7 +657,6 @@ export default function App() {
 
     if (active?.col.id === collectionId) {
       setActive(null)
-      setResult(null)
       clearActiveSelection()
     }
     if (envModalCollectionId === collectionId) setEnvModalCollectionId(null)
@@ -789,7 +802,18 @@ export default function App() {
         }}>
           <section className="card">
             {active
-              ? <RequestEditor environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT} collection={active.col} request={active.req} onResult={setResult} onChangeMethod={m => setRequestMethod(active.col.id, active.req.id, m)} />
+              ? (
+                  <RequestEditor
+                    environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT}
+                    collection={active.col}
+                    request={active.req}
+                    inFlightCount={inFlightCountByRequestId[active.req.id] ?? 0}
+                    onSendStart={requestId => onRequestSendStart(requestId)}
+                    onSendEnd={requestId => onRequestSendEnd(requestId)}
+                    onResult={(requestId, result) => onRequestResult(requestId, result)}
+                    onChangeMethod={m => setRequestMethod(active.col.id, active.req.id, m)}
+                  />
+                )
               : <div className="small">Импортируй OpenAPI или выбери запрос слева.</div>
             }
           </section>
@@ -798,7 +822,8 @@ export default function App() {
 
           <section className="card" style={{ overflow: 'hidden' }}>
             <ResponseViewer
-              result={result}
+              result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
+              inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
               tab={activeResponseTab}
               onTabChange={tab => {
                 const requestId = activeRequestId

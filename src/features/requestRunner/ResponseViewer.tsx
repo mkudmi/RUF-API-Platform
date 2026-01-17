@@ -83,6 +83,7 @@ function statusClass(status: number) {
 
 export function ResponseViewer(props: {
   result: RunResult | null
+  inFlightCount?: number
   tab: 'body' | 'headers'
   onTabChange: (tab: 'body' | 'headers') => void
 }) {
@@ -234,7 +235,11 @@ export function ResponseViewer(props: {
     saveSchemaDialogRef.current?.close()
   }
 
-  if (!result) return <div className="small">Run a request to see the response.</div>
+  const inFlightCount = props.inFlightCount ?? 0
+  if (!result) {
+    if (inFlightCount > 0) return <div className="small">Sending...</div>
+    return <div className="small">Run a request to see the response.</div>
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', overflow: 'hidden' }}>
@@ -242,6 +247,7 @@ export function ResponseViewer(props: {
         <span className={`badge ${statusClass(result.status)}`}>HTTP {result.status}</span>
         <span className="small">{result.statusText}</span>
         <span className="small">Time {result.timeMs} ms</span>
+        {inFlightCount > 0 ? <span className="small" style={{ marginLeft: 'auto' }}>Sending…</span> : null}
       </div>
 
       <div className="tabs" style={{ marginTop: 10 }}>
