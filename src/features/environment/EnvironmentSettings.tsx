@@ -17,35 +17,53 @@ export function EnvironmentSettings(props: {
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null)
 
-  const [baseUrlKey, setBaseUrlKey] = useState(props.env.baseUrlKey)
-  const [baseUrlValue, setBaseUrlValue] = useState(props.env.variables[props.env.baseUrlKey] ?? '')
-  const [scheme, setScheme] = useState<'http' | 'https'>('http')
+  function ensureTrailingEmptyRow<T extends { key: string; value: string }>(rows: T[]) {
+    if (rows.length === 0) return [{ key: '', value: '' } as T]
+    const last = rows[rows.length - 1]
+    if (last.key.trim() || last.value) return [...rows, { key: '', value: '' } as T]
+    return rows
+  }
+
+  const [baseUrlRow, setBaseUrlRow] = useState<VariableRow>({
+    key: props.env.baseUrlKey,
+    value: props.env.variables[props.env.baseUrlKey] ?? '',
+  })
   const [variablesRows, setVariablesRows] = useState<VariableRow[]>(
-    Object.entries(props.env.variables)
-      .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
-      .map(([k, v]) => ({ key: k, value: v })),
+    ensureTrailingEmptyRow(
+      Object.entries(props.env.variables)
+        .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
+        .map(([k, v]) => ({ key: k, value: v })),
+    ),
   )
 
   const [headersRows, setHeadersRows] = useState<HeaderRow[]>(
-    Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v })),
+    ensureTrailingEmptyRow(Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v }))),
   )
 
   const [error, setError] = useState<string | null>(null)
 
   const hasAnyHeader = useMemo(() => headersRows.some(r => r.key.trim() || r.value), [headersRows])
-  const hasAnyVariable = useMemo(() => variablesRows.some(r => r.key.trim() || r.value), [variablesRows])
+  const hasAnyVariable = useMemo(() => {
+    if (baseUrlRow.key.trim() || baseUrlRow.value) return true
+    return variablesRows.some(r => r.key.trim() || r.value)
+  }, [baseUrlRow.key, baseUrlRow.value, variablesRows])
 
   function openDialog() {
     setError(null)
-    setBaseUrlKey(props.env.baseUrlKey)
-    setBaseUrlValue(props.env.variables[props.env.baseUrlKey] ?? '')
-    setScheme((props.env.variables.scheme || 'http').toLowerCase() === 'https' ? 'https' : 'http')
+    setBaseUrlRow({
+      key: props.env.baseUrlKey,
+      value: props.env.variables[props.env.baseUrlKey] ?? '',
+    })
     setVariablesRows(
-      Object.entries(props.env.variables)
-        .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
-        .map(([k, v]) => ({ key: k, value: v })),
+      ensureTrailingEmptyRow(
+        Object.entries(props.env.variables)
+          .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
+          .map(([k, v]) => ({ key: k, value: v })),
+      ),
     )
-    setHeadersRows(Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v })))
+    setHeadersRows(
+      ensureTrailingEmptyRow(Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v }))),
+    )
     dialogRef.current?.showModal()
   }
 
@@ -66,15 +84,25 @@ export function EnvironmentSettings(props: {
   function save() {
     setError(null)
     try {
-      const normalizedBaseUrlKey = normalizeVarName(baseUrlKey)
+      const normalizedBaseUrlKey = normalizeVarName(baseUrlRow.key)
       if (!normalizedBaseUrlKey) {
-        setError('Base URL key is required.')
+        setError('Ключ переменной Base URL обязателен.')
         return
       }
 
+      const baseUrlValue = baseUrlRow.value.trim()
+      const scheme =
+        baseUrlValue.toLowerCase().startsWith('https://')
+          ? 'https'
+          : baseUrlValue.toLowerCase().startsWith('http://')
+            ? 'http'
+            : String(props.env.variables.scheme || 'http').toLowerCase() === 'https'
+              ? 'https'
+              : 'http'
+
       const variables: Record<string, string> = {
         scheme,
-        [normalizedBaseUrlKey]: baseUrlValue.trim(),
+        [normalizedBaseUrlKey]: baseUrlValue,
       }
       for (const row of variablesRows) {
         const key = normalizeVarName(row.key)
@@ -98,12 +126,12 @@ export function EnvironmentSettings(props: {
       })
       close()
     } catch (e: any) {
-      setError(e?.message || 'Invalid environment settings.')
+      setError(e?.message || 'Некорректные настройки окружения.')
     }
   }
 
-  function addVariableRow() {
-    setVariablesRows(prev => [...prev, { key: '', value: '' }])
+  function clearBaseUrlValue() {
+    setBaseUrlRow(prev => ({ ...prev, value: '' }))
   }
 
   function updateVariableRow(i: number, next: VariableRow) {
@@ -111,11 +139,7 @@ export function EnvironmentSettings(props: {
   }
 
   function deleteVariableRow(i: number) {
-    setVariablesRows(prev => prev.filter((_r, idx) => idx !== i))
-  }
-
-  function addHeaderRow() {
-    setHeadersRows(prev => [...prev, { key: '', value: '' }])
+    setVariablesRows(prev => ensureTrailingEmptyRow(prev.filter((_r, idx) => idx !== i)))
   }
 
   function updateHeaderRow(i: number, next: HeaderRow) {
@@ -123,7 +147,27 @@ export function EnvironmentSettings(props: {
   }
 
   function deleteHeaderRow(i: number) {
-    setHeadersRows(prev => prev.filter((_r, idx) => idx !== i))
+    setHeadersRows(prev => ensureTrailingEmptyRow(prev.filter((_r, idx) => idx !== i)))
+  }
+
+  function addNextVariableRowIfPossible(i: number) {
+    setVariablesRows(prev => {
+      const row = prev[i]
+      const isLast = i === prev.length - 1
+      if (!row || !isLast) return prev
+      if (!row.key.trim() && !row.value) return prev
+      return [...prev, { key: '', value: '' }]
+    })
+  }
+
+  function addNextHeaderRowIfPossible(i: number) {
+    setHeadersRows(prev => {
+      const row = prev[i]
+      const isLast = i === prev.length - 1
+      if (!row || !isLast) return prev
+      if (!row.key.trim() && !row.value) return prev
+      return [...prev, { key: '', value: '' }]
+    })
   }
 
   return (
@@ -134,40 +178,9 @@ export function EnvironmentSettings(props: {
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 220px 1fr', gap: 10, alignItems: 'center' }}>
-          <div className="small">Base URL</div>
-          <input
-            className="mono"
-            value={baseUrlKey}
-            onChange={e => setBaseUrlKey(e.target.value)}
-            placeholder="baseUrl"
-            title="Variable name"
-          />
-          <input
-            value={baseUrlValue}
-            onChange={e => setBaseUrlValue(e.target.value)}
-            placeholder="https://api.example.com"
-            title="Base URL value"
-          />
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 10, alignItems: 'center' }}>
-          <div className="small">Protocol</div>
-          <select
-            className="mono"
-            value={scheme}
-            onChange={e => setScheme((e.target.value === 'https' ? 'https' : 'http'))}
-            title="Used when Base URL has no scheme"
-          >
-            <option value="http">http</option>
-            <option value="https">https</option>
-          </select>
-        </div>
-
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
             <div className="small">Variables</div>
-            <button onClick={addVariableRow}>+ Var</button>
           </div>
 
           {!hasAnyVariable && (
@@ -177,56 +190,119 @@ export function EnvironmentSettings(props: {
           )}
 
           <div style={{ display: 'grid', gap: 8 }}>
-            {variablesRows.map((row, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 10 }}>
-                <input
-                  className="mono"
-                  value={row.key}
-                  onChange={e => updateVariableRow(i, { ...row, key: e.target.value })}
-                  placeholder="token"
-                />
-                <input
-                  className="mono"
-                  value={row.value}
-                  onChange={e => updateVariableRow(i, { ...row, value: e.target.value })}
-                  placeholder="..."
-                />
-                <button className="iconBtn" style={{ width: 32, height: 32 }} onClick={() => deleteVariableRow(i)} aria-label="Delete variable">✕</button>
-              </div>
-            ))}
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 10 }}>
+              <input
+                className="mono"
+                value={baseUrlRow.key}
+                onChange={e => setBaseUrlRow(prev => ({ ...prev, key: e.target.value }))}
+                placeholder="key"
+              />
+              <input
+                className="mono"
+                value={baseUrlRow.value}
+                onChange={e => setBaseUrlRow(prev => ({ ...prev, value: e.target.value }))}
+                placeholder="value"
+              />
+              <button
+                className="headerDeleteBtn"
+                onClick={clearBaseUrlValue}
+                aria-label="Clear variable value"
+                title="Clear variable value"
+              >
+                ✕
+              </button>
+            </div>
+            {variablesRows.map((row, i) => {
+              const isLast = i === variablesRows.length - 1
+              const canAdd = !!(row.key.trim() || row.value)
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 10 }}>
+                  <input
+                    className="mono"
+                    value={row.key}
+                    onChange={e => updateVariableRow(i, { ...row, key: e.target.value })}
+                    placeholder="Key"
+                  />
+                  <input
+                    className="mono"
+                    value={row.value}
+                    onChange={e => updateVariableRow(i, { ...row, value: e.target.value })}
+                    placeholder="Value"
+                  />
+                  {isLast ? (
+                    <button
+                      onClick={() => addNextVariableRowIfPossible(i)}
+                      disabled={!canAdd}
+                      aria-label="Add variable"
+                      title={canAdd ? 'Add' : 'Fill key/value to add'}
+                      style={{ width: 64 }}
+                    >
+                      Add
+                    </button>
+                  ) : (
+                    <button
+                      className="headerDeleteBtn"
+                      onClick={() => deleteVariableRow(i)}
+                      aria-label="Delete variable"
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
             <div className="small">Headers</div>
-            <button onClick={addHeaderRow}>+ Header</button>
           </div>
 
-          {!hasAnyHeader && (
-            <div className="small" style={{ marginBottom: 8 }}>
-              Добавь заголовки (например, <span className="mono">Authorization</span>).
-            </div>
-          )}
+          {!hasAnyHeader ? null : null}
 
           <div style={{ display: 'grid', gap: 8 }}>
-            {headersRows.map((row, i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 10 }}>
-                <input
-                  className="mono"
-                  value={row.key}
-                  onChange={e => updateHeaderRow(i, { ...row, key: e.target.value })}
-                  placeholder="Authorization"
-                />
-                <input
-                  className="mono"
-                  value={row.value}
-                  onChange={e => updateHeaderRow(i, { ...row, value: e.target.value })}
-                  placeholder="Bearer {{token}}"
-                />
-                <button className="iconBtn" style={{ width: 32, height: 32 }} onClick={() => deleteHeaderRow(i)} aria-label="Delete header">✕</button>
-              </div>
-            ))}
+            {headersRows.map((row, i) => {
+              const isLast = i === headersRows.length - 1
+              const canAdd = !!(row.key.trim() || row.value)
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '220px 1fr auto', gap: 10 }}>
+                  <input
+                    className="mono"
+                    value={row.key}
+                    onChange={e => updateHeaderRow(i, { ...row, key: e.target.value })}
+                    placeholder="Key"
+                  />
+                  <input
+                    className="mono"
+                    value={row.value}
+                    onChange={e => updateHeaderRow(i, { ...row, value: e.target.value })}
+                    placeholder="Value"
+                  />
+                  {isLast ? (
+                    <button
+                      onClick={() => addNextHeaderRowIfPossible(i)}
+                      disabled={!canAdd}
+                      aria-label="Add header"
+                      title={canAdd ? 'Add' : 'Fill key/value to add'}
+                      style={{ width: 64 }}
+                    >
+                      Add
+                    </button>
+                  ) : (
+                    <button
+                      className="headerDeleteBtn"
+                      onClick={() => deleteHeaderRow(i)}
+                      aria-label="Delete header"
+                      title="Delete"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
