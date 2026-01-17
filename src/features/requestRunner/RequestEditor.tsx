@@ -1,21 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
+import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
-
-type RequestDraft = {
-  pathParams?: Record<string, string>
-  queryParams?: Record<string, string>
-  headers?: Record<string, string>
-  bodyText?: string
-  fileFieldName?: string
-  baseUrlKey?: string
-  urlTemplateOverride?: string
-}
 
 function safeParseJson<T>(raw: string | null): T | null {
   try {
@@ -142,7 +133,16 @@ function ParamRow(props: {
       <input
         value={value}
         placeholder={hint}
-        onChange={e => props.setStore(prev => ({ ...prev, [props.param.name]: e.target.value }))}
+        onChange={e => {
+          const nextValue = e.target.value
+          props.setStore(prev => {
+            if (nextValue !== '') return { ...prev, [props.param.name]: nextValue }
+            if (!(props.param.name in prev)) return prev
+            const next = { ...prev }
+            delete next[props.param.name]
+            return next
+          })
+        }}
       />
     </div>
   )
@@ -222,10 +222,12 @@ export function RequestEditor(props: {
   collection: Collection
   request: RequestItem
   inFlightCount?: number
+  onBeforeSend?: (requestId: string, item: RequestHistoryItem) => void
   onSendStart?: (requestId: string, runId: string) => void
   onSendEnd?: (requestId: string, runId: string) => void
   onResult: (requestId: string, result: RunResult, runId: string) => void
   onChangeMethod?: (method: HttpMethod) => void
+  applyDraft?: { token: string, draft: RequestDraft } | null
 }) {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
   const urlInputRef = useRef<HTMLInputElement | null>(null)
@@ -374,6 +376,38 @@ export function RequestEditor(props: {
     setShowBaseUrlPicker(false)
   }, [props.environment, props.request.id])
 
+  const applyDraftToken = props.applyDraft?.token ?? null
+  useEffect(() => {
+    if (!applyDraftToken || !props.applyDraft) return
+    const draft = props.applyDraft.draft
+
+    setPathParams(draft?.pathParams ?? {})
+    setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
+    setHeaders({
+      ...(props.environment?.headers ?? {}),
+      ...(props.request.headers ?? {}),
+      ...(draft?.headers ?? {}),
+    })
+    setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
+    setBodyText(draft?.bodyText ?? requestDefaultBodyText())
+    setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
+    setIsEditingUrl(false)
+    setUrlDraftText('')
+    setBodyFile(null)
+    setFileFieldName(draft?.fileFieldName || 'file')
+    setShowBaseUrlPicker(false)
+
+    saveDraft(props.request.id, {
+      pathParams: draft?.pathParams ?? {},
+      queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
+      headers: draft?.headers ?? {},
+      bodyText: draft?.bodyText ?? requestDefaultBodyText(),
+      fileFieldName: draft?.fileFieldName || 'file',
+      baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
+      urlTemplateOverride: draft?.urlTemplateOverride ?? '',
+    })
+  }, [applyDraftToken, props.applyDraft, props.environment, props.request.headers, props.request.id, props.request.params])
+
   useEffect(() => {
     if (!props.request.id) return
     if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
@@ -456,6 +490,22 @@ export function RequestEditor(props: {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
+      props.onBeforeSend?.(props.request.id, {
+        id: uid('hist'),
+        createdAt: Date.now(),
+        method: props.request.method,
+        url: displayUrl,
+        draft: {
+          pathParams,
+          queryParams,
+          headers,
+          bodyText,
+          fileFieldName,
+          baseUrlKey,
+          urlTemplateOverride,
+        },
+      })
+
       const formFields = supportsFile && effectiveContentType.toLowerCase().includes('multipart/form-data')
         ? parseFormFieldsFromBodyText(bodyText)
         : undefined

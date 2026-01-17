@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { safeJsonParse } from '../../shared/utils/http'
 import { generateJsonSchema } from '../../shared/utils/jsonSchema'
+import type { RequestHistoryItem } from '../../shared/types/requestHistory'
 import type { RunResult } from './runRequest'
 import { evaluateJsonSearch, JsonPathSearch, type JsonValue } from './JsonPathSearch'
 
@@ -57,6 +58,51 @@ function CloseIcon(props: { size?: number }) {
   )
 }
 
+function TrashIcon(props: { size?: number }) {
+  const size = props.size ?? 16
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M5 7h14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10 11v7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M14 11v7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9 7l1-2h4l1 2"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7 7l1 14h8l1-14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 async function copyText(text: string) {
   if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text)
@@ -81,11 +127,24 @@ function statusClass(status: number) {
   return 'statusOther'
 }
 
+function formatDateTime24(ts: number) {
+  const d = new Date(ts)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = String(d.getFullYear()).padStart(4, '0')
+  const hh = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${dd}.${mm}.${yyyy} ${hh}:${min}`
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
-  tab: 'body' | 'headers'
-  onTabChange: (tab: 'body' | 'headers') => void
+  tab: 'body' | 'headers' | 'history'
+  onTabChange: (tab: 'body' | 'headers' | 'history') => void
+  historyItems?: RequestHistoryItem[]
+  onSelectHistoryItem?: (item: RequestHistoryItem) => void
+  onDeleteHistoryItem?: (item: RequestHistoryItem) => void
 }) {
   const [bodyQuery, setBodyQuery] = useState('')
   const [copied, setCopied] = useState(false)
@@ -122,6 +181,7 @@ export function ResponseViewer(props: {
   const result = props.result
   const tab = props.tab
   const headersText = result ? JSON.stringify(result.headers, null, 2) : ''
+  const historyItems = props.historyItems ?? []
   const copyPayload = tab === 'body' ? bodyView.text : headersText
 
   async function onCopy() {
@@ -257,9 +317,65 @@ export function ResponseViewer(props: {
         <button className={`tab ${tab === 'headers' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('headers')}>
           Headers
         </button>
+        <button className={`tab ${tab === 'history' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('history')}>
+          History
+        </button>
       </div>
 
-      {tab === 'body' ? (
+      {tab === 'history' ? (
+        <div className="historyList">
+          <div className="small" style={{ opacity: 0.8, marginTop: 10 }}>
+            Click an item to load its params/body into the request editor.
+          </div>
+          {historyItems.length ? (
+            <div style={{ overflow: 'auto', minHeight: 0, display: 'grid', gap: 8, marginTop: 10 }}>
+              {historyItems.map(item => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="historyItem"
+                  onClick={() => props.onSelectHistoryItem?.(item)}
+                >
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="mono" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.method} {item.url}
+                      </div>
+                      <div className="small" style={{ opacity: 0.75 }}>
+                        {formatDateTime24(item.createdAt)}
+                        {item.draft?.queryParams && Object.keys(item.draft.queryParams).length
+                          ? ` · query ${Object.keys(item.draft.queryParams).length}`
+                          : ''}
+                        {typeof item.draft?.bodyText === 'string' && item.draft.bodyText.trim()
+                          ? ` · body ${item.draft.bodyText.length} chars`
+                          : ''}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="iconBtn historyDeleteBtn"
+                      title="Delete"
+                      aria-label="Delete history item"
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onDeleteHistoryItem?.(item)
+                      }}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="small" style={{ opacity: 0.75, marginTop: 10 }}>
+              No history yet.
+            </div>
+          )}
+        </div>
+      ) : tab === 'body' ? (
         <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}>
           <div style={{ marginTop: 10 }}>
             {isJson ? (

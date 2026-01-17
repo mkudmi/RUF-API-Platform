@@ -10,6 +10,8 @@ import { DEFAULT_ENVIRONMENT } from './shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from './shared/utils/storage'
 import type { RunResult } from './features/requestRunner/runRequest'
 import { uid } from './shared/utils/id'
+import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
+import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 
 //TODO: сделать историю запросов, редактируемые уже добавленные параметры, коннект к бд, пре-пост скрипты
 
@@ -104,15 +106,17 @@ export default function App() {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const sidebarWidthRef = useRef(sidebarWidth)
   const editorWidthRef = useRef(editorWidth)
-  const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers'>>(() => {
+  const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers' | 'history'>>(() => {
     const parsed = safeParseJson<any>(localStorage.getItem(RESPONSE_TAB_BY_REQUEST_KEY))
     if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, 'body' | 'headers'> = {}
+    const out: Record<string, 'body' | 'headers' | 'history'> = {}
     for (const [k, v] of Object.entries(parsed)) {
-      if (typeof k === 'string' && (v === 'body' || v === 'headers')) out[k] = v
+      if (typeof k === 'string' && (v === 'body' || v === 'headers' || v === 'history')) out[k] = v
     }
     return out
   })
+  const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
+  const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
 
   function onRequestSendStart(requestId: string) {
     setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
@@ -132,6 +136,14 @@ export default function App() {
     setResultByRequestId(prev => ({ ...prev, [requestId]: result }))
   }
 
+  function onRequestBeforeSend(requestId: string, item: RequestHistoryItem) {
+    setHistoryByRequestId(prev => {
+      const next = appendRequestHistoryItem({ historyByRequestId: prev, requestId, item })
+      saveRequestHistoryByRequestId(next)
+      return next
+    })
+  }
+
   useEffect(() => {
     sidebarWidthRef.current = sidebarWidth
   }, [sidebarWidth])
@@ -145,6 +157,10 @@ export default function App() {
     if (!activeRequestId) return 'body' as const
     return responseTabByRequest[activeRequestId] ?? 'body'
   }, [activeRequestId, responseTabByRequest])
+  const activeHistory = useMemo(() => {
+    if (!activeRequestId) return []
+    return historyByRequestId[activeRequestId] ?? []
+  }, [activeRequestId, historyByRequestId])
   const envModalCollection = useMemo(() => {
     if (!envModalCollectionId) return null
     return collections.find(c => c.id === envModalCollectionId) ?? null
@@ -810,10 +826,16 @@ export default function App() {
                     collection={active.col}
                     request={active.req}
                     inFlightCount={inFlightCountByRequestId[active.req.id] ?? 0}
+                    onBeforeSend={(requestId, item) => onRequestBeforeSend(requestId, item)}
                     onSendStart={requestId => onRequestSendStart(requestId)}
                     onSendEnd={requestId => onRequestSendEnd(requestId)}
                     onResult={(requestId, result) => onRequestResult(requestId, result)}
                     onChangeMethod={m => setRequestMethod(active.col.id, active.req.id, m)}
+                    applyDraft={
+                      applyDraftState && applyDraftState.requestId === active.req.id
+                        ? { token: applyDraftState.token, draft: applyDraftState.draft }
+                        : null
+                    }
                   />
                 )
               : <div className="small">Импортируй OpenAPI или выбери запрос слева.</div>
@@ -827,6 +849,23 @@ export default function App() {
               result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
               inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
               tab={activeResponseTab}
+              historyItems={activeHistory}
+              onSelectHistoryItem={item => {
+                if (!activeRequestId) return
+                setApplyDraftState({ requestId: activeRequestId, token: uid('apply'), draft: item.draft })
+              }}
+              onDeleteHistoryItem={item => {
+                const requestId = activeRequestId
+                if (!requestId) return
+                setHistoryByRequestId(prev => {
+                  const prevItems = prev[requestId] ?? []
+                  const nextItems = prevItems.filter(x => x.id !== item.id)
+                  const next = { ...prev, [requestId]: nextItems }
+                  if (!nextItems.length) delete (next as any)[requestId]
+                  saveRequestHistoryByRequestId(next)
+                  return next
+                })
+              }}
               onTabChange={tab => {
                 const requestId = activeRequestId
                 if (!requestId) return
