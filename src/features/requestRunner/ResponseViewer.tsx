@@ -1,7 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { safeJsonParse } from '../../shared/utils/http'
+import { generateJsonSchema } from '../../shared/utils/jsonSchema'
 import type { RunResult } from './runRequest'
 import { evaluateJsonSearch, JsonPathSearch, type JsonValue } from './JsonPathSearch'
+
+type FileSystemWritableFileStreamLike = {
+  write: (data: string) => Promise<void>
+  close: () => Promise<void>
+}
+
+type FileSystemFileHandleLike = {
+  createWritable: () => Promise<FileSystemWritableFileStreamLike>
+}
 
 function CopyIcon(props: { size?: number }) {
   const size = props.size ?? 16
@@ -26,6 +36,23 @@ function CopyIcon(props: { size?: number }) {
         strokeWidth="2"
         strokeLinecap="round"
       />
+    </svg>
+  )
+}
+
+function CloseIcon(props: { size?: number }) {
+  const size = props.size ?? 16
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path d="M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   )
 }
@@ -61,6 +88,13 @@ export function ResponseViewer(props: {
 }) {
   const [bodyQuery, setBodyQuery] = useState('')
   const [copied, setCopied] = useState(false)
+  const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
+  const [schemaCopyFeedback, setSchemaCopyFeedback] = useState(false)
+  const [schemaFileBaseName, setSchemaFileBaseName] = useState('requestResponseSchema')
+  const schemaMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const saveSchemaDialogRef = useRef<HTMLDialogElement | null>(null)
+  const schemaFileNameInputRef = useRef<HTMLInputElement | null>(null)
+  const schemaCloseTimerRef = useRef<number | null>(null)
 
   const parsed = useMemo(() => {
     if (!props.result) return null
@@ -84,11 +118,9 @@ export function ResponseViewer(props: {
     return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null as string | null }
   }, [bodyQuery, isJson, parsed, props.result])
 
-  if (!props.result) return <div className="small">Run a request to see the response.</div>
-
   const result = props.result
   const tab = props.tab
-  const headersText = JSON.stringify(result.headers, null, 2)
+  const headersText = result ? JSON.stringify(result.headers, null, 2) : ''
   const copyPayload = tab === 'body' ? bodyView.text : headersText
 
   async function onCopy() {
@@ -96,6 +128,113 @@ export function ResponseViewer(props: {
     setCopied(true)
     setTimeout(() => setCopied(false), 900)
   }
+
+  const clearSchemaCloseTimer = useCallback(() => {
+    if (schemaCloseTimerRef.current === null) return
+    window.clearTimeout(schemaCloseTimerRef.current)
+    schemaCloseTimerRef.current = null
+  }, [])
+
+  const closeSchemaMenu = useCallback(() => {
+    clearSchemaCloseTimer()
+    setSchemaCopyFeedback(false)
+    setSchemaMenuOpen(false)
+  }, [clearSchemaCloseTimer])
+
+  useEffect(() => {
+    if (!schemaMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = schemaMenuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      closeSchemaMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeSchemaMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [closeSchemaMenu, schemaMenuOpen])
+
+  function getSchemaText() {
+    if (!isJson) return null
+    const schema = generateJsonSchema(parsed)
+    return JSON.stringify(schema, null, 2)
+  }
+
+  async function copySchemaToClipboard() {
+    const schemaText = getSchemaText()
+    if (!schemaText) return
+    await copyText(schemaText)
+    setSchemaCopyFeedback(true)
+    clearSchemaCloseTimer()
+    schemaCloseTimerRef.current = window.setTimeout(() => {
+      closeSchemaMenu()
+    }, 900)
+  }
+
+  function openSaveSchemaDialog() {
+    closeSchemaMenu()
+    setSchemaFileBaseName('requestResponseSchema')
+    saveSchemaDialogRef.current?.showModal()
+    setTimeout(() => schemaFileNameInputRef.current?.focus(), 0)
+  }
+
+  function normalizeSchemaFileName(base: string) {
+    const trimmed = base.trim() || 'requestResponseSchema'
+    return trimmed.toLowerCase().endsWith('.json') ? trimmed : `${trimmed}.json`
+  }
+
+  async function saveSchemaWithName(baseName: string) {
+    const schemaText = getSchemaText()
+    if (!schemaText) return
+
+    const fileName = normalizeSchemaFileName(baseName)
+
+    try {
+      const w = window as unknown as { showSaveFilePicker?: (options: unknown) => Promise<FileSystemFileHandleLike> }
+      if (typeof w.showSaveFilePicker === 'function') {
+        const handle = await w.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: 'JSON',
+              accept: { 'application/json': ['.json'] },
+            },
+          ],
+        })
+        const writable = await handle.createWritable()
+        await writable.write(schemaText)
+        await writable.close()
+      } else {
+        const blob = new Blob([schemaText], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      }
+    } catch (e) {
+      if ((e as Error | null)?.name !== 'AbortError') throw e
+    }
+  }
+
+  async function confirmSaveSchema() {
+    await saveSchemaWithName(schemaFileBaseName)
+    saveSchemaDialogRef.current?.close()
+  }
+
+  if (!result) return <div className="small">Run a request to see the response.</div>
 
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', overflow: 'hidden' }}>
@@ -131,20 +270,98 @@ export function ResponseViewer(props: {
             )}
           </div>
           <div style={{ position: 'relative', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-            <button
-              className="iconBtn"
-              onClick={onCopy}
-              title="Copy body"
-              aria-label="Copy body"
-              style={{ position: 'absolute', top: 8, right: 24, zIndex: 2 }}
-            >
-              {copied ? 'OK' : <CopyIcon />}
-            </button>
-            <div style={{ overflow: 'auto', height: '100%', paddingRight: 48 }}>
+            <div style={{ position: 'absolute', top: 8, right: 24, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
+              {isJson ? (
+                <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
+                  <button
+                    type="button"
+                    className="envBtn"
+                    style={{ height: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center' }}
+                    aria-haspopup="menu"
+                    aria-expanded={schemaMenuOpen}
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      clearSchemaCloseTimer()
+                      setSchemaCopyFeedback(false)
+                      setSchemaMenuOpen(v => !v)
+                    }}
+                    title="Generate JSON Schema"
+                  >
+                    Generate JSON Schema
+                  </button>
+
+                  {schemaMenuOpen ? (
+                    <div
+                      className="methodMenuPanel"
+                      role="menu"
+                      style={{ minWidth: '100%' }}
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="methodMenuItem mono"
+                        role="menuitem"
+                        onClick={copySchemaToClipboard}
+                        disabled={schemaCopyFeedback}
+                      >
+                        {schemaCopyFeedback ? 'Copied!' : 'Copy'}
+                      </button>
+                      <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
+                        Save
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <button className="iconBtn" onClick={onCopy} title="Copy body" aria-label="Copy body">
+                {copied ? 'OK' : <CopyIcon />}
+              </button>
+            </div>
+            <div style={{ overflow: 'auto', height: '100%', paddingRight: isJson ? 260 : 48 }}>
               <pre className="mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
                 {bodyView.text}
               </pre>
             </div>
+
+            <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
+              <div className="modalHeader">
+                <b>Save JSON Schema</b>
+                <button className="iconBtn" onClick={() => saveSchemaDialogRef.current?.close()} aria-label="Close" title="Close">
+                  <CloseIcon />
+                </button>
+              </div>
+
+              <div className="small" style={{ marginBottom: 8 }}>
+                File name
+              </div>
+
+              <input
+                ref={schemaFileNameInputRef}
+                className="mono"
+                style={{ width: '100%' }}
+                value={schemaFileBaseName}
+                onChange={e => setSchemaFileBaseName(e.target.value)}
+                placeholder="requestResponseSchema"
+                onKeyDown={e => {
+                  if (e.key === 'Enter') confirmSaveSchema()
+                }}
+              />
+
+              <div className="modalActions">
+                <button type="button" onClick={confirmSaveSchema}>
+                  Save
+                </button>
+              </div>
+            </dialog>
           </div>
         </div>
       ) : (
