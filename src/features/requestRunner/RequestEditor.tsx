@@ -100,19 +100,12 @@ function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
   return `${scheme}://${raw}`.replace(/\/+$/, '')
 }
 
-function defaultQueryParamsFromSpec(params: RequestParam[]) {
-  const out: Record<string, string> = {}
-  for (const p of params) {
-    if (p.in !== 'query') continue
-    const ex = p.example
-    if (ex === undefined || ex === null) continue
-    if (typeof ex === 'string' || typeof ex === 'number' || typeof ex === 'boolean') {
-      out[p.name] = String(ex)
-    }
-  }
-  return out
+function defaultQueryParamsFromSpec(_params: RequestParam[]) {
+  // Imported query params should render as editable fields with placeholder hints,
+  // without automatically pre-filling values from examples.
+  return {}
 }
-
+  
 function ParamRow(props: {
   param: RequestParam
   store: Record<string, string>
@@ -156,6 +149,23 @@ function normalizeHeaderParams(requestHeaders: RequestParam[], headersStore: Rec
     out.push({ name: k, in: 'header', required: false })
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function renameStoreKey(
+  prev: Record<string, string>,
+  fromKey: string,
+  toKey: string,
+) {
+  const from = fromKey.trim()
+  const to = toKey.trim()
+  if (!from || !to || to === from) return prev
+  const value = prev[from]
+  if (value === undefined) return prev
+  if (Object.prototype.hasOwnProperty.call(prev, to)) return prev
+  const next: Record<string, string> = { ...prev }
+  delete next[from]
+  next[to] = value
+  return next
 }
 
 function HeaderRow(props: {
@@ -217,6 +227,71 @@ function HeaderRow(props: {
   )
 }
 
+function QueryRow(props: {
+  name: string
+  value: string
+  hint?: string
+  required?: boolean
+  onChangeValue: (value: string) => void
+  onRename?: (nextName: string) => void
+  onDelete?: () => void
+}) {
+  const [draftName, setDraftName] = useState(props.name)
+
+  useEffect(() => {
+    setDraftName(props.name)
+  }, [props.name])
+
+  function commitRename() {
+    if (!props.onRename) return
+    const next = draftName.trim()
+    if (!next || next === props.name) {
+      setDraftName(props.name)
+      return
+    }
+    props.onRename(next)
+  }
+
+  return (
+    <div className="formRow">
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+        <input
+          className="mono"
+          style={{ flex: 1, minWidth: 0 }}
+          value={draftName}
+          onChange={e => setDraftName(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commitRename()
+            if (e.key === 'Escape') setDraftName(props.name)
+          }}
+          onBlur={commitRename}
+          placeholder="Key"
+        />
+        {props.required ? <span className="reqStar">*</span> : null}
+      </div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch' }}>
+        <input
+          className="mono"
+          style={{ flex: 1, minWidth: 0 }}
+          value={props.value}
+          onChange={e => props.onChangeValue(e.target.value)}
+          placeholder={props.hint || 'Value'}
+        />
+        {props.onDelete ? (
+          <button
+            className="rowDeleteBtn"
+            onClick={props.onDelete}
+            aria-label={`Delete query param ${props.name}`}
+            title="Delete"
+          >
+            バ
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function RequestEditor(props: {
   environment?: Environment
   collection: Collection
@@ -237,6 +312,8 @@ export function RequestEditor(props: {
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
+  const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
+  const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
   const [headers, setHeaders] = useState<Record<string, string>>(() => ({
     ...(props.environment?.headers ?? {}),
     ...(props.request.headers ?? {}),
@@ -357,6 +434,8 @@ export function RequestEditor(props: {
     const draft = loadDraft(props.request.id)
     setPathParams(draft?.pathParams ?? {})
     setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
+    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
+    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
     setHeaders({
       ...(props.environment?.headers ?? {}),
       ...(props.request.headers ?? {}),
@@ -383,6 +462,8 @@ export function RequestEditor(props: {
 
     setPathParams(draft?.pathParams ?? {})
     setQueryParams(draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params))
+    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
+    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
     setHeaders({
       ...(props.environment?.headers ?? {}),
       ...(props.request.headers ?? {}),
@@ -400,6 +481,8 @@ export function RequestEditor(props: {
     saveDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
+      queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
+      disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
       headers: draft?.headers ?? {},
       bodyText: draft?.bodyText ?? requestDefaultBodyText(),
       fileFieldName: draft?.fileFieldName || 'file',
@@ -415,6 +498,8 @@ export function RequestEditor(props: {
       saveDraft(props.request.id, {
         pathParams,
         queryParams,
+        queryParamKeyOverrides,
+        disabledQueryParamNames,
         headers,
         bodyText,
         fileFieldName,
@@ -426,7 +511,18 @@ export function RequestEditor(props: {
       if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
       draftSaveTimerRef.current = null
     }
-  }, [baseUrlKey, bodyText, fileFieldName, headers, pathParams, props.request.id, queryParams, urlTemplateOverride])
+  }, [
+    baseUrlKey,
+    bodyText,
+    fileFieldName,
+    headers,
+    pathParams,
+    props.request.id,
+    queryParams,
+    queryParamKeyOverrides,
+    disabledQueryParamNames,
+    urlTemplateOverride,
+  ])
 
   const grouped = useMemo(() => {
     const p = props.request.params
@@ -436,6 +532,23 @@ export function RequestEditor(props: {
       header: p.filter(x => x.in === 'header'),
     }
   }, [props.request.params])
+
+  const querySpecNames = useMemo(() => new Set(grouped.query.map(q => q.name)), [grouped.query])
+  const disabledQuerySpecNames = useMemo(
+    () => new Set(Object.keys(disabledQueryParamNames).filter(Boolean)),
+    [disabledQueryParamNames],
+  )
+  const queryParamsList = useMemo(() => {
+    const overriddenKeys = new Set(Object.values(queryParamKeyOverrides).filter(Boolean))
+    const spec = grouped.query.filter(Boolean).filter(p => !disabledQuerySpecNames.has(p.name))
+    const out: RequestParam[] = [...spec]
+    for (const k of Object.keys(queryParams)) {
+      if (querySpecNames.has(k)) continue
+      if (overriddenKeys.has(k)) continue
+      out.push({ name: k, in: 'query', required: false })
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name))
+  }, [disabledQuerySpecNames, grouped.query, queryParams, queryParamKeyOverrides, querySpecNames])
 
   const headerParams = useMemo(() => normalizeHeaderParams(grouped.header, headers), [grouped.header, headers])
   const headerSpecNames = useMemo(() => new Set(grouped.header.map(h => h.name)), [grouped.header])
@@ -481,7 +594,31 @@ export function RequestEditor(props: {
   function addQueryParam() {
     const key = newParamKey.trim()
     if (!key) return
-    setQueryParams(prev => ({ ...prev, [key]: newParamValue }))
+    const overrideKey = queryParamKeyOverrides[key]
+    if (overrideKey && overrideKey !== key) {
+      setQueryParamKeyOverrides(prev => {
+        if (!(key in prev)) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      setQueryParams(prev => {
+        const next = { ...prev, [key]: newParamValue }
+        delete next[overrideKey]
+        return next
+      })
+    } else {
+      setQueryParams(prev => ({ ...prev, [key]: newParamValue }))
+    }
+
+    if (querySpecNames.has(key)) {
+      setDisabledQueryParamNames(prev => {
+        if (!(key in prev)) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+    }
     setNewParamKey('')
     setNewParamValue('')
   }
@@ -498,6 +635,8 @@ export function RequestEditor(props: {
         draft: {
           pathParams,
           queryParams,
+          queryParamKeyOverrides,
+          disabledQueryParamNames,
           headers,
           bodyText,
           fileFieldName,
@@ -582,7 +721,11 @@ export function RequestEditor(props: {
     if (!raw) return
     const parsed = parseUrlInput(raw)
     if (parsed.template) setUrlTemplateOverride(parsed.template)
-    if (parsed.hasQuery) setQueryParams(parsed.query)
+    if (parsed.hasQuery) {
+      setQueryParams(parsed.query)
+      setQueryParamKeyOverrides({})
+      setDisabledQueryParamNames({})
+    }
   }
 
   useEffect(() => {
@@ -869,28 +1012,6 @@ export function RequestEditor(props: {
 
       <details className="accordion" open>
         <summary>Params</summary>
-        {grouped.path.length === 0 && grouped.query.length === 0 && (
-          <div className="section">
-            <div className="headerAdd">
-              <input
-                className="mono"
-                value={newParamKey}
-                onChange={e => setNewParamKey(e.target.value)}
-                placeholder="Key"
-              />
-              <input
-                className="mono"
-                value={newParamValue}
-                onChange={e => setNewParamValue(e.target.value)}
-                placeholder="Value"
-              />
-              <button onClick={addQueryParam} disabled={!newParamKey.trim()}>
-                Add
-              </button>
-            </div>
-          </div>
-        )}
-
         {grouped.path.length > 0 && (
           <div className="section">
             <div className="sectionTitle">Path</div>
@@ -900,14 +1021,97 @@ export function RequestEditor(props: {
           </div>
         )}
 
-        {grouped.query.length > 0 && (
-          <div className="section">
-            <div className="sectionTitle">Query</div>
-            {grouped.query.map(p => (
-              <ParamRow key={p.name} param={p} store={queryParams} setStore={setQueryParams} />
-            ))}
+        <div className="section">
+          <div className="sectionTitle">Query</div>
+          {queryParamsList.map(p => {
+            const rawName = p.name
+            const isSpec = querySpecNames.has(rawName)
+            const effectiveName = isSpec ? (queryParamKeyOverrides[rawName] ?? rawName) : rawName
+            const value = queryParams[effectiveName] ?? ''
+            const hint =
+              typeof p.example === 'string' || typeof p.example === 'number'
+                ? String(p.example)
+                : p.schemaType || ''
+
+            return (
+              <QueryRow
+                key={rawName}
+                name={effectiveName}
+                value={value}
+                hint={isSpec ? hint : undefined}
+                required={isSpec ? p.required : false}
+                onChangeValue={nextValue => {
+                  setQueryParams(prev => {
+                    const next = { ...prev }
+                    if (nextValue !== '') {
+                      next[effectiveName] = nextValue
+                      if (isSpec && effectiveName !== rawName) delete next[rawName]
+                      return next
+                    }
+                    if (!(effectiveName in prev)) return prev
+                    delete next[effectiveName]
+                    return next
+                  })
+                }}
+                onRename={
+                  nextName => {
+                    const trimmed = nextName.trim()
+                    if (!trimmed || trimmed === effectiveName) return
+
+                    if (isSpec) {
+                      setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                      setQueryParamKeyOverrides(prev => {
+                        const next = { ...prev }
+                        if (trimmed === rawName) delete next[rawName]
+                        else next[rawName] = trimmed
+                        return next
+                      })
+                      return
+                    }
+
+                    setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                  }
+                }
+                onDelete={() => {
+                  setQueryParams(prev => {
+                    if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                    const next = { ...prev }
+                    delete next[effectiveName]
+                    if (rawName !== effectiveName) delete next[rawName]
+                    return next
+                  })
+                  if (isSpec) {
+                    setQueryParamKeyOverrides(prev => {
+                      if (!(rawName in prev)) return prev
+                      const next = { ...prev }
+                      delete next[rawName]
+                      return next
+                    })
+                    setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
+                  }
+                }}
+              />
+            )
+          })}
+
+          <div className="headerAdd">
+            <input
+              className="mono"
+              value={newParamKey}
+              onChange={e => setNewParamKey(e.target.value)}
+              placeholder="Key"
+            />
+            <input
+              className="mono"
+              value={newParamValue}
+              onChange={e => setNewParamValue(e.target.value)}
+              placeholder="Value"
+            />
+            <button onClick={addQueryParam} disabled={!newParamKey.trim()}>
+              Add
+            </button>
           </div>
-        )}
+        </div>
       </details>
 
       {props.request.body && (

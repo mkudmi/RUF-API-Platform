@@ -3,6 +3,8 @@ import type { HttpMethod } from './collection'
 export type RequestDraft = {
   pathParams?: Record<string, string>
   queryParams?: Record<string, string>
+  queryParamKeyOverrides?: Record<string, string>
+  disabledQueryParamNames?: Record<string, true>
   headers?: Record<string, string>
   bodyText?: string
   fileFieldName?: string
@@ -17,4 +19,3 @@ export type RequestHistoryItem = {
   url: string
   draft: RequestDraft
 }
-
