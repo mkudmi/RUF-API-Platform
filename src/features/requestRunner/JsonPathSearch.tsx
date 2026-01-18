@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { JSONPath } from 'jsonpath-plus'
+import { CloseIcon, CopyIcon } from '../../shared/icons'
 
 export type JsonValue = null | boolean | number | string | object | unknown[]
 
@@ -236,7 +237,10 @@ export function JsonPathSearch(props: {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, marginTop: 8 }}>
+      <div
+        className="jsonSearchQueryRow"
+        style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, marginTop: 8 }}
+      >
         <input
           className="mono"
           value={query}
@@ -244,9 +248,25 @@ export function JsonPathSearch(props: {
           disabled={disabled}
           placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
         />
-        <button onClick={() => props.onQueryChange('')} disabled={!q}>Clear</button>
-        <button onClick={() => onCopy('query', q)} disabled={!q} title="Copy query">
-          {copied === 'query' ? 'Copied' : 'Copy'}
+        <button
+          type="button"
+          className="iconBtn"
+          onClick={() => onCopy('query', q)}
+          disabled={!q}
+          title="Copy query"
+          aria-label="Copy query"
+        >
+          {copied === 'query' ? 'OK' : <CopyIcon />}
+        </button>
+        <button
+          type="button"
+          className="iconBtn"
+          onClick={() => props.onQueryChange('')}
+          disabled={!q}
+          title="Clear"
+          aria-label="Clear"
+        >
+          <CloseIcon />
         </button>
       </div>
 

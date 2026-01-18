@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
+import { CopyIcon } from '../../shared/icons'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
@@ -30,33 +31,6 @@ function saveDraft(requestId: string, draft: RequestDraft) {
   const next = parsed && typeof parsed === 'object' ? parsed : {}
   next[requestId] = draft
   localStorage.setItem(REQUEST_DRAFTS_KEY, JSON.stringify(next))
-}
-
-function CopyIcon(props: { size?: number }) {
-  const size = props.size ?? 16
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <path
-        d="M9 9h10v12H9V9Z"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
 }
 
 async function copyText(text: string) {

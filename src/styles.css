@@ -148,6 +148,13 @@ button:hover { background: rgba(255,255,255,.10); }
   place-items: center;
   border-radius: var(--radius);
 }
+.jsonSearchQueryRow > input,
+.jsonSearchQueryRow > button {
+  height: 34px;
+}
+.jsonSearchQueryRow > button.iconBtn {
+  width: 34px;
+}
 .addRowBtn {
   font-size: 22px;
   line-height: 1;
