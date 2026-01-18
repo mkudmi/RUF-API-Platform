@@ -272,7 +272,9 @@ function QueryDraftRow(props: {
   onChangeName: (nextName: string) => void
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
+  canDelete?: boolean
 }) {
+  const canDelete = props.canDelete ?? true
   return (
     <div className="formRow">
       <input
@@ -291,9 +293,11 @@ function QueryDraftRow(props: {
         />
         <button
           className="rowDeleteBtn"
-          onClick={props.onDelete}
+          onClick={canDelete ? props.onDelete : undefined}
+          disabled={!canDelete}
+          aria-disabled={!canDelete}
           aria-label="Delete query param"
-          title="Delete"
+          title={canDelete ? 'Delete' : 'Cannot delete'}
         >
           <CloseIcon size={18} />
         </button>
@@ -308,7 +312,9 @@ function HeaderDraftRow(props: {
   onChangeName: (nextName: string) => void
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
+  canDelete?: boolean
 }) {
+  const canDelete = props.canDelete ?? true
   return (
     <div className="formRow">
       <input
@@ -325,7 +331,14 @@ function HeaderDraftRow(props: {
           onChange={e => props.onChangeValue(e.target.value)}
           placeholder="Value"
         />
-        <button className="headerDeleteBtn" onClick={props.onDelete} aria-label="Delete header" title="Delete">
+        <button
+          className="headerDeleteBtn"
+          onClick={canDelete ? props.onDelete : undefined}
+          disabled={!canDelete}
+          aria-disabled={!canDelete}
+          aria-label="Delete header"
+          title={canDelete ? 'Delete' : 'Cannot delete'}
+        >
           <CloseIcon size={18} />
         </button>
       </div>
@@ -1106,6 +1119,7 @@ export function RequestEditor(props: {
               onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
               onDelete={() => setHeaderDraftRows(prev => prev.filter(r => r.id !== row.id))}
+              canDelete={!(visibleHeaderParams.length === 0 && headerDraftRows.length === 1)}
             />
           ))}
 
@@ -1237,6 +1251,7 @@ export function RequestEditor(props: {
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
               onDelete={() => setQueryDraftRows(prev => prev.filter(r => r.id !== row.id))}
+              canDelete={!(queryParamsList.length === 0 && queryDraftRows.length === 1)}
             />
           ))}
         </div>
