@@ -369,10 +369,8 @@ export function RequestEditor(props: {
   const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
   const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
   const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
-  const [headers, setHeaders] = useState<Record<string, string>>(() => ({
-    ...(props.environment?.headers ?? {}),
-    ...(props.request.headers ?? {}),
-  }))
+  const [headerOverrides, setHeaderOverrides] = useState<Record<string, string>>({})
+  const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
   const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [fileFieldName, setFileFieldName] = useState('file')
@@ -438,8 +436,17 @@ export function RequestEditor(props: {
     return next
   }, [queryDraftRows, queryParams])
 
+  const envHeaders = props.environment?.headers ?? {}
+  const requestBaseHeaders = props.request.headers ?? {}
+
+  const committedRequestHeaders = useMemo(() => {
+    const next: Record<string, string> = { ...requestBaseHeaders, ...headerOverrides }
+    for (const key of Object.keys(disabledHeaderNames)) delete next[key]
+    return next
+  }, [disabledHeaderNames, headerOverrides, requestBaseHeaders])
+
   const effectiveHeaders = useMemo(() => {
-    const next: Record<string, string> = { ...headers }
+    const next: Record<string, string> = { ...envHeaders, ...committedRequestHeaders }
     for (const row of headerDraftRows) {
       const k = row.name.trim()
       if (!k) continue
@@ -447,7 +454,7 @@ export function RequestEditor(props: {
       next[k] = row.value
     }
     return next
-  }, [headerDraftRows, headers])
+  }, [committedRequestHeaders, envHeaders, headerDraftRows])
 
   const displayUrl = useMemo(() => {
     const override = urlTemplateOverride.trim()
@@ -508,18 +515,37 @@ export function RequestEditor(props: {
     const draft = loadDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
-    const nextHeaders = {
-      ...(props.environment?.headers ?? {}),
-      ...(props.request.headers ?? {}),
-      ...(draft?.headers ?? {}),
-    }
+
+    const env = props.environment?.headers ?? {}
+    const base = props.request.headers ?? {}
+
+    const nextHeaderOverrides = (() => {
+      if (draft?.headerOverrides && typeof draft.headerOverrides === 'object') return draft.headerOverrides
+      const legacy = draft?.headers && typeof draft.headers === 'object' ? draft.headers : null
+      if (!legacy) return {}
+      const overrides: Record<string, string> = {}
+      for (const [k, v] of Object.entries(legacy)) {
+        if (!(k in base) && (k in env) && env[k] === v) continue
+        if (!(k in base) || base[k] !== v) overrides[k] = v
+      }
+      return overrides
+    })()
+
+    const nextDisabledHeaderNames =
+      draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object' ? draft.disabledHeaderNames : {}
+
+    const headersForSeedCheck = (() => {
+      const next: Record<string, string> = { ...base, ...nextHeaderOverrides }
+      for (const key of Object.keys(nextDisabledHeaderNames)) delete next[key]
+      return next
+    })()
 
     const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
     const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
     const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
 
     const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
-    const hasHeadersStore = Object.keys(nextHeaders).some(k => k.toLowerCase() !== 'authorization')
+    const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
     const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
 
     setPathParams(nextPathParams)
@@ -527,7 +553,8 @@ export function RequestEditor(props: {
     setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
-    setHeaders(nextHeaders)
+    setHeaderOverrides(nextHeaderOverrides)
+    setDisabledHeaderNames(nextDisabledHeaderNames)
     setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
@@ -537,7 +564,7 @@ export function RequestEditor(props: {
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
     setShowBaseUrlPicker(false)
-  }, [props.environment, props.request.id])
+  }, [props.request.id, props.request.params, props.request.headers])
 
   const applyDraftToken = props.applyDraft?.token ?? null
   useEffect(() => {
@@ -546,18 +573,31 @@ export function RequestEditor(props: {
 
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
-    const nextHeaders = {
-      ...(props.environment?.headers ?? {}),
-      ...(props.request.headers ?? {}),
-      ...(draft?.headers ?? {}),
+
+    const env = props.environment?.headers ?? {}
+    const base = props.request.headers ?? {}
+
+    const target = (draft?.headers && typeof draft.headers === 'object') ? draft.headers : {}
+
+    const nextDisabledHeaderNames: Record<string, true> = {}
+    for (const key of Object.keys(base)) {
+      if (!(key in target)) nextDisabledHeaderNames[key] = true
     }
+
+    const nextHeaderOverrides: Record<string, string> = {}
+    for (const [k, v] of Object.entries(target)) {
+      if (!(k in base) && (k in env) && env[k] === v) continue
+      if (!(k in base) || base[k] !== v) nextHeaderOverrides[k] = v
+    }
+
+    const headersForSeedCheck = { ...target }
 
     const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
     const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
     const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
 
     const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
-    const hasHeadersStore = Object.keys(nextHeaders).some(k => k.toLowerCase() !== 'authorization')
+    const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
     const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
 
     setPathParams(nextPathParams)
@@ -565,7 +605,8 @@ export function RequestEditor(props: {
     setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
-    setHeaders(nextHeaders)
+    setHeaderOverrides(nextHeaderOverrides)
+    setDisabledHeaderNames(nextDisabledHeaderNames)
     setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     setBodyText(draft?.bodyText ?? requestDefaultBodyText())
@@ -581,7 +622,8 @@ export function RequestEditor(props: {
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
       queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
       disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
-      headers: draft?.headers ?? {},
+      headerOverrides: nextHeaderOverrides,
+      disabledHeaderNames: nextDisabledHeaderNames,
       bodyText: draft?.bodyText ?? requestDefaultBodyText(),
       fileFieldName: draft?.fileFieldName || 'file',
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
@@ -598,7 +640,8 @@ export function RequestEditor(props: {
         queryParams,
         queryParamKeyOverrides,
         disabledQueryParamNames,
-        headers,
+        headerOverrides,
+        disabledHeaderNames,
         bodyText,
         fileFieldName,
         baseUrlKey,
@@ -612,8 +655,9 @@ export function RequestEditor(props: {
   }, [
     baseUrlKey,
     bodyText,
+    disabledHeaderNames,
     fileFieldName,
-    headers,
+    headerOverrides,
     pathParams,
     props.request.id,
     queryParams,
@@ -648,7 +692,10 @@ export function RequestEditor(props: {
     return out
   }, [disabledQuerySpecNames, grouped.query, queryParams, queryParamKeyOverrides, querySpecNames])
 
-  const headerParams = useMemo(() => normalizeHeaderParams(grouped.header, headers), [grouped.header, headers])
+  const headerParams = useMemo(
+    () => normalizeHeaderParams(grouped.header, committedRequestHeaders),
+    [grouped.header, committedRequestHeaders],
+  )
   const headerSpecNames = useMemo(() => new Set(grouped.header.map(h => h.name)), [grouped.header])
   const visibleHeaderParams = useMemo(
     () => headerParams.filter(h => h.name.toLowerCase() !== 'authorization'),
@@ -690,35 +737,62 @@ export function RequestEditor(props: {
   }
 
   async function send() {
-    const runId = uid('run')
-    props.onSendStart?.(props.request.id, runId)
-    try {
-      const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
-      const effectiveHeadersForSend = hasDraftHeadersToCommit ? effectiveHeaders : headers
-      const hasDraftQueryToCommit = queryDraftRows.some(r => r.name.trim() && r.value !== '')
-      const effectiveQueryParamsForSend = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
-      const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
-        ? (() => {
+      const runId = uid('run')
+      props.onSendStart?.(props.request.id, runId)
+      try {
+        const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
+        const effectiveHeadersForSend = hasDraftHeadersToCommit
+          ? effectiveHeaders
+          : { ...envHeaders, ...committedRequestHeaders }
+        const hasDraftQueryToCommit = queryDraftRows.some(r => r.name.trim() && r.value !== '')
+        const effectiveQueryParamsForSend = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
+        const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
+          ? (() => {
+              let changed = false
+              const next = { ...disabledQueryParamNames }
+              for (const row of queryDraftRows) {
+                const key = row.name.trim()
+                if (!key) continue
+                if (row.value === '') continue
+                if (!querySpecNames.has(key)) continue
+                if (key in next) {
+                  delete next[key]
+                  changed = true
+                }
+              }
+              return changed ? next : disabledQueryParamNames
+            })()
+          : disabledQueryParamNames
+
+        if (hasDraftHeadersToCommit) {
+          setHeaderOverrides(prev => {
             let changed = false
-            const next = { ...disabledQueryParamNames }
-            for (const row of queryDraftRows) {
+            const next = { ...prev }
+            for (const row of headerDraftRows) {
               const key = row.name.trim()
               if (!key) continue
               if (row.value === '') continue
-              if (!querySpecNames.has(key)) continue
+              next[key] = row.value
+              changed = true
+            }
+            return changed ? next : prev
+          })
+          setDisabledHeaderNames(prev => {
+            let changed = false
+            const next = { ...prev }
+            for (const row of headerDraftRows) {
+              const key = row.name.trim()
+              if (!key) continue
+              if (row.value === '') continue
               if (key in next) {
                 delete next[key]
                 changed = true
               }
             }
-            return changed ? next : disabledQueryParamNames
-          })()
-        : disabledQueryParamNames
-
-      if (hasDraftHeadersToCommit) {
-        setHeaders(effectiveHeadersForSend)
-        setHeaderDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
-      }
+            return changed ? next : prev
+          })
+          setHeaderDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
+        }
 
       if (hasDraftQueryToCommit) {
         setQueryParams(effectiveQueryParamsForSend)
@@ -1027,22 +1101,35 @@ export function RequestEditor(props: {
         </div>
       )}
 
-      <details className="accordion">
-        <summary>Authorization</summary>
-        <div className="section">
-          <div className="formRow">
-            <div className="formLabel mono">Authorization</div>
-            <input
-              className="mono"
-              value={headers.Authorization ?? ''}
-              onChange={e => {
-                const v = e.target.value
-                setHeaders(prev => {
-                  if (v === '') {
+        <details className="accordion">
+          <summary>Authorization</summary>
+          <div className="section">
+            <div className="formRow">
+              <div className="formLabel mono">Authorization</div>
+              <input
+                className="mono"
+                value={committedRequestHeaders.Authorization ?? ''}
+                onChange={e => {
+                  const v = e.target.value
+                  setHeaderOverrides(prev => {
+                    if (v === '') {
+                    if (!Object.prototype.hasOwnProperty.call(prev, 'Authorization')) return prev
                     const { Authorization: _removed, ...rest } = prev
                     return rest
                   }
                   return { ...prev, Authorization: v }
+                })
+                  setDisabledHeaderNames(prev => {
+                    const baseHas = Object.prototype.hasOwnProperty.call(requestBaseHeaders, 'Authorization')
+                    if (v === '') {
+                      if (!baseHas) return prev
+                      if (prev.Authorization) return prev
+                      return { ...prev, Authorization: true }
+                  }
+                  if (!prev.Authorization) return prev
+                  const next = { ...prev }
+                  delete next.Authorization
+                  return next
                 })
               }}
               placeholder="Bearer …"
@@ -1075,37 +1162,83 @@ export function RequestEditor(props: {
         <div className="section">
           {visibleHeaderParams.map(h => {
             const isSpec = headerSpecNames.has(h.name)
-            const value = headers[h.name] ?? ''
+            const isInBase = Object.prototype.hasOwnProperty.call(requestBaseHeaders, h.name)
+            const value = committedRequestHeaders[h.name] ?? ''
             return (
               <HeaderRow
                 key={h.name}
                 name={h.name}
                 value={value}
                 readOnlyName={isSpec}
-                onChangeValue={nextValue => setHeaders(prev => ({ ...prev, [h.name]: nextValue }))}
+                onChangeValue={nextValue => {
+                  setHeaderOverrides(prev => ({ ...prev, [h.name]: nextValue }))
+                  setDisabledHeaderNames(prev => {
+                    if (!(h.name in prev)) return prev
+                    const next = { ...prev }
+                    delete next[h.name]
+                    return next
+                  })
+                }}
                 onRename={
                   isSpec
                     ? undefined
-                    : nextName => setHeaders(prev => {
+                    : nextName => {
                         const nextKey = nextName.trim()
-                        if (nextKey === h.name) return prev
+                        if (nextKey === h.name) return
+
                         if (!nextKey) {
                           setHeaderDraftRows(draftPrev => [...draftPrev, { id: uid('hrow'), name: '', value }])
-                          const { [h.name]: _removed, ...rest } = prev
-                          return rest
+                          if (isInBase) {
+                            setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
+                            setHeaderOverrides(prev => {
+                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                              const { [h.name]: _removed, ...rest } = prev
+                              return rest
+                            })
+                            return
+                          }
+                          setHeaderOverrides(prev => {
+                            if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                            const { [h.name]: _removed, ...rest } = prev
+                            return rest
+                          })
+                          return
                         }
-                        if (Object.prototype.hasOwnProperty.call(prev, nextKey)) return prev
-                        const { [h.name]: oldValue, ...rest } = prev
-                        return { ...rest, [nextKey]: oldValue ?? '' }
-                      })
+
+                        if (Object.prototype.hasOwnProperty.call(committedRequestHeaders, nextKey)) return
+
+                        setHeaderOverrides(prev => {
+                          const next = { ...prev, [nextKey]: value }
+                          if (Object.prototype.hasOwnProperty.call(next, h.name)) delete next[h.name]
+                          return next
+                        })
+                        setDisabledHeaderNames(prev => {
+                          const next = { ...prev }
+                          if (isInBase) next[h.name] = true
+                          delete next[nextKey]
+                          return next
+                        })
+                      }
                 }
                 onDelete={
                   isSpec
                     ? undefined
-                    : () => setHeaders(prev => {
-                        const { [h.name]: _removed, ...rest } = prev
-                        return rest
-                      })
+                    : () => {
+                        if (isInBase) {
+                          setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
+                          setHeaderOverrides(prev => {
+                            if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                            const { [h.name]: _removed, ...rest } = prev
+                            return rest
+                          })
+                          return
+                        }
+                        setHeaderOverrides(prev => {
+                          if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                          const { [h.name]: _removed, ...rest } = prev
+                          return rest
+                        })
+                      }
                 }
               />
             )
