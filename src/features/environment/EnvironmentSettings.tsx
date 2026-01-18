@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Environment } from '../../shared/types/environment'
 import { CloseIcon } from '../../shared/icons'
+import {
+  buildDbConnectionString,
+  getDbConnectionStringPreview,
+  getDbFormStateFromEnv,
+  hasDbConfigInEnv,
+  isDbEnvKey,
+  mergeDbIntoVariables,
+  runDbConnectionTest,
+} from './dbConnection'
+import type { DbType } from './dbConnection'
 
 type HeaderRow = { key: string; value: string }
 type VariableRow = { key: string; value: string }
@@ -17,12 +27,17 @@ export function EnvironmentSettings(props: {
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null)
+  const dbTypeMenuWrapRef = useRef<HTMLDivElement | null>(null)
 
   function ensureTrailingEmptyRow<T extends { key: string; value: string }>(rows: T[]) {
     if (rows.length === 0) return [{ key: '', value: '' } as T]
     const last = rows[rows.length - 1]
     if (last.key.trim() || last.value) return [...rows, { key: '', value: '' } as T]
     return rows
+  }
+
+  function shouldHideVariableKeyFromVariablesList(key: string) {
+    return isDbEnvKey(key)
   }
 
   const [baseUrlRow, setBaseUrlRow] = useState<VariableRow>({
@@ -32,7 +47,7 @@ export function EnvironmentSettings(props: {
   const [variablesRows, setVariablesRows] = useState<VariableRow[]>(
     ensureTrailingEmptyRow(
       Object.entries(props.env.variables)
-        .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
+        .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme' && !shouldHideVariableKeyFromVariablesList(k))
         .map(([k, v]) => ({ key: k, value: v })),
     ),
   )
@@ -40,6 +55,39 @@ export function EnvironmentSettings(props: {
   const [headersRows, setHeadersRows] = useState<HeaderRow[]>(
     ensureTrailingEmptyRow(Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v }))),
   )
+
+  const initialDb = useMemo(() => getDbFormStateFromEnv(props.env), [props.env])
+  const [dbType, setDbType] = useState<DbType>(() => initialDb.type)
+  const [dbHost, setDbHost] = useState(() => initialDb.host)
+  const [dbPort, setDbPort] = useState(() => initialDb.port)
+  const [dbDatabase, setDbDatabase] = useState(() => initialDb.database)
+  const [dbUsername, setDbUsername] = useState(() => initialDb.username)
+  const [dbPassword, setDbPassword] = useState(() => initialDb.password)
+  const [dbShowPassword, setDbShowPassword] = useState(false)
+  const [dbTypeMenuOpen, setDbTypeMenuOpen] = useState(false)
+  const [dbAccordionOpen, setDbAccordionOpen] = useState(() => hasDbConfigInEnv(props.env))
+  const [dbTestInFlight, setDbTestInFlight] = useState(false)
+  const [dbTestError, setDbTestError] = useState<string | null>(null)
+  const [dbTestLog, setDbTestLog] = useState<string | null>(null)
+  const [dbTestOkMs, setDbTestOkMs] = useState<number | null>(null)
+  const dbTestOkResetTimerRef = useRef<number | null>(null)
+
+  const dbConnectionString = useMemo(
+    () =>
+      buildDbConnectionString({
+        type: dbType,
+        host: dbHost,
+        port: dbPort,
+        database: dbDatabase,
+        username: dbUsername,
+        password: dbPassword,
+      }),
+    [dbDatabase, dbHost, dbPassword, dbPort, dbType, dbUsername],
+  )
+
+  const dbConnectionStringPreview = useMemo(() => {
+    return getDbConnectionStringPreview(dbConnectionString, dbShowPassword)
+  }, [dbConnectionString, dbShowPassword])
 
   const [error, setError] = useState<string | null>(null)
 
@@ -51,6 +99,14 @@ export function EnvironmentSettings(props: {
 
   function openDialog() {
     setError(null)
+    setDbTestError(null)
+    setDbTestLog(null)
+    setDbTestOkMs(null)
+    if (dbTestOkResetTimerRef.current) {
+      window.clearTimeout(dbTestOkResetTimerRef.current)
+      dbTestOkResetTimerRef.current = null
+    }
+    setDbTestInFlight(false)
     setBaseUrlRow({
       key: props.env.baseUrlKey,
       value: props.env.variables[props.env.baseUrlKey] ?? '',
@@ -58,13 +114,22 @@ export function EnvironmentSettings(props: {
     setVariablesRows(
       ensureTrailingEmptyRow(
         Object.entries(props.env.variables)
-          .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme')
+          .filter(([k]) => k !== props.env.baseUrlKey && k !== 'scheme' && !shouldHideVariableKeyFromVariablesList(k))
           .map(([k, v]) => ({ key: k, value: v })),
       ),
     )
     setHeadersRows(
       ensureTrailingEmptyRow(Object.entries(props.env.headers).map(([k, v]) => ({ key: k, value: v }))),
     )
+    const nextDb = getDbFormStateFromEnv(props.env)
+    setDbType(nextDb.type)
+    setDbHost(nextDb.host)
+    setDbPort(nextDb.port)
+    setDbDatabase(nextDb.database)
+    setDbUsername(nextDb.username)
+    setDbPassword(nextDb.password)
+    setDbShowPassword(false)
+    setDbAccordionOpen(hasDbConfigInEnv(props.env))
     dialogRef.current?.showModal()
   }
 
@@ -81,6 +146,39 @@ export function EnvironmentSettings(props: {
       if (el.open) el.close()
     }
   }, [props.open, props.env])
+
+  useEffect(() => {
+    if (!dbTypeMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const wrap = dbTypeMenuWrapRef.current
+      const t = e.target as Node | null
+      if (wrap && t && wrap.contains(t)) return
+      setDbTypeMenuOpen(false)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDbTypeMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [dbTypeMenuOpen])
+
+  function setDbTypeAndMaybeDefaultPort(nextType: DbType) {
+    setDbType(nextType)
+    setDbPort(prev => {
+      const raw = prev.trim()
+      if (!raw) return nextType === 'mysql' ? '3306' : '5432'
+      if (nextType === 'mysql' && raw === '5432') return '3306'
+      if (nextType === 'postgres' && raw === '3306') return '5432'
+      return prev
+    })
+  }
 
   function save() {
     setError(null)
@@ -101,7 +199,7 @@ export function EnvironmentSettings(props: {
               ? 'https'
               : 'http'
 
-      const variables: Record<string, string> = {
+      let variables: Record<string, string> = {
         scheme,
         [normalizedBaseUrlKey]: baseUrlValue,
       }
@@ -110,8 +208,18 @@ export function EnvironmentSettings(props: {
         if (!key) continue
         if (key === normalizedBaseUrlKey) continue
         if (key === 'scheme') continue
+        if (shouldHideVariableKeyFromVariablesList(key)) continue
         variables[key] = row.value ?? ''
       }
+
+      variables = mergeDbIntoVariables(variables, {
+        type: dbType,
+        host: dbHost,
+        port: dbPort,
+        database: dbDatabase,
+        username: dbUsername,
+        password: dbPassword,
+      })
 
       const headers: Record<string, string> = {}
       for (const row of headersRows) {
@@ -128,6 +236,61 @@ export function EnvironmentSettings(props: {
       close()
     } catch (e: any) {
       setError(e?.message || 'Некорректные настройки окружения.')
+    }
+  }
+
+  async function testDbConnection() {
+    setError(null)
+    setDbTestError(null)
+    setDbTestLog(null)
+    setDbTestOkMs(null)
+    if (dbTestOkResetTimerRef.current) {
+      window.clearTimeout(dbTestOkResetTimerRef.current)
+      dbTestOkResetTimerRef.current = null
+    }
+
+    const connectionString = dbConnectionString.trim()
+    if (!connectionString) {
+      setDbTestError('Connection failed')
+      setDbTestLog('Fill host/port/database/user/password to build connection string.')
+      return
+    }
+
+    setDbTestInFlight(true)
+    try {
+      const { ok, message, durationMs } = await runDbConnectionTest({ type: dbType.trim() || 'postgres', connectionString })
+      if (ok) {
+        setDbTestOkMs(durationMs)
+        dbTestOkResetTimerRef.current = window.setTimeout(() => {
+          setDbTestOkMs(null)
+          dbTestOkResetTimerRef.current = null
+        }, 2500)
+      } else {
+        setDbTestError('Connection failed')
+        setDbTestLog(message)
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Network error'
+      setDbTestError('Connection failed')
+      setDbTestLog(message)
+    } finally {
+      setDbTestInFlight(false)
+    }
+  }
+
+  function clearDbFormKeepPort() {
+    setDbHost('')
+    setDbDatabase('')
+    setDbUsername('')
+    setDbPassword('')
+    setDbShowPassword(false)
+
+    setDbTestError(null)
+    setDbTestLog(null)
+    setDbTestOkMs(null)
+    if (dbTestOkResetTimerRef.current) {
+      window.clearTimeout(dbTestOkResetTimerRef.current)
+      dbTestOkResetTimerRef.current = null
     }
   }
 
@@ -308,6 +471,212 @@ export function EnvironmentSettings(props: {
             })}
           </div>
         </div>
+
+        <details
+          className="accordion"
+          style={{ marginTop: 10 }}
+          open={dbAccordionOpen}
+          onToggle={e => setDbAccordionOpen((e.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary>
+            <span style={{ flex: 1 }}>Database</span>
+            <button
+              type="button"
+              className="iconBtn"
+              style={{ width: 28, height: 28, marginLeft: 'auto' }}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                clearDbFormKeepPort()
+              }}
+              aria-label="Clear database form"
+              title="Clear"
+            >
+              <CloseIcon size={18} />
+            </button>
+          </summary>
+          <div className="section">
+            <div className="formRow">
+              <div className="formLabel">Type</div>
+              <div ref={dbTypeMenuOpen ? dbTypeMenuWrapRef : null} className="selectMenuWrap">
+                <button
+                  type="button"
+                  className="selectMenuBtn"
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setDbTypeMenuOpen(v => !v)
+                  }}
+                  aria-haspopup="menu"
+                  aria-expanded={dbTypeMenuOpen}
+                  aria-label="Database type"
+                  title="Database type"
+                >
+                  {dbType === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+                </button>
+
+                {dbTypeMenuOpen ? (
+                  <div
+                    className="selectMenuPanel"
+                    role="menu"
+                    onPointerDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className={`selectMenuItem ${dbType === 'postgres' ? 'selectMenuItemActive' : ''}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setDbTypeMenuOpen(false)
+                        setDbTypeAndMaybeDefaultPort('postgres')
+                      }}
+                    >
+                      PostgreSQL
+                    </button>
+                    <button
+                      type="button"
+                      className={`selectMenuItem ${dbType === 'mysql' ? 'selectMenuItemActive' : ''}`}
+                      role="menuitem"
+                      onClick={() => {
+                        setDbTypeMenuOpen(false)
+                        setDbTypeAndMaybeDefaultPort('mysql')
+                      }}
+                    >
+                      MySQL
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">Host</div>
+              <input
+                className="mono"
+                value={dbHost}
+                onChange={e => setDbHost(e.target.value)}
+                placeholder="localhost"
+              />
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">Port</div>
+              <input
+                className="mono"
+                inputMode="numeric"
+                value={dbPort}
+                onChange={e => setDbPort(e.target.value.replaceAll(/\s+/g, ''))}
+                placeholder="5432"
+              />
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">Database</div>
+              <input
+                className="mono"
+                value={dbDatabase}
+                onChange={e => setDbDatabase(e.target.value)}
+                placeholder="mydb"
+              />
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">Username</div>
+              <input
+                className="mono"
+                value={dbUsername}
+                onChange={e => setDbUsername(e.target.value)}
+                placeholder="postgres"
+              />
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">Password</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                <input
+                  className="mono"
+                  type={dbShowPassword ? 'text' : 'password'}
+                  value={dbPassword}
+                  onChange={e => setDbPassword(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  className="headerDeleteBtn"
+                  style={{ width: 64 }}
+                  onClick={() => setDbShowPassword(v => !v)}
+                  aria-label={dbShowPassword ? 'Hide password' : 'Show password'}
+                  title={dbShowPassword ? 'Hide' : 'Show'}
+                >
+                  {dbShowPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel">URL</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 12,
+                    lineHeight: 1.25,
+                    opacity: dbConnectionStringPreview ? 1 : 0.7,
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    whiteSpace: 'normal',
+                  }}
+                >
+                  {dbConnectionStringPreview || '—'}
+                </div>
+                <button
+                  type="button"
+                  className="headerDeleteBtn"
+                  style={
+                    dbTestOkMs !== null
+                      ? { width: 64, background: 'rgba(80, 220, 140, .18)', borderColor: 'rgba(80, 220, 140, .45)', color: 'rgb(120, 255, 185)' }
+                      : { width: 64 }
+                  }
+                  onClick={testDbConnection}
+                  disabled={dbTestInFlight || !dbConnectionString}
+                >
+                  {dbTestInFlight ? 'Testing...' : dbTestOkMs !== null ? `${dbTestOkMs}ms` : 'Test'}
+                </button>
+              </div>
+            </div>
+
+            {dbTestError && (
+              <div className="section" style={{ gap: 6 }}>
+                <div className="small" style={{ color: '#ff9a9a' }}>{dbTestError}</div>
+                {dbTestLog && (
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 12,
+                      lineHeight: 1.35,
+                      padding: 10,
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,.12)',
+                      background: 'rgba(255,255,255,.04)',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere',
+                    }}
+                  >
+                    {dbTestLog}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </details>
       </div>
 
       {error && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{error}</div>}

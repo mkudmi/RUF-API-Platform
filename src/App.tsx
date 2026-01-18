@@ -15,7 +15,7 @@ import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHis
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
 
-//TODO: коннект к бд, пре-пост скрипты, если добавлено через урл, возможность обновлять коллекцию через релоад
+//TODO: пре-пост скрипты
 
 function isAbsoluteUrl(url: string) {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')

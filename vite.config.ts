@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { registerDbTestRoute } from './vite/dbTestRoute'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -77,6 +78,15 @@ export default defineConfig({
             res.end(e?.message || 'Proxy error')
           }
         })
+      },
+    },
+    {
+      name: 'ruf-db-test',
+      configureServer(server) {
+        registerDbTestRoute(server.middlewares)
+      },
+      configurePreviewServer(server) {
+        registerDbTestRoute(server.middlewares)
       },
     },
   ],

@@ -10,7 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@types/pg": "^8.16.0",
     "jsonpath-plus": "^10.3.0",
+    "mysql2": "^3.16.1",
+    "pg": "^8.17.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "yaml": "^2.8.2"
