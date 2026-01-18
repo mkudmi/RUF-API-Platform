@@ -499,6 +499,7 @@ export function RequestEditor(props: {
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
   const [bodyBeautifyStatus, setBodyBeautifyStatus] = useState<'idle' | 'ok' | 'err'>('idle')
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const draftSaveTimerRef = useRef<number | null>(null)
 
   const inFlightCount = props.inFlightCount ?? 0
@@ -869,16 +870,93 @@ export function RequestEditor(props: {
     setTimeout(() => setBodyCopied(false), 900)
   }
 
+  function applyBodyTextareaReplacement(rangeStart: number, rangeEnd: number, replacement: string, nextSelStart: number, nextSelEnd: number) {
+    const ta = bodyTextareaRef.current
+    if (!ta) return
+
+    ta.focus()
+    ta.selectionStart = rangeStart
+    ta.selectionEnd = rangeEnd
+
+    const ok = document.execCommand?.('insertText', false, replacement) ?? false
+    if (!ok) ta.setRangeText(replacement, rangeStart, rangeEnd, 'preserve')
+
+    ta.selectionStart = nextSelStart
+    ta.selectionEnd = nextSelEnd
+    setBodyText(ta.value)
+  }
+
   function beautifyBodyJson() {
+    const ta = bodyTextareaRef.current
+    const raw = ta?.value ?? bodyText
     try {
-      const parsed = JSON.parse(bodyText)
-      setBodyText(JSON.stringify(parsed, null, 2))
+      const parsed = JSON.parse(raw)
+      const nextValue = JSON.stringify(parsed, null, 2)
+      if (ta) applyBodyTextareaReplacement(0, ta.value.length, nextValue, nextValue.length, nextValue.length)
+      else setBodyText(nextValue)
       setBodyBeautifyStatus('ok')
       setTimeout(() => setBodyBeautifyStatus('idle'), 900)
     } catch {
       setBodyBeautifyStatus('err')
       setTimeout(() => setBodyBeautifyStatus('idle'), 900)
     }
+  }
+
+  function applyBodyTabIndent(isUnindent: boolean) {
+    const ta = bodyTextareaRef.current
+    if (!ta) return
+
+    const value = ta.value
+    const selStart = ta.selectionStart ?? 0
+    const selEnd = ta.selectionEnd ?? 0
+
+    const indent = '\t'
+    const startLine = value.lastIndexOf('\n', Math.max(0, selStart - 1)) + 1
+    const endLineBoundary = value.indexOf('\n', selEnd)
+    const endLine = endLineBoundary === -1 ? value.length : endLineBoundary
+
+    const mid = value.slice(startLine, endLine)
+    const lines = mid.split('\n')
+
+    const removeIndentLen = (line: string) => {
+      if (line.startsWith('\t')) return 1
+      if (line.startsWith('  ')) return 2
+      if (line.startsWith(' ')) return 1
+      return 0
+    }
+
+    const isSingleLine = startLine === endLine || !mid.includes('\n')
+    const isCollapsed = selStart === selEnd
+
+    if (!isUnindent && isCollapsed && isSingleLine) {
+      applyBodyTextareaReplacement(selStart, selEnd, indent, selStart + indent.length, selStart + indent.length)
+      return
+    }
+
+    if (isUnindent && isCollapsed) {
+      const len = removeIndentLen(value.slice(startLine, startLine + 2))
+      if (len > 0) {
+        const nextPos = Math.max(startLine, selStart - len)
+        applyBodyTextareaReplacement(startLine, startLine + len, '', nextPos, nextPos)
+      }
+      return
+    }
+
+    if (!isUnindent) {
+      const nextMid = lines.map(l => indent + l).join('\n')
+      const nextSelStart = selStart + indent.length
+      const nextSelEnd = selEnd + indent.length * lines.length
+      applyBodyTextareaReplacement(startLine, endLine, nextMid, nextSelStart, nextSelEnd)
+      return
+    }
+
+    const removeLens = lines.map(removeIndentLen)
+    const totalRemoved = removeLens.reduce<number>((a, b) => a + b, 0)
+    const firstRemoved = removeLens[0] ?? 0
+    const nextMid = lines.map((l, i) => l.slice(removeLens[i] ?? 0)).join('\n')
+    const nextSelStart = Math.max(startLine, selStart - firstRemoved)
+    const nextSelEnd = Math.max(nextSelStart, selEnd - totalRemoved)
+    applyBodyTextareaReplacement(startLine, endLine, nextMid, nextSelStart, nextSelEnd)
   }
 
   async function copyUrlText() {
@@ -1540,9 +1618,17 @@ export function RequestEditor(props: {
             </div>
           )}
           <textarea
+            ref={bodyTextareaRef}
             className="mono editorTextarea"
             value={bodyText}
             onChange={e => setBodyText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key !== 'Tab') return
+              if (e.ctrlKey || e.metaKey || e.altKey) return
+              e.preventDefault()
+              e.stopPropagation()
+              applyBodyTabIndent(e.shiftKey)
+            }}
             rows={12}
           />
         </details>
