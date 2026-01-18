@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Environment } from '../../shared/types/environment'
+import { CloseIcon } from '../../shared/icons'
 
 type HeaderRow = { key: string; value: string }
 type VariableRow = { key: string; value: string }
@@ -174,7 +175,9 @@ export function EnvironmentSettings(props: {
     <dialog ref={dialogRef} className="modal" onClose={() => props.onClose()}>
       <div className="modalHeader">
         <b>Окружение: {props.collectionName}</b>
-        <button className="iconBtn" onClick={close} aria-label="Close">✕</button>
+        <button className="iconBtn" onClick={close} aria-label="Close" title="Close">
+          <CloseIcon size={18} />
+        </button>
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
@@ -209,7 +212,7 @@ export function EnvironmentSettings(props: {
                 aria-label="Clear variable value"
                 title="Clear variable value"
               >
-                ✕
+                <CloseIcon size={18} />
               </button>
             </div>
             {variablesRows.map((row, i) => {
@@ -231,13 +234,13 @@ export function EnvironmentSettings(props: {
                   />
                   {isLast ? (
                     <button
+                      className="headerDeleteBtn addRowBtn"
                       onClick={() => addNextVariableRowIfPossible(i)}
                       disabled={!canAdd}
                       aria-label="Add variable"
                       title={canAdd ? 'Add' : 'Fill key/value to add'}
-                      style={{ width: 64 }}
                     >
-                      Add
+                      <span className="addRowGlyph">+</span>
                     </button>
                   ) : (
                     <button
@@ -246,7 +249,7 @@ export function EnvironmentSettings(props: {
                       aria-label="Delete variable"
                       title="Delete"
                     >
-                      ✕
+                      <CloseIcon size={18} />
                     </button>
                   )}
                 </div>
@@ -282,13 +285,13 @@ export function EnvironmentSettings(props: {
                   />
                   {isLast ? (
                     <button
+                      className="headerDeleteBtn addRowBtn"
                       onClick={() => addNextHeaderRowIfPossible(i)}
                       disabled={!canAdd}
                       aria-label="Add header"
                       title={canAdd ? 'Add' : 'Fill key/value to add'}
-                      style={{ width: 64 }}
                     >
-                      Add
+                      <span className="addRowGlyph">+</span>
                     </button>
                   ) : (
                     <button
@@ -297,7 +300,7 @@ export function EnvironmentSettings(props: {
                       aria-label="Delete header"
                       title="Delete"
                     >
-                      ✕
+                      <CloseIcon size={18} />
                     </button>
                   )}
                 </div>
