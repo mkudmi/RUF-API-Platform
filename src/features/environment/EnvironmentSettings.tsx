@@ -602,10 +602,15 @@ export function EnvironmentSettings(props: {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
                 <input
                   className="mono"
-                  type={dbShowPassword ? 'text' : 'password'}
+                  type="text"
+                  name="ruf_db_secret"
                   value={dbPassword}
                   onChange={e => setDbPassword(e.target.value)}
-                  autoComplete="new-password"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  style={dbShowPassword ? undefined : ({ WebkitTextSecurity: 'disc' } as any)}
                   placeholder="••••••••"
                 />
                 <button
