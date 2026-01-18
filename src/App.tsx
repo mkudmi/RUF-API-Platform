@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImportFab } from './features/importSpec/ImportFab'
+import { buildImportedCollectionFromText } from './features/importSpec/buildImportedCollection'
 import { CollectionsTree } from './features/collections/CollectionsTree'
 import { RequestEditor } from './features/requestRunner/RequestEditor'
 import { ResponseViewer } from './features/requestRunner/ResponseViewer'
@@ -12,6 +13,7 @@ import type { RunResult } from './features/requestRunner/runRequest'
 import { uid } from './shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
+import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
 
 //TODO: коннект к бд, пре-пост скрипты, если добавлено через урл, возможность обновлять коллекцию через релоад
 
@@ -195,6 +197,37 @@ export default function App() {
       return nextEnvs
     }
     )
+  }
+
+  async function updateCollectionFromUrl(collectionId: string) {
+    const existingNow = collections.find(c => c.id === collectionId)
+    const rawUrl = existingNow?.sourceUrl?.trim() || ''
+    if (!existingNow || !rawUrl) return
+
+    try {
+      const u = new URL(rawUrl)
+      const res = await fetch(u.toString())
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
+      const text = await res.text()
+      if (!text.trim()) throw new Error('Response is empty.')
+
+      const incoming = await buildImportedCollectionFromText({ text, name: existingNow.name, sourceOrigin: u.origin })
+      const normalizedUrl = u.toString()
+
+      setCollections(prev => {
+        const existing = prev.find(c => c.id === collectionId)
+        if (!existing) return prev
+        const merged = syncCollectionKeepingIds({
+          existing,
+          incoming: { ...incoming, sourceUrl: normalizedUrl },
+        })
+        const next = prev.map(c => (c.id === collectionId ? merged : c))
+        saveCollections(next)
+        return next
+      })
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update from URL.')
+    }
   }
 
   function pick(req: RequestItem, col: Collection) {
@@ -791,6 +824,7 @@ export default function App() {
           activeRequestId={activeRequestId}
           onPickRequest={pick}
           onOpenEnv={setEnvModalCollectionId}
+          onUpdateCollectionFromUrl={updateCollectionFromUrl}
           onAddRequest={addRequestToCollection}
           onAddFolder={addFolderToCollection}
           onAddRequestToFolder={addRequestToFolder}

@@ -1,14 +1,6 @@
 import { useRef, useState } from 'react'
-import { loadOpenApiFromText, parseJsonOrYaml } from './openapiLoader'
-import { buildCollectionFromV3 } from '../collections/buildCollection'
-import { buildCollectionFromPostman, isPostmanCollection } from '../importPostman/postmanCollection'
 import type { Collection } from '../../shared/types/collection'
-
-function inferCollectionName(spec: any) {
-  const title = spec?.info?.title
-  if (typeof title === 'string' && title.trim()) return title.trim()
-  return 'Imported API'
-}
+import { buildImportedCollectionFromText } from './buildImportedCollection'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -31,14 +23,8 @@ export function ImportFab(props: {
   const [loadingUrl, setLoadingUrl] = useState(false)
 
   async function importFromText(text: string, origin?: string) {
-    const parsed = parseJsonOrYaml(text)
-    if (isPostmanCollection(parsed)) {
-      props.onImported(buildCollectionFromPostman(parsed))
-      return
-    }
-
-    const specV3 = await loadOpenApiFromText(text)
-    props.onImported(buildCollectionFromV3(specV3, inferCollectionName(specV3), origin))
+    const col = await buildImportedCollectionFromText({ text, sourceOrigin: origin })
+    props.onImported(col)
   }
 
   function openMenu() {
@@ -117,7 +103,8 @@ export function ImportFab(props: {
         setUrlError('Пустой ответ.')
         return
       }
-      await importFromText(text, u.origin)
+      const col = await buildImportedCollectionFromText({ text, sourceOrigin: u.origin })
+      props.onImported({ ...col, sourceUrl: u.toString() })
       closeMenu()
     } catch (e: any) {
       setUrlError(e?.message || 'Не удалось загрузить по URL (проверь CORS).')

@@ -48,6 +48,7 @@ export function CollectionsTree(props: {
   activeRequestId?: string
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
+  onUpdateCollectionFromUrl?: (collectionId: string) => void
   onAddRequest: (collectionId: string) => void
   onAddFolder: (collectionId: string) => void
   onAddRequestToFolder: (collectionId: string, folderId: string) => void
@@ -929,6 +930,20 @@ export function CollectionsTree(props: {
                           >
                             Enviroment
                           </button>
+                          {col.sourceUrl && props.onUpdateCollectionFromUrl ? (
+                            <button
+                              type="button"
+                              className="treeMenuItem"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuCollectionId(null)
+                                props.onUpdateCollectionFromUrl?.(col.id)
+                              }}
+                              title={col.sourceUrl}
+                            >
+                              Update from URL
+                            </button>
+                          ) : null}
                           <div className="treeMenuDivider" role="separator" />
                           <button
                             type="button"

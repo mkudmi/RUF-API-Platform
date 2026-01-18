@@ -1,8 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import { loadOpenApiFromText, parseJsonOrYaml } from './openapiLoader'
-import { buildCollectionFromV3 } from '../collections/buildCollection'
-import { buildCollectionFromPostman, isPostmanCollection } from '../importPostman/postmanCollection'
 import type { Collection } from '../../shared/types/collection'
+import { buildImportedCollectionFromText } from './buildImportedCollection'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -17,15 +15,9 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [sourceOrigin, setSourceOrigin] = useState<string | undefined>(undefined)
   const [loadingUrl, setLoadingUrl] = useState(false)
 
-  async function importFromText(text: string, origin?: string) {
-    const parsed = parseJsonOrYaml(text)
-    if (isPostmanCollection(parsed)) {
-      props.onImported(buildCollectionFromPostman(parsed, name || undefined))
-      return
-    }
-
-    const specV3 = await loadOpenApiFromText(text)
-    props.onImported(buildCollectionFromV3(specV3, name || 'Imported API', origin))
+  async function importFromText(text: string, origin?: string, importedFromUrl?: string) {
+    const col = await buildImportedCollectionFromText({ text, name: name || undefined, sourceOrigin: origin })
+    props.onImported(importedFromUrl ? { ...col, sourceUrl: importedFromUrl } : col)
   }
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
@@ -76,7 +68,16 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
         setPasteError('Paste OpenAPI JSON/YAML first.')
         return
       }
-      await importFromText(pasteText, sourceOrigin)
+      const rawUrl = sourceUrl.trim()
+      let normalizedUrl: string | undefined
+      if (rawUrl) {
+        try {
+          normalizedUrl = new URL(rawUrl).toString()
+        } catch {
+          // ignore invalid url
+        }
+      }
+      await importFromText(pasteText, sourceOrigin, normalizedUrl)
       pasteDialogRef.current?.close()
     } catch (e: any) {
       setPasteError(e?.message || 'Failed to import spec.')
