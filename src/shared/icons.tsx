@@ -86,3 +86,24 @@ export function TrashIcon(props: { size?: number }) {
     </svg>
   )
 }
+
+export function StarIcon(props: { size?: number }) {
+  const size = props.size ?? 16
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 2C13.6 7.7 16.3 10.4 22 12C16.3 13.6 13.6 16.3 12 22C10.4 16.3 7.7 13.6 2 12C7.7 10.4 10.4 7.7 12 2Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

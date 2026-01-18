@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
-import { CloseIcon, CopyIcon } from '../../shared/icons'
+import { CloseIcon, CopyIcon, StarIcon } from '../../shared/icons'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
@@ -498,6 +498,7 @@ export function RequestEditor(props: {
 
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
+  const [bodyBeautifyStatus, setBodyBeautifyStatus] = useState<'idle' | 'ok' | 'err'>('idle')
   const draftSaveTimerRef = useRef<number | null>(null)
 
   const inFlightCount = props.inFlightCount ?? 0
@@ -866,6 +867,18 @@ export function RequestEditor(props: {
     await copyText(bodyText)
     setBodyCopied(true)
     setTimeout(() => setBodyCopied(false), 900)
+  }
+
+  function beautifyBodyJson() {
+    try {
+      const parsed = JSON.parse(bodyText)
+      setBodyText(JSON.stringify(parsed, null, 2))
+      setBodyBeautifyStatus('ok')
+      setTimeout(() => setBodyBeautifyStatus('idle'), 900)
+    } catch {
+      setBodyBeautifyStatus('err')
+      setTimeout(() => setBodyBeautifyStatus('idle'), 900)
+    }
   }
 
   async function copyUrlText() {
@@ -1463,6 +1476,20 @@ export function RequestEditor(props: {
           <summary>
             <span>Body</span>
             <span style={{ marginLeft: 'auto' }} />
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                beautifyBodyJson()
+              }}
+              aria-label="Beautify JSON"
+              title="Beautify JSON"
+              style={{ width: 32, height: 32 }}
+            >
+              {bodyBeautifyStatus === 'ok' ? 'OK' : bodyBeautifyStatus === 'err' ? 'ERR' : <StarIcon />}
+            </button>
             <button
               type="button"
               className="iconBtn"
