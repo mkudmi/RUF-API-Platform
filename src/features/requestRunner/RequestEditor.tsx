@@ -885,6 +885,54 @@ export function RequestEditor(props: {
     setBodyText(ta.value)
   }
 
+  function applyBodyEnterIndent() {
+    const ta = bodyTextareaRef.current
+    if (!ta) return
+
+    const value = ta.value
+    const selStart = ta.selectionStart ?? 0
+    const selEnd = ta.selectionEnd ?? 0
+
+    const lineStart = value.lastIndexOf('\n', Math.max(0, selStart - 1)) + 1
+    const lineEndBoundary = value.indexOf('\n', selEnd)
+    const lineEnd = lineEndBoundary === -1 ? value.length : lineEndBoundary
+
+    const linePrefix = value.slice(lineStart, selStart)
+    const currentIndent = (value.slice(lineStart, lineEnd).match(/^[\t ]*/) ?? [''])[0]
+    const indentUnit = currentIndent.includes('\t') ? '\t' : '  '
+
+    const lastNonWs = (() => {
+      for (let i = linePrefix.length - 1; i >= 0; i--) {
+        const c = linePrefix[i]
+        if (c !== ' ' && c !== '\t') return c
+      }
+      return ''
+    })()
+
+    const nextNonWs = (() => {
+      const suffix = value.slice(selEnd, lineEnd)
+      for (let i = 0; i < suffix.length; i++) {
+        const c = suffix[i]
+        if (c !== ' ' && c !== '\t') return c
+      }
+      return ''
+    })()
+
+    const shouldIncrease = lastNonWs === '{' || lastNonWs === '['
+    const shouldSplitClose = shouldIncrease && (nextNonWs === '}' || nextNonWs === ']')
+
+    if (shouldSplitClose) {
+      const replacement = `\n${currentIndent}${indentUnit}\n${currentIndent}`
+      const caret = selStart + (`\n${currentIndent}${indentUnit}`).length
+      applyBodyTextareaReplacement(selStart, selEnd, replacement, caret, caret)
+      return
+    }
+
+    const replacement = `\n${currentIndent}${shouldIncrease ? indentUnit : ''}`
+    const caret = selStart + replacement.length
+    applyBodyTextareaReplacement(selStart, selEnd, replacement, caret, caret)
+  }
+
   function beautifyBodyJson() {
     const ta = bodyTextareaRef.current
     const raw = ta?.value ?? bodyText
@@ -1619,11 +1667,46 @@ export function RequestEditor(props: {
             value={bodyText}
             onChange={e => setBodyText(e.target.value)}
             onKeyDown={e => {
-              if (e.key !== 'Tab') return
               if (e.ctrlKey || e.metaKey || e.altKey) return
-              e.preventDefault()
-              e.stopPropagation()
-              applyBodyTabIndent(e.shiftKey)
+              if (e.key === 'Tab') {
+                e.preventDefault()
+                e.stopPropagation()
+                applyBodyTabIndent(e.shiftKey)
+                return
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                applyBodyEnterIndent()
+                return
+              }
+              if (e.key === '"') {
+                const ta = bodyTextareaRef.current
+                if (!ta) return
+
+                const selStart = ta.selectionStart ?? 0
+                const selEnd = ta.selectionEnd ?? 0
+
+                if (selStart === selEnd && ta.value[selStart] === '"') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const nextPos = selStart + 1
+                  ta.selectionStart = nextPos
+                  ta.selectionEnd = nextPos
+                  return
+                }
+
+                e.preventDefault()
+                e.stopPropagation()
+
+                if (selStart !== selEnd) {
+                  const selected = ta.value.slice(selStart, selEnd)
+                  applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
+                  return
+                }
+
+                applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
+              }
             }}
             rows={12}
           />
