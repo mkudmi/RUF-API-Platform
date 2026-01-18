@@ -381,6 +381,7 @@ export function RequestEditor(props: {
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
+  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization'>('headers')
 
   function parseUrlInput(raw: string) {
     const trimmed = raw.trim()
@@ -1236,8 +1237,27 @@ export function RequestEditor(props: {
         </div>
       )}
 
-        <details className="accordion">
-          <summary>Authorization</summary>
+      <div className="tabs">
+        <button
+          type="button"
+          className={`tab ${headersTab === 'headers' ? 'tabActive' : ''}`}
+          onClick={() => setHeadersTab('headers')}
+          aria-pressed={headersTab === 'headers'}
+        >
+          Headers
+        </button>
+        <button
+          type="button"
+          className={`tab ${headersTab === 'authorization' ? 'tabActive' : ''}`}
+          onClick={() => setHeadersTab('authorization')}
+          aria-pressed={headersTab === 'authorization'}
+        >
+          Authorization
+        </button>
+      </div>
+
+      {headersTab === 'authorization' ? (
+        <div className="accordion">
           <div className="section">
             <div className="formRow">
               <div className="formLabel mono">Authorization</div>
@@ -1270,31 +1290,25 @@ export function RequestEditor(props: {
               placeholder="Bearer …"
             />
           </div>
-
+          </div>
         </div>
-      </details>
+      ) : (
+        <div className="accordion">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontWeight: 600, opacity: 0.95 }}>Headers</div>
+            <button
+              type="button"
+              className="iconBtn addRowBtn"
+              onClick={() => addHeaderDraftRow()}
+              aria-label="Add header"
+              title="Add header"
+              style={{ width: 28, height: 28 }}
+            >
+              <span className="addRowGlyph">+</span>
+            </button>
+          </div>
 
-      <details className="accordion" open>
-        <summary>
-          <span>Headers</span>
-          <span style={{ marginLeft: 'auto' }} />
-          <button
-            type="button"
-            className="iconBtn addRowBtn"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              addHeaderDraftRow()
-            }}
-            aria-label="Add header"
-            title="Add header"
-            style={{ width: 28, height: 28 }}
-          >
-            <span className="addRowGlyph">+</span>
-          </button>
-        </summary>
-
-        <div className="section">
+          <div className="section">
           {visibleHeaderParams.map(h => {
             const isSpec = headerSpecNames.has(h.name)
             const isInBase = Object.prototype.hasOwnProperty.call(requestBaseHeaders, h.name)
@@ -1418,7 +1432,8 @@ export function RequestEditor(props: {
           ))}
 
         </div>
-      </details>
+      </div>
+      )}
 
       <details className="accordion" open>
         <summary>
