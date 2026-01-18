@@ -691,6 +691,7 @@ export function RequestEditor(props: {
             for (const row of queryDraftRows) {
               const key = row.name.trim()
               if (!key) continue
+              if (row.value === '') continue
               if (!querySpecNames.has(key)) continue
               if (key in next) {
                 delete next[key]
