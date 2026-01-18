@@ -498,7 +498,6 @@ export function RequestEditor(props: {
 
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
-  const [bodyBeautifyStatus, setBodyBeautifyStatus] = useState<'idle' | 'ok' | 'err'>('idle')
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const draftSaveTimerRef = useRef<number | null>(null)
 
@@ -894,11 +893,8 @@ export function RequestEditor(props: {
       const nextValue = JSON.stringify(parsed, null, 2)
       if (ta) applyBodyTextareaReplacement(0, ta.value.length, nextValue, nextValue.length, nextValue.length)
       else setBodyText(nextValue)
-      setBodyBeautifyStatus('ok')
-      setTimeout(() => setBodyBeautifyStatus('idle'), 900)
     } catch {
-      setBodyBeautifyStatus('err')
-      setTimeout(() => setBodyBeautifyStatus('idle'), 900)
+      // keep silent: invalid JSON should not change button state
     }
   }
 
@@ -1566,7 +1562,7 @@ export function RequestEditor(props: {
               title="Beautify JSON"
               style={{ width: 32, height: 32 }}
             >
-              {bodyBeautifyStatus === 'ok' ? 'OK' : bodyBeautifyStatus === 'err' ? 'ERR' : <StarIcon />}
+              <StarIcon />
             </button>
             <button
               type="button"
