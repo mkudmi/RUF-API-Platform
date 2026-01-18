@@ -471,37 +471,23 @@ button:hover { background: rgba(255,255,255,.10); }
 .editor .formRow input { height: 36px; padding: 8px 10px; }
 .editor .headerDeleteBtn, .editor .rowDeleteBtn { height: 36px; }
 .headerDeleteBtn {
-  width: 64px;
+  width: 44px;
   height: 36px;
   min-height: 0;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0;
-  line-height: 0;
-}
-.headerDeleteBtn::before {
-  content: "\2715";
-  font-size: 18px;
-  line-height: 1;
 }
 
 .rowDeleteBtn {
-  width: 64px;
+  width: 44px;
   height: 36px;
   min-height: 0;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0;
-  line-height: 0;
-}
-.rowDeleteBtn::before {
-  content: "\2715";
-  font-size: 18px;
-  line-height: 1;
 }
 
 /* Response status colors */

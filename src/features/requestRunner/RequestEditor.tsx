@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
-import { CopyIcon } from '../../shared/icons'
+import { CloseIcon, CopyIcon } from '../../shared/icons'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
@@ -193,7 +193,7 @@ function HeaderRow(props: {
         />
         {props.onDelete ? (
           <button className="headerDeleteBtn" onClick={props.onDelete} aria-label={`Delete header ${props.name}`} title="Delete">
-            ✕
+            <CloseIcon size={18} />
           </button>
         ) : null}
       </div>
@@ -258,7 +258,7 @@ function QueryRow(props: {
             aria-label={`Delete query param ${props.name}`}
             title="Delete"
           >
-            バ
+            <CloseIcon size={18} />
           </button>
         ) : null}
       </div>
@@ -295,7 +295,7 @@ function QueryDraftRow(props: {
           aria-label="Delete query param"
           title="Delete"
         >
-          aŸ?
+          <CloseIcon size={18} />
         </button>
       </div>
     </div>
@@ -326,7 +326,7 @@ function HeaderDraftRow(props: {
           placeholder="Value"
         />
         <button className="headerDeleteBtn" onClick={props.onDelete} aria-label="Delete header" title="Delete">
-          ƒo
+          <CloseIcon size={18} />
         </button>
       </div>
     </div>
