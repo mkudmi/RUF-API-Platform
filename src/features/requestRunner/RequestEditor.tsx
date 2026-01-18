@@ -1224,6 +1224,28 @@ export function RequestEditor(props: {
                   isSpec
                     ? undefined
                     : () => {
+                        const totalRows = visibleHeaderParams.length + headerDraftRows.length
+                        const isLastRow = totalRows === 1
+
+                        if (isLastRow) {
+                          if (isInBase) {
+                            setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
+                            setHeaderOverrides(prev => {
+                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                              const { [h.name]: _removed, ...rest } = prev
+                              return rest
+                            })
+                          } else {
+                            setHeaderOverrides(prev => {
+                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                              const { [h.name]: _removed, ...rest } = prev
+                              return rest
+                            })
+                          }
+                          setHeaderDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '' }, ...prev.slice(1)] : [{ id: uid('hrow'), name: '', value: '' }]))
+                          return
+                        }
+
                         if (isInBase) {
                           setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                           setHeaderOverrides(prev => {
@@ -1251,8 +1273,12 @@ export function RequestEditor(props: {
               value={row.value}
               onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-              onDelete={() => setHeaderDraftRows(prev => prev.filter(r => r.id !== row.id))}
-              canDelete={!(visibleHeaderParams.length === 0 && headerDraftRows.length === 1)}
+              onDelete={() => {
+                setHeaderDraftRows(prev => {
+                  if (prev.length === 1 && prev[0]?.id === row.id) return [{ ...prev[0], name: '', value: '' }]
+                  return prev.filter(r => r.id !== row.id)
+                })
+              }}
             />
           ))}
 
@@ -1352,9 +1378,47 @@ export function RequestEditor(props: {
                     }
 
                     setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
-                  }
+                 }
                 }
                 onDelete={() => {
+                  const totalRows = queryParamsList.length + queryDraftRows.length
+                  const isLastRow = totalRows === 1
+
+                  if (isLastRow) {
+                    if (isSpec) {
+                      setQueryParams(prev => {
+                        if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[effectiveName]
+                        if (rawName !== effectiveName) delete next[rawName]
+                        return next
+                      })
+                      setQueryParamKeyOverrides(prev => {
+                        if (!(rawName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[rawName]
+                        return next
+                      })
+                      setDisabledQueryParamNames(prev => {
+                        if (!(rawName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[rawName]
+                        return next
+                      })
+                      return
+                    }
+
+                    setQueryParams(prev => {
+                      if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                      const next = { ...prev }
+                      delete next[effectiveName]
+                      if (rawName !== effectiveName) delete next[rawName]
+                      return next
+                    })
+                    setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '' }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '' }]))
+                    return
+                  }
+
                   setQueryParams(prev => {
                     if (!(effectiveName in prev) && !(rawName in prev)) return prev
                     const next = { ...prev }
@@ -1383,8 +1447,12 @@ export function RequestEditor(props: {
               value={row.value}
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-              onDelete={() => setQueryDraftRows(prev => prev.filter(r => r.id !== row.id))}
-              canDelete={!(queryParamsList.length === 0 && queryDraftRows.length === 1)}
+              onDelete={() => {
+                setQueryDraftRows(prev => {
+                  if (prev.length === 1 && prev[0]?.id === row.id) return [{ ...prev[0], name: '', value: '' }]
+                  return prev.filter(r => r.id !== row.id)
+                })
+              }}
             />
           ))}
         </div>
