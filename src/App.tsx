@@ -15,7 +15,7 @@ import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHis
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
 
-//TODO: поравить отображение хэдеров в редакторе, сделать key глобального хэдера редактируемым, добавить чек-бокс активный или неактивный хэдер, пре-пост скрипты
+//TODO: поравить отображение хэдеров в редакторе, сделать key глобального хэдера редактируемым, добавить чек-бокс активный или неактивный хэдер, пре-пост скрипты, история поиска, запаковать все в exe
 
 function isAbsoluteUrl(url: string) {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
