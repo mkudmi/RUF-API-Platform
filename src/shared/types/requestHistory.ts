@@ -13,6 +13,7 @@ export type RequestDraft = {
   headerOverrides?: Record<string, string>
   disabledHeaderNames?: Record<string, true>
   bodyText?: string
+  bodyFormat?: 'auto' | 'json' | 'xml' | 'yaml' | 'text'
   fileFieldName?: string
   baseUrlKey?: string
   urlTemplateOverride?: string

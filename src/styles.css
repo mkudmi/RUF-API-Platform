@@ -551,9 +551,24 @@ button:hover { background: rgba(255,255,255,.10); }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.editorTextarea { width: 100%; margin-top: 10px; }
+.editorTextarea { width: 100%; margin-top: 10px; resize: vertical; }
 .editorTextarea:focus { outline: none; box-shadow: none; }
 .editorTextarea:focus-visible { outline: 2px solid rgba(255,255,255,.20); outline-offset: 2px; }
+
+.bodyBeautifyBtn {
+  height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bodyFormatMenuBtn {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
 
 .accordion { border: 1px solid rgba(255,255,255,.10); border-radius: var(--radius); padding: 8px 10px; background: rgba(255,255,255,.03); }
 .accordion > summary { cursor: pointer; font-weight: 600; opacity: .95; display: flex; align-items: center; gap: 14px; }

@@ -6,8 +6,40 @@ import { CloseIcon, CopyIcon, ReloadIcon, StarIcon } from '../../shared/icons'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
+import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
+
+type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
+
+function labelForBodyFormat(format: BodyFormat) {
+  switch (format) {
+    case 'json': return 'JSON'
+    case 'xml': return 'XML'
+    case 'yaml': return 'YAML'
+    case 'text': return 'Plain Text'
+    case 'auto': return 'Auto'
+  }
+}
+
+function contentTypeForBodyFormat(format: Exclude<BodyFormat, 'auto'>) {
+  switch (format) {
+    case 'json': return 'application/json'
+    case 'xml': return 'application/xml'
+    case 'yaml': return 'application/yaml'
+    case 'text': return 'text/plain'
+  }
+}
+
+function inferBodyFormatFromContentType(contentType: string): Exclude<BodyFormat, 'auto'> {
+  const ct = (contentType || '').toLowerCase()
+  if (ct.includes('json')) return 'json'
+  if (ct.includes('yaml') || ct.includes('yml')) return 'yaml'
+  if (ct.includes('xml')) return 'xml'
+  if (ct.includes('text/plain')) return 'text'
+  return 'text'
+}
+
 
 function safeParseJson<T>(raw: string | null): T | null {
   try {
@@ -573,7 +605,10 @@ export function RequestEditor(props: {
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
   const [isBodyOpen, setIsBodyOpen] = useState(!!props.request.body)
+  const [bodyFormat, setBodyFormat] = useState<BodyFormat>('auto')
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const bodyFormatMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const [bodyFormatMenuOpen, setBodyFormatMenuOpen] = useState(false)
   const draftSaveTimerRef = useRef<number | null>(null)
 
   const inFlightCount = props.inFlightCount ?? 0
@@ -636,6 +671,7 @@ export function RequestEditor(props: {
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
     setIsBodyOpen(!!props.request.body)
+    setBodyFormat(draft?.bodyFormat ?? 'auto')
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
@@ -690,6 +726,7 @@ export function RequestEditor(props: {
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
     setIsBodyOpen(!!props.request.body)
+    setBodyFormat(draft?.bodyFormat ?? 'auto')
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
@@ -705,6 +742,7 @@ export function RequestEditor(props: {
       headerOverrides: nextHeaderOverrides,
       disabledHeaderNames: nextDisabledHeaderNames,
       bodyText: nextBodyText,
+      bodyFormat: draft?.bodyFormat ?? 'auto',
       fileFieldName: draft?.fileFieldName || 'file',
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
@@ -723,6 +761,7 @@ export function RequestEditor(props: {
         headerOverrides,
         disabledHeaderNames,
         bodyText,
+        bodyFormat,
         fileFieldName,
         baseUrlKey,
         urlTemplateOverride,
@@ -735,6 +774,7 @@ export function RequestEditor(props: {
   }, [
     baseUrlKey,
     bodyText,
+    bodyFormat,
     disabledHeaderNames,
     fileFieldName,
     headerOverrides,
@@ -789,12 +829,40 @@ export function RequestEditor(props: {
   }, [envHeaders, headerSpecNames, requestBaseHeaders, visibleHeaderParams])
 
   const effectiveContentType = useMemo(() => {
-    return (effectiveHeaders['Content-Type'] || effectiveHeaders['content-type'] || props.request.body?.contentType || '').trim()
-  }, [effectiveHeaders, props.request.body?.contentType])
+    const fromHeadersOrSpec = (effectiveHeaders['Content-Type'] || effectiveHeaders['content-type'] || props.request.body?.contentType || '').trim()
+    return bodyFormat === 'auto' ? fromHeadersOrSpec : contentTypeForBodyFormat(bodyFormat)
+  }, [bodyFormat, effectiveHeaders, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
   const supportsFile = props.request.method !== 'GET' && props.request.method !== 'HEAD' && (
     isMultipartForm || effectiveContentType.toLowerCase().includes('application/octet-stream')
   )
+
+  const resolvedBodyFormatForBeautify = useMemo((): Exclude<BodyFormat, 'auto'> => {
+    if (bodyFormat !== 'auto') return bodyFormat
+    return inferBodyFormatFromContentType(effectiveContentType)
+  }, [bodyFormat, effectiveContentType])
+
+  useEffect(() => {
+    if (!bodyFormatMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const wrap = bodyFormatMenuWrapRef.current
+      const t = e.target as Node | null
+      if (wrap && t && wrap.contains(t)) return
+      setBodyFormatMenuOpen(false)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setBodyFormatMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [bodyFormatMenuOpen])
 
   function addHeaderDraftRow() {
     setHeaderDraftRows(prev => [...prev, { id: uid('hrow'), name: '', value: '' }])
@@ -827,9 +895,19 @@ export function RequestEditor(props: {
     props.onSendStart?.(props.request.id, runId)
     try {
       const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
-      const effectiveHeadersForSend = hasDraftHeadersToCommit
+      const baseHeadersForSend = hasDraftHeadersToCommit
         ? effectiveHeaders
         : committedHeaders
+
+      const hasAnyBodyInput =
+        !!bodyText.trim() ||
+        !!(supportsFile && bodyFile) ||
+        !!(supportsFile && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
+      const effectiveHeadersForSend = (() => {
+        if (!hasAnyBodyInput) return baseHeadersForSend
+        if (bodyFormat === 'auto') return baseHeadersForSend
+        return { ...baseHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) }
+      })()
       const hasDraftQueryToCommit = queryDraftRows.some(r => r.name.trim() && r.value !== '')
       const effectiveQueryParamsForSend = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
       const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
@@ -898,6 +976,7 @@ export function RequestEditor(props: {
           disabledQueryParamNames: effectiveDisabledQueryParamNamesForSend,
           headers: effectiveHeadersForSend,
           bodyText,
+          bodyFormat,
           fileFieldName,
           baseUrlKey,
           urlTemplateOverride,
@@ -1018,16 +1097,15 @@ export function RequestEditor(props: {
     applyBodyTextareaReplacement(selStart, selEnd, replacement, caret, caret)
   }
 
-  function beautifyBodyJson() {
+  function beautifyBodyText() {
     const ta = bodyTextareaRef.current
     const raw = ta?.value ?? bodyText
     try {
-      const parsed = JSON.parse(raw)
-      const nextValue = JSON.stringify(parsed, null, 2)
+      const nextValue = beautifyBody(raw, resolvedBodyFormatForBeautify as BeautifyBodyFormat)
       if (ta) applyBodyTextareaReplacement(0, ta.value.length, nextValue, nextValue.length, nextValue.length)
       else setBodyText(nextValue)
     } catch {
-      // keep silent: invalid JSON should not change button state
+      // keep silent: invalid input should not change button state
     }
   }
 
@@ -1707,20 +1785,68 @@ export function RequestEditor(props: {
         <summary>
           <span>Body</span>
           <span style={{ marginLeft: 'auto' }} />
+          <div ref={bodyFormatMenuOpen ? bodyFormatMenuWrapRef : null} className="selectMenuWrap" style={{ width: 150 }}>
             <button
               type="button"
-              className="iconBtn"
+              className="selectMenuBtn mono bodyFormatMenuBtn"
+              onPointerDown={e => e.stopPropagation()}
               onClick={e => {
                 e.preventDefault()
                 e.stopPropagation()
-                beautifyBodyJson()
+                setBodyFormatMenuOpen(v => !v)
               }}
-              aria-label="Beautify JSON"
-              title="Beautify JSON"
-              style={{ width: 32, height: 32 }}
+              aria-haspopup="menu"
+              aria-expanded={bodyFormatMenuOpen}
+              aria-label="Body format"
+              title="Body format"
             >
-              <StarIcon />
+              {labelForBodyFormat(bodyFormat)}
             </button>
+
+            {bodyFormatMenuOpen ? (
+              <div
+                className="selectMenuPanel"
+                role="menu"
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+              >
+                {(['auto', 'json', 'xml', 'yaml', 'text'] as BodyFormat[]).map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`selectMenuItem ${bodyFormat === v ? 'selectMenuItemActive' : ''}`}
+                    role="menuitem"
+                    onClick={() => {
+                      setBodyFormatMenuOpen(false)
+                      setBodyFormat(v)
+                    }}
+                  >
+                    {labelForBodyFormat(v)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="bodyBeautifyBtn mono"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              beautifyBodyText()
+            }}
+            aria-label="Beautify"
+            title="Beautify"
+          >
+            <StarIcon size={16} />
+            <span>Beautify</span>
+          </button>
             <button
               type="button"
               className="iconBtn"
@@ -1817,7 +1943,7 @@ export function RequestEditor(props: {
               applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
             }
           }}
-          rows={12}
+          rows={18}
         />
       </details>
     </div>
