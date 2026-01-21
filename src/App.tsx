@@ -718,6 +718,151 @@ export default function App() {
     })
   }
 
+  function moveRequest(collectionId: string, requestId: string, targetFolderId: string | null) {
+    setCollections(prev => {
+      let didMove = false
+      let movedReq: RequestItem | null = null
+      let updatedCol: Collection | null = null
+
+      function findInFolders(folders: any[]): { req: RequestItem, folderId: string } | null {
+        for (const f of folders) {
+          const reqs: RequestItem[] = Array.isArray(f?.requests) ? f.requests : []
+          const found = reqs.find(r => r?.id === requestId)
+          if (found) return { req: found, folderId: f.id }
+          const nested = Array.isArray(f?.folders) ? f.folders : []
+          const inner = nested.length ? findInFolders(nested) : null
+          if (inner) return inner
+        }
+        return null
+      }
+
+      function removeFromFolders(folders: any[]): { folders: any[], removed: boolean } {
+        let didRemove = false
+        let nextFolders: any[] | null = null
+
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          if (!f) {
+            if (nextFolders) nextFolders.push(f)
+            continue
+          }
+
+          let nextFolder = f
+
+          const reqs: RequestItem[] = Array.isArray(f.requests) ? f.requests : []
+          const idx = reqs.findIndex(r => r?.id === requestId)
+          if (idx >= 0) {
+            didRemove = true
+            const nextReqs = [...reqs.slice(0, idx), ...reqs.slice(idx + 1)]
+            nextFolder = { ...nextFolder, requests: nextReqs }
+          }
+
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          const nestedRes = nested.length ? removeFromFolders(nested) : { folders: nested, removed: false }
+          if (nestedRes.removed) {
+            didRemove = true
+            nextFolder = { ...nextFolder, folders: nestedRes.folders }
+          }
+
+          if (!nextFolders) {
+            if (nextFolder !== f) {
+              nextFolders = folders.slice(0, i)
+              nextFolders.push(nextFolder)
+            }
+          } else {
+            nextFolders.push(nextFolder)
+          }
+        }
+
+        if (!didRemove) return { folders, removed: false }
+        return { folders: nextFolders ?? folders, removed: true }
+      }
+
+      function insertIntoFolders(folders: any[], folderId: string, req: RequestItem): { folders: any[], inserted: boolean } {
+        let inserted = false
+        let nextFolders: any[] | null = null
+
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          if (!f) {
+            if (nextFolders) nextFolders.push(f)
+            continue
+          }
+
+          let nextFolder = f
+          if (!inserted && f.id === folderId) {
+            inserted = true
+            const reqs: RequestItem[] = Array.isArray(f.requests) ? f.requests : []
+            nextFolder = { ...f, requests: [...reqs, req] }
+          } else if (!inserted) {
+            const nested = Array.isArray(f.folders) ? f.folders : []
+            if (nested.length) {
+              const child = insertIntoFolders(nested, folderId, req)
+              if (child.inserted) {
+                inserted = true
+                nextFolder = { ...f, folders: child.folders }
+              }
+            }
+          }
+
+          if (!nextFolders) {
+            if (nextFolder !== f) {
+              nextFolders = folders.slice(0, i)
+              nextFolders.push(nextFolder)
+            }
+          } else {
+            nextFolders.push(nextFolder)
+          }
+        }
+
+        if (!inserted) return { folders, inserted: false }
+        return { folders: nextFolders ?? folders, inserted: true }
+      }
+
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+
+        const direct = c.requests ?? []
+        const directFound = direct.find(r => r.id === requestId) ?? null
+        const folderFound = directFound ? null : findInFolders(c.folders as any)
+
+        const originFolderId = directFound ? null : (folderFound?.folderId ?? null)
+        movedReq = directFound ?? folderFound?.req ?? null
+        if (!movedReq) return c
+        if (originFolderId === targetFolderId) return c
+
+        let nextDirect = directFound ? direct.filter(r => r.id !== requestId) : direct
+        let nextFolders = c.folders as any
+
+        if (!directFound) {
+          const removed = removeFromFolders(c.folders as any)
+          nextFolders = removed.removed ? removed.folders : nextFolders
+        }
+
+        if (!targetFolderId) {
+          nextDirect = [...nextDirect, movedReq]
+        } else {
+          const inserted = insertIntoFolders(nextFolders, targetFolderId, movedReq)
+          nextFolders = inserted.folders
+          if (!inserted.inserted) nextDirect = [...nextDirect, movedReq]
+        }
+
+        didMove = true
+        updatedCol = { ...c, requests: nextDirect, folders: nextFolders }
+        return updatedCol
+      })
+
+      if (!didMove || !updatedCol || !movedReq) return prev
+      saveCollections(next)
+
+      if (active?.req.id === requestId && active.col.id === collectionId) {
+        setActive({ col: updatedCol, req: movedReq })
+      }
+
+      return next
+    })
+  }
+
   function confirmDeleteCollection() {
     const collectionId = confirmDeleteId
     if (!collectionId) return
@@ -897,6 +1042,7 @@ export default function App() {
             onRenameFolder={renameFolder}
             onRenameRequest={renameRequest}
             onMoveFolder={moveFolder}
+            onMoveRequest={moveRequest}
             onDeleteFolder={deleteFolder}
             onDeleteRequest={deleteRequest}
             onDeleteCollection={requestDeleteCollection}

@@ -504,6 +504,8 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeGroupInner .treeFolderName { font-size: 14px; }
 .treeGroupInner .treeItem { font-size: 14px; padding: 2px 10px; }
 .treeGroupInner .treeMethod { font-size: 12px; }
+.treeGroup > .treeItems > .treeItem { font-size: 14px; padding: 2px 10px; }
+.treeGroup > .treeItems > .treeItem .treeMethod { font-size: 12px; }
 .envBtn {
   padding: 4px 8px;
   border-radius: var(--radius);
