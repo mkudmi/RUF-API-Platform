@@ -15,6 +15,7 @@ import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHis
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
 import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
+import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
 //TODO: 
 // параметр игнорирования ssl сертификатов
@@ -230,7 +231,7 @@ export default function App() {
 
     try {
       const u = new URL(rawUrl)
-      const res = await fetch(u.toString())
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) throw new Error('Response is empty.')

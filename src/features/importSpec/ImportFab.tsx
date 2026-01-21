@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import type { Collection } from '../../shared/types/collection'
 import { buildImportedCollectionFromText } from './buildImportedCollection'
+import { fetchWithProxyFallback } from '../../shared/utils/proxyFetch'
+import { loadAppSettings } from '../../shared/utils/appSettings'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -96,7 +98,8 @@ export function ImportFab(props: {
         return
       }
       const u = new URL(raw)
-      const res = await fetch(u.toString())
+      const { validateCertificates } = loadAppSettings()
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) {

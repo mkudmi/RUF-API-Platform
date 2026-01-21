@@ -1,6 +1,8 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Collection } from '../../shared/types/collection'
 import { buildImportedCollectionFromText } from './buildImportedCollection'
+import { fetchWithProxyFallback } from '../../shared/utils/proxyFetch'
+import { loadAppSettings } from '../../shared/utils/appSettings'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -95,7 +97,8 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
       }
 
       const u = new URL(url)
-      const res = await fetch(u.toString())
+      const { validateCertificates } = loadAppSettings()
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} ${res.statusText}`)
       }
