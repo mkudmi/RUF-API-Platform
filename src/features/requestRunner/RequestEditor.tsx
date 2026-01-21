@@ -9,6 +9,7 @@ import { runRequest, type RunResult } from './runRequest'
 import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../environment/dbConnection'
 import { SqlScriptsTab } from './SqlScriptsTab'
+import { AuthorizationTab } from './AuthorizationTab'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
 
@@ -1537,19 +1538,10 @@ export function RequestEditor(props: {
           onChangePostSqlScript={setPostSqlScript}
         />
       ) : headersTab === 'authorization' ? (
-        <div className="accordion">
-          <div className="section">
-            <div className="formRow">
-              <div className="formLabel mono">Authorization</div>
-              <input
-                className="mono"
-                value={committedHeaders.Authorization ?? ''}
-                onChange={e => setHeaderValueForRequest('Authorization', e.target.value)}
-                placeholder="Bearer …"
-              />
-            </div>
-          </div>
-        </div>
+        <AuthorizationTab
+          value={committedHeaders.Authorization ?? ''}
+          onChangeValue={next => setHeaderValueForRequest('Authorization', next)}
+        />
       ) : (
         <div className="accordion">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
