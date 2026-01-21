@@ -18,6 +18,7 @@ import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
 //TODO:
+//импорт soap
 // пофиксить восстановление пустых хэдеров из истории: при пустых хэдеров последнее неудаляемое окно удаляется
 // добавить все типы авторизации
 // при пустом теле и выборе одном из типов проставлять автоматом вводные для типа (например json - {} и тд)
