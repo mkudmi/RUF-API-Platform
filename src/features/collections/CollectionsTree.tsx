@@ -80,6 +80,32 @@ export function CollectionsTree(props: {
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
 
+  function applyMenuAutoFlip(panel: HTMLDivElement | null) {
+    if (!panel) return
+    requestAnimationFrame(() => {
+      panel.classList.remove('treeMenuPanelFlipX', 'treeMenuPanelFlipY')
+
+      const rect = panel.getBoundingClientRect()
+      const vw = document.documentElement.clientWidth
+      const vh = document.documentElement.clientHeight
+      const margin = 8
+
+      let flipX = rect.left < margin
+      if (flipX) {
+        panel.classList.add('treeMenuPanelFlipX')
+        const rect2 = panel.getBoundingClientRect()
+        if (rect2.right > vw - margin && rect.right <= vw - margin) {
+          panel.classList.remove('treeMenuPanelFlipX')
+          flipX = false
+        }
+      }
+
+      const flipY = rect.bottom > vh - margin && rect.height < vh - margin * 2
+
+      if (flipY) panel.classList.add('treeMenuPanelFlipY')
+    })
+  }
+
   function countRequests(folder: Folder): number {
     const nested = (folder.folders ?? []).reduce((n, f) => n + countRequests(f), 0)
     return folder.requests.length + nested
@@ -414,6 +440,7 @@ export function CollectionsTree(props: {
                 <div
                   className="treeMenuPanel"
                   role="menu"
+                  ref={applyMenuAutoFlip}
                   onPointerDown={e => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -642,6 +669,7 @@ export function CollectionsTree(props: {
                     <div
                       className="treeMenuPanel"
                       role="menu"
+                      ref={applyMenuAutoFlip}
                       onPointerDown={e => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -897,6 +925,7 @@ export function CollectionsTree(props: {
                         <div
                           className="treeMenuPanel"
                           role="menu"
+                          ref={applyMenuAutoFlip}
                           onPointerDown={e => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -1157,14 +1186,15 @@ export function CollectionsTree(props: {
                       ...
                     </button>
 
-                    {isRequestMenuOpen ? (
-                      <div
-                        className="treeMenuPanel"
-                        role="menu"
-                        onPointerDown={e => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                        }}
+                  {isRequestMenuOpen ? (
+                    <div
+                      className="treeMenuPanel"
+                      role="menu"
+                      ref={applyMenuAutoFlip}
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
                         onClick={e => {
                           e.preventDefault()
                           e.stopPropagation()

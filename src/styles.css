@@ -457,6 +457,8 @@ button:hover { background: rgba(255,255,255,.10); }
   box-shadow: 0 8px 24px rgba(0,0,0,.45);
   z-index: 30;
 }
+.treeMenuPanelFlipX { left: 0; right: auto; }
+.treeMenuPanelFlipY { top: auto; bottom: 34px; }
 .treeMenuItem {
   width: 100%;
   text-align: left;
