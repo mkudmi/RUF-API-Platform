@@ -482,6 +482,11 @@ export function RequestEditor(props: {
       }
       return changed ? next : prev
     })
+
+    setHeaderDraftRows(prev => {
+      if (prev.some(r => r.name.trim() || r.value !== '')) return prev
+      return []
+    })
   }
 
   function setHeaderValueForRequest(headerName: string, nextValue: string) {
@@ -774,10 +779,7 @@ export function RequestEditor(props: {
   const hasAnyEditableVisibleHeaderRow = useMemo(() => {
     return visibleHeaderParams.some(h => {
       const isSpec = headerSpecNames.has(h.name)
-      const isInBase = Object.prototype.hasOwnProperty.call(requestBaseHeaders, h.name)
-      const isInEnv = Object.prototype.hasOwnProperty.call(envHeaders, h.name)
-      const isEnvOnly = !isInBase && isInEnv
-      return !(isSpec || isEnvOnly)
+      return !isSpec
     })
   }, [envHeaders, headerSpecNames, requestBaseHeaders, visibleHeaderParams])
 
@@ -1389,12 +1391,12 @@ export function RequestEditor(props: {
                   key={h.name}
                   name={h.name}
                   value={value}
-                  readOnlyName={isSpec || isEnvOnly}
+                  readOnlyName={isSpec}
                   onChangeValue={nextValue => {
                     setHeaderValueForRequest(h.name, nextValue)
                   }}
                   onRename={
-                    isSpec || isEnvOnly
+                    isSpec
                       ? undefined
                       : nextName => {
                         const nextKey = nextName.trim()
@@ -1505,7 +1507,10 @@ export function RequestEditor(props: {
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
                 onDelete={() => {
                   setHeaderDraftRows(prev => {
-                    if (prev.length === 1 && prev[0]?.id === row.id) return [{ ...prev[0], name: '', value: '' }]
+                    if (prev.length === 1 && prev[0]?.id === row.id) {
+                      if (visibleHeaderParams.length > 0) return []
+                      return [{ ...prev[0], name: '', value: '' }]
+                    }
                     return prev.filter(r => r.id !== row.id)
                   })
                 }}

@@ -17,10 +17,8 @@ import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
 import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
-//TODO: 
-// параметр игнорирования ssl сертификатов
+//TODO:
 // поравить отображение хэдеров в редакторе
-// сделать key глобального хэдера редактируемым
 // добавить чек-бокс активный или неактивный хэдер
 // пре-пост скрипты
 // история поиска
