@@ -913,7 +913,6 @@ export function RequestEditor(props: {
   async function send() {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
-    const totalStarted = performance.now()
     try {
       const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
       const baseHeadersForSend = hasDraftHeadersToCommit
@@ -1018,7 +1017,7 @@ export function RequestEditor(props: {
         ok: false,
         status: 0,
         statusText,
-        timeMs: Math.round(performance.now() - totalStarted),
+        timeMs: 0,
         headers: {},
         bodyText: message,
       })
@@ -1101,7 +1100,6 @@ export function RequestEditor(props: {
         }
       }
 
-      result = { ...result, timeMs: Math.round(performance.now() - totalStarted) }
       props.onResult(props.request.id, result, runId)
     } finally {
       props.onSendEnd?.(props.request.id, runId)
