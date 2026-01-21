@@ -108,10 +108,15 @@ export default function App() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
+  const SIDEBAR_BASE_PX = 420
+  const SIDEBAR_MIN_PX = 190
+  const SIDEBAR_MAX_PX = 720
+  const PANEL_RIGHT_BASE_PX = 800
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const raw = localStorage.getItem('ruf_sidebar_width_v1')
-    const n = raw ? Number(raw) : 320
-    return Number.isFinite(n) && n > 0 ? n : 320
+    const n = raw ? Number(raw) : SIDEBAR_BASE_PX
+    const base = Number.isFinite(n) && n > 0 ? n : SIDEBAR_BASE_PX
+    return clamp(base, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
   })
   const [editorWidth, setEditorWidth] = useState(() => {
     const raw = localStorage.getItem('ruf_editor_width_v1')
@@ -781,7 +786,11 @@ export default function App() {
     const el = panelRef.current
     if (!el) return
     const w = el.getBoundingClientRect().width
-    if (w > 0) setEditorWidth(Math.round(w / 2))
+    if (w <= 0) return
+    const min = 320
+    const max = Math.max(min, w - 320)
+    const next = clamp(Math.round(w - 8 - PANEL_RIGHT_BASE_PX), min, max)
+    setEditorWidth(next)
   }, [editorWidth])
 
   function onSidebarResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -791,7 +800,7 @@ export default function App() {
     ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
     function onMove(ev: PointerEvent) {
-      const next = clamp(startW + (ev.clientX - startX), 240, 720)
+      const next = clamp(startW + (ev.clientX - startX), SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
       setSidebarWidth(next)
     }
     function onUp() {
@@ -801,6 +810,12 @@ export default function App() {
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp, { once: true })
+  }
+
+  function onSidebarResizerDoubleClick() {
+    const next = clamp(SIDEBAR_BASE_PX, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
+    setSidebarWidth(next)
+    localStorage.setItem('ruf_sidebar_width_v1', String(next))
   }
 
   function onPanelResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -825,6 +840,21 @@ export default function App() {
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp, { once: true })
+  }
+
+  function onPanelResizerDoubleClick() {
+    const el = panelRef.current
+    if (!el) {
+      setEditorWidth(0)
+      localStorage.removeItem('ruf_editor_width_v1')
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const min = 320
+    const max = Math.max(min, rect.width - 320)
+    const next = clamp(Math.round(rect.width - 8 - PANEL_RIGHT_BASE_PX), min, max)
+    setEditorWidth(next)
+    localStorage.setItem('ruf_editor_width_v1', String(next))
   }
 
   return (
@@ -885,7 +915,11 @@ export default function App() {
           </button>
         </div>
       </aside>
-      <div className="resizer" onPointerDown={onSidebarResizePointerDown} />
+      <div
+        className="resizer"
+        onPointerDown={onSidebarResizePointerDown}
+        onDoubleClick={onSidebarResizerDoubleClick}
+      />
 
       <main className="main">
         <div className="topbar">
@@ -923,7 +957,11 @@ export default function App() {
             }
           </section>
 
-          <div className="resizer" onPointerDown={onPanelResizePointerDown} />
+          <div
+            className="resizer"
+            onPointerDown={onPanelResizePointerDown}
+            onDoubleClick={onPanelResizerDoubleClick}
+          />
 
           <section className="card" style={{ overflow: 'hidden' }}>
             <ResponseViewer
