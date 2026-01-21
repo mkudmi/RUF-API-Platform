@@ -76,6 +76,58 @@ a { color: inherit; }
   align-items: center;
 }
 
+.settingsBtn { font-size: 18px; line-height: 1; }
+.settingsBtn > .iconGlyph { display: block; }
+
+.checkRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkInput {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.checkBox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.checkRow:hover .checkBox { background: rgba(255,255,255,.09); }
+.checkInput:focus-visible + .checkBox { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
+
+.checkInput:checked + .checkBox {
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.12);
+}
+
+.checkInput:checked + .checkBox::after {
+  content: '';
+  width: 10px;
+  height: 6px;
+  border-left: 2px solid #e8e8e8;
+  border-bottom: 2px solid #e8e8e8;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -70%) rotate(-45deg);
+}
+
+.checkText { line-height: 18px; }
+
 .main {
   display: grid;
   grid-template-rows: auto 1fr;

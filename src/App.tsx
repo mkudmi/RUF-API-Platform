@@ -876,12 +876,12 @@ export default function App() {
 
         <div className="sidebarBottom">
           <button
-            className="iconBtn"
+            className="iconBtn settingsBtn"
             onClick={openSettings}
             aria-label="Settings"
             title="Settings"
           >
-            &#9881;
+            <span className="iconGlyph">&#9881;</span>
           </button>
         </div>
       </aside>
@@ -1020,17 +1020,19 @@ export default function App() {
           <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close">✕</button>
         </div>
 
-        <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <label className="checkRow">
           <input
             type="checkbox"
+            className="checkInput"
             checked={validateCertificates}
             onChange={e => setValidateCertificates(e.target.checked)}
           />
-          <span>Validate certificates</span>
+          <span className="checkBox" aria-hidden="true" />
+          <span className="checkText">Validate certificates</span>
         </label>
 
         <div className="modalActions">
-          <button onClick={closeSettings}>OK</button>
+          <button onClick={closeSettings}>Сохранить</button>
         </div>
       </dialog>
     </div>
