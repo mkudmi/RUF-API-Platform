@@ -336,6 +336,40 @@ button:hover { background: rgba(255,255,255,.10); }
 .small { font-size: 15px; opacity: .8; }
 .emptyHint { margin-top: 10px; }
 
+.codeWithGutter {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.codeGutter, .codePre {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.codeGutter {
+  white-space: pre;
+  flex: 0 0 auto;
+  user-select: none;
+  text-align: right;
+  padding: 0 8px 0 2px;
+  color: rgba(255,255,255,.45);
+  border-right: 1px solid rgba(255,255,255,.10);
+  position: sticky;
+  left: 0;
+  background: rgba(11,12,16,.98);
+}
+
+.codePre {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Collapsible tree */
 .tree { display: grid; gap: 8px; min-width: 0; }
 .treeGroup {

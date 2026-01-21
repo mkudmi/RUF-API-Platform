@@ -49,6 +49,21 @@ function formatDateTime24(ts: number) {
   return `${dd}.${mm}.${yyyy} ${hh}:${min}`
 }
 
+function countLines(text: string) {
+  if (!text) return 1
+  let lines = 1
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10) lines++
+  }
+  return lines
+}
+
+function buildLineNumbers(lineCount: number) {
+  const out: string[] = []
+  for (let i = 1; i <= lineCount; i++) out.push(String(i))
+  return out.join('\n')
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
@@ -96,6 +111,14 @@ export function ResponseViewer(props: {
   const historyItems = props.historyItems ?? []
   const copyPayload = tab === 'body' ? bodyView.text : headersText
   const canCopyBody = !!result && result.bodyText.length > 0
+
+  const bodyLineCount = useMemo(() => countLines(bodyView.text), [bodyView.text])
+  const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
+  const bodyGutterWidthCh = Math.max(2, String(bodyLineCount).length) + 1
+
+  const headersLineCount = useMemo(() => countLines(headersText), [headersText])
+  const headersLineNumbers = useMemo(() => buildLineNumbers(headersLineCount), [headersLineCount])
+  const headersGutterWidthCh = Math.max(2, String(headersLineCount).length) + 1
 
   async function onCopy() {
     await copyText(copyPayload)
@@ -300,8 +323,8 @@ export function ResponseViewer(props: {
               disabled={!isJson}
             />
           </div>
-          <div style={{ position: 'relative', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-            <div style={{ position: 'absolute', top: 8, right: 24, zIndex: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', paddingRight: 0 }}>
               {isJson ? (
                 <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
                   <button
@@ -359,10 +382,15 @@ export function ResponseViewer(props: {
                 </button>
               ) : null}
             </div>
-            <div style={{ overflow: 'auto', height: '100%', paddingRight: isJson ? 260 : 48 }}>
-              <pre className="mono" style={{ whiteSpace: 'pre', margin: 0, fontSize: 14 }}>
-                {bodyView.text}
-              </pre>
+            <div style={{ overflow: 'auto', height: '100%' }}>
+              <div className="codeWithGutter" style={{ fontSize: 14 }}>
+                <pre className="mono codeGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
+                  {bodyLineNumbers}
+                </pre>
+                <pre className="mono codePre">
+                  {bodyView.text}
+                </pre>
+              </div>
             </div>
 
             <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
@@ -398,20 +426,21 @@ export function ResponseViewer(props: {
           </div>
         </div>
       ) : (
-        <div style={{ position: 'relative', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-          <button
-            className="iconBtn"
-            onClick={onCopy}
-            title="Copy headers"
-            aria-label="Copy headers"
-            style={{ position: 'absolute', top: 8, right: 24, zIndex: 2 }}
-          >
-            {copied ? 'OK' : <CopyIcon />}
-          </button>
-          <div style={{ overflow: 'auto', height: '100%', paddingRight: 48 }}>
-            <pre className="mono" style={{ whiteSpace: 'pre', margin: 0, fontSize: 12 }}>
-              {headersText}
-            </pre>
+        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', paddingRight: 0 }}>
+            <button className="iconBtn" onClick={onCopy} title="Copy headers" aria-label="Copy headers">
+              {copied ? 'OK' : <CopyIcon />}
+            </button>
+          </div>
+          <div style={{ overflow: 'auto', height: '100%' }}>
+            <div className="codeWithGutter" style={{ fontSize: 12 }}>
+              <pre className="mono codeGutter" style={{ width: `${headersGutterWidthCh}ch` }} aria-hidden="true">
+                {headersLineNumbers}
+              </pre>
+              <pre className="mono codePre">
+                {headersText}
+              </pre>
+            </div>
           </div>
         </div>
       )}
