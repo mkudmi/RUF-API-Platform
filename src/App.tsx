@@ -14,6 +14,7 @@ import { uid } from './shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
+import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 
 //TODO: 
 // параметр игнорирования ssl сертификатов
@@ -86,6 +87,9 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
 }
 
 export default function App() {
+  const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const [validateCertificates, setValidateCertificates] = useState<boolean>(() => loadAppSettings().validateCertificates)
+
   const [collections, setCollections] = useState<Collection[]>(() => loadCollections())
   const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => {
     const saved = loadActiveSelection()
@@ -127,6 +131,18 @@ export default function App() {
   })
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
+
+  function openSettings() {
+    settingsDialogRef.current?.showModal()
+  }
+
+  function closeSettings() {
+    settingsDialogRef.current?.close()
+  }
+
+  useEffect(() => {
+    saveAppSettings({ validateCertificates })
+  }, [validateCertificates])
 
   function onRequestSendStart(requestId: string) {
     setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
@@ -816,6 +832,15 @@ export default function App() {
         <div className="sidebarBrand">
           <div className="sidebarBrandRow">
             <span className="appTitle">Ruf</span> <span className="small">(web-only)</span>
+            <button
+              className="iconBtn"
+              style={{ marginLeft: 'auto' }}
+              onClick={openSettings}
+              aria-label="Settings"
+              title="Настройки"
+            >
+              ⚙
+            </button>
           </div>
           <div className="small sidebarTagline">API platform</div>
         </div>
@@ -969,6 +994,29 @@ export default function App() {
         <div className="modalActions">
           <button onClick={cancelDeleteCollection}>Отмена</button>
           <button className="deleteBtn" onClick={confirmDeleteCollection}>Удалить</button>
+        </div>
+      </dialog>
+
+      <dialog
+        ref={settingsDialogRef}
+        className="modal modalSmall"
+      >
+        <div className="modalHeader">
+          <b>Настройки</b>
+          <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close">✕</button>
+        </div>
+
+        <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            type="checkbox"
+            checked={validateCertificates}
+            onChange={e => setValidateCertificates(e.target.checked)}
+          />
+          <span>Validate certificates</span>
+        </label>
+
+        <div className="modalActions">
+          <button onClick={closeSettings}>OK</button>
         </div>
       </dialog>
     </div>

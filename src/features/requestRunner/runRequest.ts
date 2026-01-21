@@ -1,5 +1,6 @@
 import type { RequestItem } from '../../shared/types/collection'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
+import { loadAppSettings } from '../../shared/utils/appSettings'
 
 export type RunResult = {
   ok: boolean
@@ -10,17 +11,29 @@ export type RunResult = {
   bodyText: string
 }
 
-function maybeProxyUrl(url: string) {
-  if (!import.meta.env.DEV) return url
+function maybeProxyUrl(url: string, opts: { insecureTls?: boolean }) {
+  const insecureTls = !!opts.insecureTls
   try {
     const u = new URL(url)
     if (typeof location !== 'undefined' && u.origin !== location.origin) {
-      return `/__ruf_proxy?url=${encodeURIComponent(u.toString())}`
+      if (!import.meta.env.DEV && !insecureTls) return url
+      const qs = new URLSearchParams()
+      qs.set('url', u.toString())
+      if (insecureTls) qs.set('insecure', '1')
+      return `/__ruf_proxy?${qs.toString()}`
     }
   } catch {
     // ignore
   }
   return url
+}
+
+function shouldValidateCertificates(): boolean {
+  try {
+    return loadAppSettings().validateCertificates
+  } catch {
+    return true
+  }
 }
 
 function applyVariables(text: string, vars: Record<string, string>) {
@@ -72,6 +85,7 @@ export async function runRequest(args: {
 }): Promise<RunResult> {
   const start = performance.now()
   const vars = args.variables ?? {}
+  const validateCertificates = shouldValidateCertificates()
 
   const baseUrl = (args.baseUrl || '').trim()
   const urlTemplateOverride = (args.urlTemplateOverride || '').trim()
@@ -140,7 +154,7 @@ export async function runRequest(args: {
 
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
-  const finalUrl = maybeProxyUrl(url)
+  const finalUrl = maybeProxyUrl(url, { insecureTls: !validateCertificates })
   let res: Response
   try {
     res = await fetch(finalUrl, init)
