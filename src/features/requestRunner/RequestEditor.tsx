@@ -572,6 +572,7 @@ export function RequestEditor(props: {
 
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
+  const [isBodyOpen, setIsBodyOpen] = useState(!!props.request.body)
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const draftSaveTimerRef = useRef<number | null>(null)
 
@@ -632,14 +633,16 @@ export function RequestEditor(props: {
     setDisabledHeaderNames(nextDisabledHeaderNames)
     setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
-    setBodyText(draft?.bodyText ?? requestDefaultBodyText())
+    const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
+    setBodyText(nextBodyText)
+    setIsBodyOpen(!!props.request.body)
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
     setShowBaseUrlPicker(false)
-  }, [props.request.id, props.request.params, props.request.headers])
+  }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
   useEffect(() => {
@@ -684,7 +687,9 @@ export function RequestEditor(props: {
     setDisabledHeaderNames(nextDisabledHeaderNames)
     setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
-    setBodyText(draft?.bodyText ?? requestDefaultBodyText())
+    const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
+    setBodyText(nextBodyText)
+    setIsBodyOpen(!!props.request.body)
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
@@ -699,12 +704,12 @@ export function RequestEditor(props: {
       disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
       headerOverrides: nextHeaderOverrides,
       disabledHeaderNames: nextDisabledHeaderNames,
-      bodyText: draft?.bodyText ?? requestDefaultBodyText(),
+      bodyText: nextBodyText,
       fileFieldName: draft?.fileFieldName || 'file',
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
     })
-  }, [applyDraftToken, props.applyDraft, props.environment, props.request.headers, props.request.id, props.request.params])
+  }, [applyDraftToken, props.applyDraft, props.environment, props.request.body, props.request.headers, props.request.id, props.request.params])
 
   useEffect(() => {
     if (!props.request.id) return
@@ -1694,11 +1699,14 @@ export function RequestEditor(props: {
         </div>
       </details>
 
-      {props.request.body && (
-        <details className="accordion" open>
-          <summary>
-            <span>Body</span>
-            <span style={{ marginLeft: 'auto' }} />
+      <details
+        className="accordion"
+        open={isBodyOpen}
+        onToggle={e => setIsBodyOpen(e.currentTarget.open)}
+      >
+        <summary>
+          <span>Body</span>
+          <span style={{ marginLeft: 'auto' }} />
             <button
               type="button"
               className="iconBtn"
@@ -1727,92 +1735,91 @@ export function RequestEditor(props: {
             >
               {bodyCopied ? 'OK' : <CopyIcon />}
             </button>
-          </summary>
-          {supportsFile && (
-            <div className="section" style={{ marginBottom: 10 }}>
-              <div className="formRow">
-                <div className="formLabel mono">file</div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <input
-                    ref={bodyFileInputRef}
-                    type="file"
-                    style={{ display: 'none' }}
-                    onChange={e => setBodyFile(e.target.files?.[0] ?? null)}
-                  />
-                  <button
-                    type="button"
-                    className="chooseFileBtn"
-                    onClick={() => bodyFileInputRef.current?.click()}
-                  >
-                    Choose file
-                  </button>
-                  {bodyFile ? <span className="small mono">{bodyFile.name}</span> : null}
-                </div>
+        </summary>
+        {supportsFile && (
+          <div className="section" style={{ marginBottom: 10 }}>
+            <div className="formRow">
+              <div className="formLabel mono">file</div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  ref={bodyFileInputRef}
+                  type="file"
+                  style={{ display: 'none' }}
+                  onChange={e => setBodyFile(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  className="chooseFileBtn"
+                  onClick={() => bodyFileInputRef.current?.click()}
+                >
+                  Choose file
+                </button>
+                {bodyFile ? <span className="small mono">{bodyFile.name}</span> : null}
               </div>
-              {isMultipartForm && (
-                <div className="formRow">
-                  <div className="formLabel mono">field</div>
-                  <input
-                    className="mono"
-                    value={fileFieldName}
-                    onChange={e => setFileFieldName(e.target.value)}
-                    placeholder="file"
-                  />
-                </div>
-              )}
             </div>
-          )}
-          <textarea
-            ref={bodyTextareaRef}
-            className="mono editorTextarea"
-            value={bodyText}
-            onChange={e => setBodyText(e.target.value)}
-            onKeyDown={e => {
-              if (e.ctrlKey || e.metaKey || e.altKey) return
-              if (e.key === 'Tab') {
+            {isMultipartForm && (
+              <div className="formRow">
+                <div className="formLabel mono">field</div>
+                <input
+                  className="mono"
+                  value={fileFieldName}
+                  onChange={e => setFileFieldName(e.target.value)}
+                  placeholder="file"
+                />
+              </div>
+            )}
+          </div>
+        )}
+        <textarea
+          ref={bodyTextareaRef}
+          className="mono editorTextarea"
+          value={bodyText}
+          onChange={e => setBodyText(e.target.value)}
+          onKeyDown={e => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return
+            if (e.key === 'Tab') {
+              e.preventDefault()
+              e.stopPropagation()
+              applyBodyTabIndent(e.shiftKey)
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              e.stopPropagation()
+              applyBodyEnterIndent()
+              return
+            }
+            if (e.key === '"') {
+              const ta = bodyTextareaRef.current
+              if (!ta) return
+
+              const selStart = ta.selectionStart ?? 0
+              const selEnd = ta.selectionEnd ?? 0
+
+              if (selStart === selEnd && ta.value[selStart] === '"') {
                 e.preventDefault()
                 e.stopPropagation()
-                applyBodyTabIndent(e.shiftKey)
+                const nextPos = selStart + 1
+                ta.selectionStart = nextPos
+                ta.selectionEnd = nextPos
                 return
               }
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                e.stopPropagation()
-                applyBodyEnterIndent()
+
+              e.preventDefault()
+              e.stopPropagation()
+
+              if (selStart !== selEnd) {
+                const selected = ta.value.slice(selStart, selEnd)
+                applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
                 return
               }
-              if (e.key === '"') {
-                const ta = bodyTextareaRef.current
-                if (!ta) return
 
-                const selStart = ta.selectionStart ?? 0
-                const selEnd = ta.selectionEnd ?? 0
-
-                if (selStart === selEnd && ta.value[selStart] === '"') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const nextPos = selStart + 1
-                  ta.selectionStart = nextPos
-                  ta.selectionEnd = nextPos
-                  return
-                }
-
-                e.preventDefault()
-                e.stopPropagation()
-
-                if (selStart !== selEnd) {
-                  const selected = ta.value.slice(selStart, selEnd)
-                  applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
-                  return
-                }
-
-                applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
-              }
-            }}
-            rows={12}
-          />
-        </details>
-      )}
+              applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
+            }
+          }}
+          rows={12}
+        />
+      </details>
     </div>
   )
 }

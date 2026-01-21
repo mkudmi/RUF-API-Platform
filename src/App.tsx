@@ -18,7 +18,8 @@ import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
 //TODO:
-// поравить отображение хэдеров в редакторе
+// добавить типы body
+// добавить все типы авторизации
 // добавить чек-бокс активный или неактивный хэдер
 // пре-пост скрипты
 // история поиска

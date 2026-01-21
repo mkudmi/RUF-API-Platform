@@ -125,8 +125,12 @@ export async function runRequest(args: {
     ),
   }
 
-  if (args.request.body && args.request.method !== 'GET' && args.request.method !== 'HEAD') {
-    const desiredCt = (getHeader(init.headers as any, 'Content-Type') || args.request.body.contentType || '').trim()
+  const methodAllowsBody = args.request.method !== 'GET' && args.request.method !== 'HEAD'
+  const hasExplicitBodyInput = !!(args.bodyText && args.bodyText.trim()) || !!args.file || !!(args.formFields && Object.keys(args.formFields).length)
+  const wantsBody = !!args.request.body || hasExplicitBodyInput
+
+  if (methodAllowsBody && wantsBody) {
+    const desiredCt = (getHeader(init.headers as any, 'Content-Type') || args.request.body?.contentType || '').trim()
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
 
