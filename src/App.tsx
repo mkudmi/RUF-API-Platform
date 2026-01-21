@@ -851,25 +851,38 @@ export default function App() {
           </div>
         </div>
 
-        <CollectionsTree
-          collections={collections}
-          environmentsByCollection={envByCollection}
-          activeRequestId={activeRequestId}
-          onPickRequest={pick}
-          onOpenEnv={setEnvModalCollectionId}
-          onUpdateCollectionFromUrl={updateCollectionFromUrl}
-          onAddRequest={addRequestToCollection}
-          onAddFolder={addFolderToCollection}
-          onAddRequestToFolder={addRequestToFolder}
-          onAddFolderToFolder={addFolderToFolder}
-          onRenameCollection={renameCollection}
-          onRenameFolder={renameFolder}
-          onRenameRequest={renameRequest}
-          onMoveFolder={moveFolder}
-          onDeleteFolder={deleteFolder}
-          onDeleteRequest={deleteRequest}
-          onDeleteCollection={requestDeleteCollection}
-        />
+        <div className="sidebarTreeWrap">
+          <CollectionsTree
+            collections={collections}
+            environmentsByCollection={envByCollection}
+            activeRequestId={activeRequestId}
+            onPickRequest={pick}
+            onOpenEnv={setEnvModalCollectionId}
+            onUpdateCollectionFromUrl={updateCollectionFromUrl}
+            onAddRequest={addRequestToCollection}
+            onAddFolder={addFolderToCollection}
+            onAddRequestToFolder={addRequestToFolder}
+            onAddFolderToFolder={addFolderToFolder}
+            onRenameCollection={renameCollection}
+            onRenameFolder={renameFolder}
+            onRenameRequest={renameRequest}
+            onMoveFolder={moveFolder}
+            onDeleteFolder={deleteFolder}
+            onDeleteRequest={deleteRequest}
+            onDeleteCollection={requestDeleteCollection}
+          />
+        </div>
+
+        <div className="sidebarBottom">
+          <button
+            className="iconBtn"
+            onClick={openSettings}
+            aria-label="Settings"
+            title="Settings"
+          >
+            &#9881;
+          </button>
+        </div>
       </aside>
       <div className="resizer" onPointerDown={onSidebarResizePointerDown} />
 
