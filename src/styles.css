@@ -712,3 +712,7 @@ button:hover { background: rgba(255,255,255,.10); }
   background: rgba(255,255,255,.04);
 }
 .historyDeleteBtn:hover { background: rgba(255,255,255,.10); }
+
+/* Tree menu icon alignment */
+.treeMenuBtn { display: flex; align-items: center; justify-content: center; }
+.treeMenuBtn::before { display: block; transform: translateY(-1px); }
