@@ -341,7 +341,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeGroup {
   border: 1px solid rgba(255,255,255,.10);
   border-radius: var(--radius);
-  padding: 8px;
+  padding: 5px;
   background: rgba(255,255,255,.03);
   min-width: 0;
   overflow: visible;
@@ -502,7 +502,7 @@ button:hover { background: rgba(255,255,255,.10); }
   display: block;
 }
 .treeGroupInner .treeFolderName { font-size: 14px; }
-.treeGroupInner .treeItem { font-size: 14px; padding: 6px 10px; }
+.treeGroupInner .treeItem { font-size: 14px; padding: 2px 10px; }
 .treeGroupInner .treeMethod { font-size: 12px; }
 .envBtn {
   padding: 4px 8px;
