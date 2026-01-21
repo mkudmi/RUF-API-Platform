@@ -1536,7 +1536,7 @@ export function RequestEditor(props: {
               </div>
             ) : null}
 
-            <div className="formRow">
+            <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
               <div className="formLabel mono">Pre Script</div>
               <textarea
                 className="mono"
@@ -1544,11 +1544,11 @@ export function RequestEditor(props: {
                 value={preSqlScript}
                 onChange={e => setPreSqlScript(e.target.value)}
                 placeholder="SQL to run before Send"
-                style={{ resize: 'vertical' }}
+                style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box' }}
               />
             </div>
 
-            <div className="formRow">
+            <div style={{ display: 'grid', gap: 6 }}>
               <div className="formLabel mono">Post Script</div>
               <textarea
                 className="mono"
@@ -1556,7 +1556,7 @@ export function RequestEditor(props: {
                 value={postSqlScript}
                 onChange={e => setPostSqlScript(e.target.value)}
                 placeholder="SQL to run after Send"
-                style={{ resize: 'vertical' }}
+                style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box' }}
               />
             </div>
           </div>
