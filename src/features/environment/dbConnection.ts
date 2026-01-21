@@ -149,3 +149,45 @@ export async function runDbConnectionTest(opts: { type: string; connectionString
 
   return { ok: okFromJson, message: messageFromJson || (okFromJson ? 'OK' : 'Failed'), durationMs }
 }
+
+export async function runDbSql(opts: { type: string; connectionString: string; sql: string; timeoutMs?: number }) {
+  const started = performance.now()
+  const resp = await fetch('/__ruf/db/exec', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: opts.type,
+      connectionString: opts.connectionString,
+      sql: opts.sql,
+      timeoutMs: opts.timeoutMs,
+    }),
+  })
+  const durationMs = Math.max(0, Math.round(performance.now() - started))
+
+  const raw = await resp.text()
+  let data: unknown = null
+  try {
+    data = raw ? JSON.parse(raw) : null
+  } catch {
+    data = null
+  }
+
+  if (!resp.ok) {
+    const errorFromJson =
+      data && typeof data === 'object' && 'error' in data && typeof (data as Record<string, unknown>).error === 'string'
+        ? String((data as Record<string, unknown>).error)
+        : null
+    return { ok: false, message: errorFromJson || raw || `HTTP ${resp.status}`, durationMs }
+  }
+
+  const okFromJson = data && typeof data === 'object' && 'ok' in data ? Boolean((data as Record<string, unknown>).ok) : false
+  const messageFromJson =
+    data &&
+    typeof data === 'object' &&
+    'message' in data &&
+    typeof (data as Record<string, unknown>).message === 'string'
+      ? String((data as Record<string, unknown>).message)
+      : null
+
+  return { ok: okFromJson, message: messageFromJson || (okFromJson ? 'OK' : 'Failed'), durationMs }
+}

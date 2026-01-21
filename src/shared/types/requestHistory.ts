@@ -5,6 +5,8 @@ export type RequestDraft = {
   queryParams?: Record<string, string>
   queryParamKeyOverrides?: Record<string, string>
   disabledQueryParamNames?: Record<string, true>
+  preSqlScript?: string
+  postSqlScript?: string
   /**
    * Effective headers snapshot used for a run (stored in request history).
    * Prefer `headerOverrides`/`disabledHeaderNames` for per-request editing state.

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { registerDbTestRoute } from './vite/dbTestRoute'
+import { registerDbExecRoute } from './vite/dbExecRoute'
 import * as http from 'node:http'
 import * as https from 'node:https'
 
@@ -141,6 +142,15 @@ export default defineConfig({
       },
       configurePreviewServer(server) {
         registerDbTestRoute(server.middlewares)
+      },
+    },
+    {
+      name: 'ruf-db-exec',
+      configureServer(server) {
+        registerDbExecRoute(server.middlewares)
+      },
+      configurePreviewServer(server) {
+        registerDbExecRoute(server.middlewares)
       },
     },
   ],

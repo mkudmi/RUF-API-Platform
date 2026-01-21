@@ -7,6 +7,7 @@ import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shar
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
 import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
+import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../environment/dbConnection'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
 
@@ -413,7 +414,9 @@ export function RequestEditor(props: {
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
-  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization'>('headers')
+  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
+  const [preSqlScript, setPreSqlScript] = useState('')
+  const [postSqlScript, setPostSqlScript] = useState('')
 
   function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
     return Object.prototype.hasOwnProperty.call(obj, key)
@@ -678,6 +681,8 @@ export function RequestEditor(props: {
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
     setShowBaseUrlPicker(false)
+    setPreSqlScript(draft?.preSqlScript ?? '')
+    setPostSqlScript(draft?.postSqlScript ?? '')
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
@@ -733,12 +738,16 @@ export function RequestEditor(props: {
     setBodyFile(null)
     setFileFieldName(draft?.fileFieldName || 'file')
     setShowBaseUrlPicker(false)
+    setPreSqlScript(draft?.preSqlScript ?? '')
+    setPostSqlScript(draft?.postSqlScript ?? '')
 
     saveDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
       queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
       disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
+      preSqlScript: draft?.preSqlScript ?? '',
+      postSqlScript: draft?.postSqlScript ?? '',
       headerOverrides: nextHeaderOverrides,
       disabledHeaderNames: nextDisabledHeaderNames,
       bodyText: nextBodyText,
@@ -758,6 +767,8 @@ export function RequestEditor(props: {
         queryParams,
         queryParamKeyOverrides,
         disabledQueryParamNames,
+        preSqlScript,
+        postSqlScript,
         headerOverrides,
         disabledHeaderNames,
         bodyText,
@@ -779,6 +790,8 @@ export function RequestEditor(props: {
     fileFieldName,
     headerOverrides,
     pathParams,
+    postSqlScript,
+    preSqlScript,
     props.request.id,
     queryParams,
     queryParamKeyOverrides,
@@ -900,6 +913,7 @@ export function RequestEditor(props: {
   async function send() {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
+    const totalStarted = performance.now()
     try {
       const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
       const baseHeadersForSend = hasDraftHeadersToCommit
@@ -982,6 +996,8 @@ export function RequestEditor(props: {
           queryParamKeyOverrides,
           disabledQueryParamNames: effectiveDisabledQueryParamNamesForSend,
           headers: effectiveHeadersForSend,
+          preSqlScript,
+          postSqlScript,
           bodyText,
           bodyFormat,
           fileFieldName,
@@ -993,7 +1009,58 @@ export function RequestEditor(props: {
       const formFields = supportsFile && effectiveContentType.toLowerCase().includes('multipart/form-data')
         ? parseFormFieldsFromBodyText(bodyText)
         : undefined
-      const result = await runRequest({
+
+      const preSql = preSqlScript.trim()
+      const postSql = postSqlScript.trim()
+      const shouldRunSql = !!(preSql || postSql)
+
+      const getSqlErrorResult = (statusText: string, message: string): RunResult => ({
+        ok: false,
+        status: 0,
+        statusText,
+        timeMs: Math.round(performance.now() - totalStarted),
+        headers: {},
+        bodyText: message,
+      })
+
+      if (shouldRunSql) {
+        const env = props.environment
+        if (!env) {
+          props.onResult(props.request.id, getSqlErrorResult('SQL Failed', 'No environment selected.'), runId)
+          return
+        }
+
+        const rawType = env.variables?.[DB_ENV_KEYS.type]
+        const dbType = rawType === 'mysql' ? 'mysql' : 'postgres'
+        const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
+        const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
+        if (!connectionString) {
+          props.onResult(
+            props.request.id,
+            getSqlErrorResult('SQL Failed', 'Missing database connection. Configure it in Environment settings.'),
+            runId,
+          )
+          return
+        }
+
+        if (preSql) {
+          const r = await runDbSql({
+            type: dbType,
+            connectionString,
+            sql: applyVariablesForDisplay(preSql, variables),
+          })
+          if (!r.ok) {
+            props.onResult(
+              props.request.id,
+              getSqlErrorResult('SQL Pre Script Failed', r.message || 'Pre script failed.'),
+              runId,
+            )
+            return
+          }
+        }
+      }
+
+      let result = await runRequest({
         request: props.request,
         baseUrl,
         urlTemplateOverride,
@@ -1006,6 +1073,35 @@ export function RequestEditor(props: {
         fileFieldName: supportsFile ? fileFieldName : undefined,
         formFields,
       })
+
+      if (shouldRunSql && postSql && props.environment) {
+        const rawType = props.environment.variables?.[DB_ENV_KEYS.type]
+        const dbType = rawType === 'mysql' ? 'mysql' : 'postgres'
+        const fromEnv = (props.environment.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
+        const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(props.environment))
+        if (connectionString) {
+          const r = await runDbSql({
+            type: dbType,
+            connectionString,
+            sql: applyVariablesForDisplay(postSql, variables),
+          })
+          if (!r.ok) {
+            result = {
+              ...result,
+              ok: false,
+              bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\n${r.message || 'Post script failed.'}\n`,
+            }
+          }
+        } else {
+          result = {
+            ...result,
+            ok: false,
+            bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\nMissing database connection.\n`,
+          }
+        }
+      }
+
+      result = { ...result, timeMs: Math.round(performance.now() - totalStarted) }
       props.onResult(props.request.id, result, runId)
     } finally {
       props.onSendEnd?.(props.request.id, runId)
@@ -1423,9 +1519,51 @@ export function RequestEditor(props: {
         >
           Authorization
         </button>
+        <button
+          type="button"
+          className={`tab ${headersTab === 'sql' ? 'tabActive' : ''}`}
+          onClick={() => setHeadersTab('sql')}
+          aria-pressed={headersTab === 'sql'}
+        >
+          SQL
+        </button>
       </div>
 
-      {headersTab === 'authorization' ? (
+      {headersTab === 'sql' ? (
+        <div className="accordion">
+          <div className="section">
+            {!props.environment || !hasDbConfigInEnv(props.environment) ? (
+              <div className="small" style={{ opacity: 0.85, marginBottom: 10 }}>
+                Configure database connection in Environment settings to run SQL scripts.
+              </div>
+            ) : null}
+
+            <div className="formRow">
+              <div className="formLabel mono">Pre Script</div>
+              <textarea
+                className="mono"
+                rows={5}
+                value={preSqlScript}
+                onChange={e => setPreSqlScript(e.target.value)}
+                placeholder="SQL to run before Send"
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+
+            <div className="formRow">
+              <div className="formLabel mono">Post Script</div>
+              <textarea
+                className="mono"
+                rows={5}
+                value={postSqlScript}
+                onChange={e => setPostSqlScript(e.target.value)}
+                placeholder="SQL to run after Send"
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : headersTab === 'authorization' ? (
         <div className="accordion">
           <div className="section">
             <div className="formRow">
