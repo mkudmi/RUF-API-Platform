@@ -417,6 +417,8 @@ export function RequestEditor(props: {
   const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
+  const [preSqlCopied, setPreSqlCopied] = useState(false)
+  const [postSqlCopied, setPostSqlCopied] = useState(false)
 
   function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
     return Object.prototype.hasOwnProperty.call(obj, key)
@@ -1537,7 +1539,37 @@ export function RequestEditor(props: {
             ) : null}
 
             <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              <div className="formLabel mono">Pre Script</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="formLabel mono" style={{ marginBottom: 0 }}>Pre Script</div>
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={async () => {
+                    await copyText(preSqlScript)
+                    setPreSqlCopied(true)
+                    setTimeout(() => setPreSqlCopied(false), 900)
+                  }}
+                  disabled={!preSqlScript.trim()}
+                  aria-disabled={!preSqlScript.trim()}
+                  aria-label="Copy pre script"
+                  title="Copy"
+                  style={{ width: 28, height: 28, marginLeft: 'auto' }}
+                >
+                  {preSqlCopied ? 'OK' : <CopyIcon />}
+                </button>
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={() => setPreSqlScript('')}
+                  disabled={!preSqlScript.trim()}
+                  aria-disabled={!preSqlScript.trim()}
+                  aria-label="Clear pre script"
+                  title="Clear"
+                  style={{ width: 28, height: 28 }}
+                >
+                  <CloseIcon size={18} />
+                </button>
+              </div>
               <textarea
                 className="mono"
                 rows={5}
@@ -1549,7 +1581,37 @@ export function RequestEditor(props: {
             </div>
 
             <div style={{ display: 'grid', gap: 6 }}>
-              <div className="formLabel mono">Post Script</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="formLabel mono" style={{ marginBottom: 0 }}>Post Script</div>
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={async () => {
+                    await copyText(postSqlScript)
+                    setPostSqlCopied(true)
+                    setTimeout(() => setPostSqlCopied(false), 900)
+                  }}
+                  disabled={!postSqlScript.trim()}
+                  aria-disabled={!postSqlScript.trim()}
+                  aria-label="Copy post script"
+                  title="Copy"
+                  style={{ width: 28, height: 28, marginLeft: 'auto' }}
+                >
+                  {postSqlCopied ? 'OK' : <CopyIcon />}
+                </button>
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={() => setPostSqlScript('')}
+                  disabled={!postSqlScript.trim()}
+                  aria-disabled={!postSqlScript.trim()}
+                  aria-label="Clear post script"
+                  title="Clear"
+                  style={{ width: 28, height: 28 }}
+                >
+                  <CloseIcon size={18} />
+                </button>
+              </div>
               <textarea
                 className="mono"
                 rows={5}
