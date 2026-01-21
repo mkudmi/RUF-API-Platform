@@ -821,6 +821,13 @@ export function RequestEditor(props: {
     () => headerParams.filter(h => h.name.toLowerCase() !== 'authorization'),
     [headerParams],
   )
+
+  useEffect(() => {
+    if (headerDraftRows.length > 0) return
+    if (visibleHeaderParams.length > 0) return
+    setHeaderDraftRows([{ id: uid('hrow'), name: '', value: '' }])
+  }, [headerDraftRows.length, visibleHeaderParams.length])
+
   const hasAnyEditableVisibleHeaderRow = useMemo(() => {
     return visibleHeaderParams.some(h => {
       const isSpec = headerSpecNames.has(h.name)
