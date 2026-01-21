@@ -7,7 +7,8 @@ import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shar
 import { uid } from '../../shared/utils/id'
 import { runRequest, type RunResult } from './runRequest'
 import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
-import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../environment/dbConnection'
+import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../environment/dbConnection'
+import { SqlScriptsTab } from './SqlScriptsTab'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
 
@@ -417,8 +418,6 @@ export function RequestEditor(props: {
   const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
-  const [preSqlCopied, setPreSqlCopied] = useState(false)
-  const [postSqlCopied, setPostSqlCopied] = useState(false)
 
   function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
     return Object.prototype.hasOwnProperty.call(obj, key)
@@ -1530,99 +1529,13 @@ export function RequestEditor(props: {
       </div>
 
       {headersTab === 'sql' ? (
-        <div className="accordion">
-          <div className="section">
-            {!props.environment || !hasDbConfigInEnv(props.environment) ? (
-              <div className="small" style={{ opacity: 0.85, marginBottom: 10 }}>
-                Configure database connection in Environment settings to run SQL scripts.
-              </div>
-            ) : null}
-
-            <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="formLabel mono" style={{ marginBottom: 0 }}>Pre Script</div>
-                <button
-                  type="button"
-                  className="iconBtn"
-                  onClick={async () => {
-                    await copyText(preSqlScript)
-                    setPreSqlCopied(true)
-                    setTimeout(() => setPreSqlCopied(false), 900)
-                  }}
-                  disabled={!preSqlScript.trim()}
-                  aria-disabled={!preSqlScript.trim()}
-                  aria-label="Copy pre script"
-                  title="Copy"
-                  style={{ width: 28, height: 28, marginLeft: 'auto' }}
-                >
-                  {preSqlCopied ? 'OK' : <CopyIcon />}
-                </button>
-                <button
-                  type="button"
-                  className="iconBtn"
-                  onClick={() => setPreSqlScript('')}
-                  disabled={!preSqlScript.trim()}
-                  aria-disabled={!preSqlScript.trim()}
-                  aria-label="Clear pre script"
-                  title="Clear"
-                  style={{ width: 28, height: 28 }}
-                >
-                  <CloseIcon size={18} />
-                </button>
-              </div>
-              <textarea
-                className="mono"
-                rows={5}
-                value={preSqlScript}
-                onChange={e => setPreSqlScript(e.target.value)}
-                placeholder="SQL to run before Send"
-                style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box' }}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="formLabel mono" style={{ marginBottom: 0 }}>Post Script</div>
-                <button
-                  type="button"
-                  className="iconBtn"
-                  onClick={async () => {
-                    await copyText(postSqlScript)
-                    setPostSqlCopied(true)
-                    setTimeout(() => setPostSqlCopied(false), 900)
-                  }}
-                  disabled={!postSqlScript.trim()}
-                  aria-disabled={!postSqlScript.trim()}
-                  aria-label="Copy post script"
-                  title="Copy"
-                  style={{ width: 28, height: 28, marginLeft: 'auto' }}
-                >
-                  {postSqlCopied ? 'OK' : <CopyIcon />}
-                </button>
-                <button
-                  type="button"
-                  className="iconBtn"
-                  onClick={() => setPostSqlScript('')}
-                  disabled={!postSqlScript.trim()}
-                  aria-disabled={!postSqlScript.trim()}
-                  aria-label="Clear post script"
-                  title="Clear"
-                  style={{ width: 28, height: 28 }}
-                >
-                  <CloseIcon size={18} />
-                </button>
-              </div>
-              <textarea
-                className="mono"
-                rows={5}
-                value={postSqlScript}
-                onChange={e => setPostSqlScript(e.target.value)}
-                placeholder="SQL to run after Send"
-                style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box' }}
-              />
-            </div>
-          </div>
-        </div>
+        <SqlScriptsTab
+          environment={props.environment}
+          preSqlScript={preSqlScript}
+          postSqlScript={postSqlScript}
+          onChangePreSqlScript={setPreSqlScript}
+          onChangePostSqlScript={setPostSqlScript}
+        />
       ) : headersTab === 'authorization' ? (
         <div className="accordion">
           <div className="section">
