@@ -344,7 +344,7 @@ button:hover { background: rgba(255,255,255,.10); }
   padding: 8px;
   background: rgba(255,255,255,.03);
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .treeGroupInner {
   border: none;
@@ -366,7 +366,7 @@ button:hover { background: rgba(255,255,255,.10); }
   gap: 10px;
   cursor: pointer;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 .treeSummary::-webkit-details-marker { display: none; }
 .treeSummaryFolder { cursor: default; }
@@ -530,7 +530,7 @@ button:hover { background: rgba(255,255,255,.10); }
   border-left: 1px dashed rgba(255,255,255,.10);
 }
 .treeItem { line-height: 1.0; }
-.treeItem { display: flex; justify-content: flex-start; gap: 0.6px; align-items: baseline; min-width: 0; overflow: hidden; }
+.treeItem { display: flex; justify-content: flex-start; gap: 0.6px; align-items: baseline; min-width: 0; overflow: visible; }
 .treeMethod { flex: 0 0 33px; text-align: left; opacity: .9; }
 .treeMethod, .treeItemName { line-height: 1.0; }
 .treeItemName { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; display: block; }
