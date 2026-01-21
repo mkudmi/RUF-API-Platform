@@ -622,6 +622,7 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .accordion[open] > summary::before { transform: translateY(-1px) rotate(45deg); }
 .accordion > summary::-webkit-details-marker { display: none; }
+.accordion.authAccordion .section { margin-top: 0; }
 .section { display: grid; gap: 8px; margin-top: 10px; }
 .sectionTitle { font-size: 12px; opacity: .8; font-weight: 600; }
 .formRow { display: grid; grid-template-columns: 220px 1fr; gap: 10px; align-items: center; }

@@ -144,7 +144,7 @@ export function AuthorizationTab(props: { value: string; onChangeValue: (next: s
   const typeLabel = type === 'basic' ? 'Basic Auth' : type === 'bearer' ? 'Bearer Token' : 'None'
 
   return (
-    <div className="accordion">
+    <div className="accordion authAccordion">
       <div className="section">
         <div className="formRow">
           <div className="formLabel mono">Authorization</div>
