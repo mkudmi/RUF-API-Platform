@@ -28,6 +28,65 @@ function computeToken(value: string, cursor: number): { start: number, query: st
   return { start, query: before.slice(start + 2) }
 }
 
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n))
+}
+
+function getCaretAnchorRect(
+  el: HTMLInputElement | HTMLTextAreaElement,
+  cursor: number,
+  mirrorEl: HTMLDivElement,
+): DOMRect | null {
+  try {
+    const cs = window.getComputedStyle(el)
+    const isTextarea = el.tagName.toLowerCase() === 'textarea'
+
+    const rect = el.getBoundingClientRect()
+    mirrorEl.style.position = 'fixed'
+    mirrorEl.style.left = `${Math.round(rect.left)}px`
+    mirrorEl.style.top = `${Math.round(rect.top)}px`
+    mirrorEl.style.width = `${Math.round(rect.width)}px`
+    mirrorEl.style.height = `${Math.round(rect.height)}px`
+    mirrorEl.style.visibility = 'hidden'
+    mirrorEl.style.pointerEvents = 'none'
+    mirrorEl.style.overflow = 'hidden'
+    mirrorEl.style.whiteSpace = isTextarea ? 'pre-wrap' : 'pre'
+    mirrorEl.style.wordWrap = 'break-word'
+    mirrorEl.style.overflowWrap = 'break-word'
+    mirrorEl.style.boxSizing = cs.boxSizing
+    mirrorEl.style.border = cs.border
+    mirrorEl.style.padding = cs.padding
+    mirrorEl.style.font = cs.font
+    mirrorEl.style.letterSpacing = cs.letterSpacing
+    mirrorEl.style.textTransform = cs.textTransform
+    mirrorEl.style.textIndent = cs.textIndent
+    mirrorEl.style.lineHeight = cs.lineHeight
+    mirrorEl.style.tabSize = (cs as any).tabSize ?? '4'
+
+    const before = el.value.slice(0, cursor)
+    const after = el.value.slice(cursor) || '\u200b'
+
+    mirrorEl.textContent = ''
+    const beforeSpan = document.createElement('span')
+    beforeSpan.textContent = before
+    const caretSpan = document.createElement('span')
+    caretSpan.textContent = '\u200b'
+    const afterSpan = document.createElement('span')
+    afterSpan.textContent = after
+    mirrorEl.appendChild(beforeSpan)
+    mirrorEl.appendChild(caretSpan)
+    mirrorEl.appendChild(afterSpan)
+
+    mirrorEl.scrollTop = (el as HTMLTextAreaElement).scrollTop ?? 0
+    mirrorEl.scrollLeft = (el as HTMLTextAreaElement).scrollLeft ?? 0
+
+    const caretRect = caretSpan.getBoundingClientRect()
+    return caretRect
+  } catch {
+    return null
+  }
+}
+
 export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Props>(
   function VariableAutocompleteField(props, forwardedRef) {
     const { as: asProp, value, onChangeValue, suggestions, onBlur, onKeyDown, onClick, onFocus, onKeyUp, ...rest } = props
@@ -37,6 +96,8 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
     const rootRef = useRef<HTMLDivElement | null>(null)
     const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null)
     const menuPanelRef = useRef<HTMLDivElement | null>(null)
+    const mirrorRef = useRef<HTMLDivElement | null>(null)
+    const lastCursorRef = useRef<number>(0)
     const setRefs = (el: HTMLInputElement | HTMLTextAreaElement | null) => {
       inputRef.current = el
       if (typeof forwardedRef === 'function') forwardedRef(el)
@@ -45,7 +106,13 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
 
     const pendingSelectionRef = useRef<PendingSelection | null>(null)
     const [menuOpen, setMenuOpen] = useState(false)
-    const [anchor, setAnchor] = useState<{ left: number, top: number, width: number }>({ left: 0, top: 0, width: 240 })
+    const [anchor, setAnchor] = useState<{ left: number, top: number, width: number, caretTop: number, caretBottom: number }>({
+      left: 0,
+      top: 0,
+      width: 320,
+      caretTop: 0,
+      caretBottom: 0,
+    })
     const [query, setQuery] = useState('')
     const [activeIndex, setActiveIndex] = useState(0)
 
@@ -57,17 +124,36 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       return items
     }, [query, suggestions])
 
-    function updateAnchorFromEl(el: HTMLInputElement | HTMLTextAreaElement) {
+    function ensureMirrorEl(): HTMLDivElement {
+      if (mirrorRef.current) return mirrorRef.current
+      const div = document.createElement('div')
+      div.setAttribute('data-var-mirror', '1')
+      document.body.appendChild(div)
+      mirrorRef.current = div
+      return div
+    }
+
+    function updateAnchorFromEl(el: HTMLInputElement | HTMLTextAreaElement, cursor: number) {
       const r = el.getBoundingClientRect()
-      setAnchor({
-        left: Math.round(r.left),
-        top: Math.round(r.bottom + 6),
-        width: Math.round(r.width),
-      })
+      const mirrorEl = ensureMirrorEl()
+      const caretRect = getCaretAnchorRect(el, cursor, mirrorEl)
+      const baseRect = caretRect ?? r
+
+      const margin = 8
+      const maxWidth = Math.max(220, window.innerWidth - margin * 2)
+      const width = clamp(320, 220, maxWidth)
+      const left = clamp(Math.round(baseRect.left), margin, Math.max(margin, window.innerWidth - width - margin))
+      const caretTop = Math.round(baseRect.top)
+      const caretBottom = Math.round(baseRect.bottom)
+      const desiredTop = Math.round(baseRect.bottom + 6)
+      const top = clamp(desiredTop, margin, Math.max(margin, window.innerHeight - margin))
+
+      setAnchor({ left, top, width, caretTop, caretBottom })
     }
 
     function updateMenuFromEl(el: HTMLInputElement | HTMLTextAreaElement, nextValue: string) {
       const cursor = el.selectionStart ?? nextValue.length
+      lastCursorRef.current = cursor
       const token = computeToken(nextValue, cursor)
       if (!token) {
         setMenuOpen(false)
@@ -75,7 +161,7 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
         return
       }
 
-      updateAnchorFromEl(el)
+      updateAnchorFromEl(el, cursor)
       setQuery(token.query)
       setActiveIndex(0)
       setMenuOpen(true)
@@ -126,7 +212,7 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       function onGlobalScrollOrResize() {
         const el = inputRef.current
         if (!el) return
-        updateAnchorFromEl(el)
+        updateAnchorFromEl(el, lastCursorRef.current)
       }
 
       window.addEventListener('pointerdown', onPointerDown)
@@ -140,6 +226,14 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
     }, [menuOpen])
 
     useEffect(() => {
+      return () => {
+        const m = mirrorRef.current
+        mirrorRef.current = null
+        if (m && m.parentNode) m.parentNode.removeChild(m)
+      }
+    }, [])
+
+    useEffect(() => {
       if (!menuOpen) return
       const panel = menuPanelRef.current
       if (!panel) return
@@ -151,6 +245,36 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
         // ignore
       }
     }, [activeIndex, menuOpen])
+
+    useEffect(() => {
+      if (!menuOpen) return
+      const panel = menuPanelRef.current
+      if (!panel) return
+
+      const margin = 8
+      const rect = panel.getBoundingClientRect()
+
+      let nextLeft = anchor.left
+      let nextTop = anchor.top
+
+      if (rect.right > window.innerWidth - margin) nextLeft = Math.max(margin, window.innerWidth - margin - rect.width)
+      if (rect.left < margin) nextLeft = margin
+
+      const overflowBottom = rect.bottom - (window.innerHeight - margin)
+      if (overflowBottom > 0) {
+        const aboveTop = anchor.caretTop - 6 - rect.height
+        if (aboveTop >= margin) nextTop = aboveTop
+        else nextTop = Math.max(margin, window.innerHeight - margin - rect.height)
+      }
+      if (rect.top < margin) nextTop = margin
+
+      if (nextLeft !== anchor.left || nextTop !== anchor.top) {
+        setAnchor(prev => {
+          if (prev.left === nextLeft && prev.top === nextTop) return prev
+          return { ...prev, left: nextLeft, top: nextTop }
+        })
+      }
+    }, [anchor.left, anchor.top, anchor.caretTop, menuOpen])
 
     const commonHandlers = {
       ref: setRefs as any,
