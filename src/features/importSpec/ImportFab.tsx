@@ -14,7 +14,7 @@ export function ImportFab(props: {
   const variant = props.variant ?? 'fab'
   const label = props.label ?? 'Импорт'
 
-  const [view, setView] = useState<'menu' | 'json' | 'url'>('menu')
+  const [view, setView] = useState<'menu' | 'json' | 'url' | 'name'>('menu')
   const [menuError, setMenuError] = useState<string | null>(null)
 
   const [jsonText, setJsonText] = useState('')
@@ -24,9 +24,33 @@ export function ImportFab(props: {
   const [urlError, setUrlError] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
 
+  const [pendingCollection, setPendingCollection] = useState<Collection | null>(null)
+  const [pendingName, setPendingName] = useState('')
+  const [nameError, setNameError] = useState<string | null>(null)
+
   async function importFromText(text: string, origin?: string) {
-    const col = await buildImportedCollectionFromText({ text, sourceOrigin: origin })
-    props.onImported(col)
+    return buildImportedCollectionFromText({ text, sourceOrigin: origin })
+  }
+
+  function openNameStep(col: Collection) {
+    setPendingCollection(col)
+    setPendingName(col.name ?? '')
+    setNameError(null)
+    setView('name')
+  }
+
+  function confirmAddCollection() {
+    const col = pendingCollection
+    if (!col) return
+
+    const name = pendingName.trim()
+    if (!name) {
+      setNameError('Введите имя коллекции.')
+      return
+    }
+
+    props.onImported({ ...col, name })
+    closeMenu()
   }
 
   function openMenu() {
@@ -39,6 +63,9 @@ export function ImportFab(props: {
     menuRef.current?.close()
     setView('menu')
     setMenuError(null)
+    setPendingCollection(null)
+    setPendingName('')
+    setNameError(null)
   }
 
   function chooseFile() {
@@ -51,8 +78,8 @@ export function ImportFab(props: {
     if (!file) return
     try {
       const text = await file.text()
-      await importFromText(text)
-      closeMenu()
+      const col = await importFromText(text)
+      openNameStep(col)
     } catch (err: any) {
       setMenuError(err?.message || 'Не удалось импортировать файл.')
     } finally {
@@ -74,8 +101,8 @@ export function ImportFab(props: {
         setJsonError('Вставь JSON/YAML спеки.')
         return
       }
-      await importFromText(jsonText)
-      closeMenu()
+      const col = await importFromText(jsonText)
+      openNameStep(col)
     } catch (e: any) {
       setJsonError(e?.message || 'Не удалось импортировать.')
     }
@@ -106,9 +133,8 @@ export function ImportFab(props: {
         setUrlError('Пустой ответ.')
         return
       }
-      const col = await buildImportedCollectionFromText({ text, sourceOrigin: u.origin })
-      props.onImported({ ...col, sourceUrl: u.toString() })
-      closeMenu()
+      const col = await importFromText(text, u.origin)
+      openNameStep({ ...col, sourceUrl: u.toString() })
     } catch (e: any) {
       setUrlError(e?.message || 'Не удалось загрузить по URL (проверь CORS).')
     } finally {
@@ -136,7 +162,7 @@ export function ImportFab(props: {
 
       <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
         <div className="modalHeader">
-          <b>Импорт</b>
+          <b>{view === 'name' ? 'Добавить коллекцию' : 'Импорт'}</b>
           <button className="iconBtn" onClick={closeMenu} aria-label="Close">✕</button>
         </div>
 
@@ -194,6 +220,33 @@ export function ImportFab(props: {
               </button>
             </div>
           </>
+        )}
+
+        {view === 'name' && (
+          <form
+            onSubmit={e => {
+              e.preventDefault()
+              confirmAddCollection()
+            }}
+          >
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+              <div className="small">Имя коллекции</div>
+              <input
+                style={{ width: '100%' }}
+                value={pendingName}
+                onChange={e => setPendingName(e.target.value)}
+                onFocus={e => e.currentTarget.select()}
+                autoFocus
+                placeholder="My API"
+              />
+            </div>
+
+            {nameError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{nameError}</div>}
+
+            <div className="modalActions">
+              <button type="submit">Добавить</button>
+            </div>
+          </form>
         )}
       </dialog>
     </>
