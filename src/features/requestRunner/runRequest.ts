@@ -1,6 +1,7 @@
 import type { RequestItem } from '../../shared/types/collection'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
+import { resolveVariableValue } from '../../shared/utils/variables'
 
 export type RunResult = {
   ok: boolean
@@ -37,7 +38,7 @@ function shouldValidateCertificates(): boolean {
 }
 
 function applyVariables(text: string, vars: Record<string, string>) {
-  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => vars[name] ?? '')
+  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
 }
 
 function applyPathParams(url: string, values: Record<string,string>) {

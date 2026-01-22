@@ -10,6 +10,8 @@ import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../environment/dbConnection'
 import { SqlScriptsTab } from './SqlScriptsTab'
 import { AuthorizationTab } from './AuthorizationTab'
+import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../shared/utils/variables'
+import { VariableAutocompleteField } from '../../components/VariableAutocompleteField'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
 
@@ -92,7 +94,7 @@ function applyPathParamsForDisplay(url: string, values: Record<string, string>) 
 }
 
 function applyVariablesForDisplay(text: string, vars: Record<string, string>) {
-  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => vars[name] ?? '')
+  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
 }
 
 function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
@@ -119,6 +121,7 @@ function ParamRow(props: {
   param: RequestParam
   store: Record<string, string>
   setStore: Dispatch<SetStateAction<Record<string, string>>>
+  variableSuggestions: VariableSuggestion[]
 }) {
   const value = props.store[props.param.name] ?? ''
   const hint =
@@ -132,11 +135,11 @@ function ParamRow(props: {
         {props.param.name}
         {props.param.required ? <span className="reqStar">*</span> : null}
       </div>
-      <input
+      <VariableAutocompleteField
         value={value}
         placeholder={hint}
-        onChange={e => {
-          const nextValue = e.target.value
+        suggestions={props.variableSuggestions}
+        onChangeValue={nextValue => {
           props.setStore(prev => {
             if (nextValue !== '') return { ...prev, [props.param.name]: nextValue }
             if (!(props.param.name in prev)) return prev
@@ -184,6 +187,7 @@ function HeaderRow(props: {
   onChangeValue: (value: string) => void
   onRename?: (nextName: string) => void
   onDelete?: () => void
+  variableSuggestions: VariableSuggestion[]
 }) {
   const [draftName, setDraftName] = useState(props.name)
 
@@ -219,11 +223,12 @@ function HeaderRow(props: {
         />
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <input
+        <VariableAutocompleteField
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
           value={props.value}
-          onChange={e => props.onChangeValue(e.target.value)}
+          suggestions={props.variableSuggestions}
+          onChangeValue={props.onChangeValue}
           placeholder="Value"
         />
         {props.onDelete ? (
@@ -244,6 +249,7 @@ function QueryRow(props: {
   onChangeValue: (value: string) => void
   onRename?: (nextName: string) => void
   onDelete?: () => void
+  variableSuggestions: VariableSuggestion[]
 }) {
   const [draftName, setDraftName] = useState(props.name)
 
@@ -279,11 +285,12 @@ function QueryRow(props: {
         {props.required ? <span className="reqStar">*</span> : null}
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <input
+        <VariableAutocompleteField
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
           value={props.value}
-          onChange={e => props.onChangeValue(e.target.value)}
+          suggestions={props.variableSuggestions}
+          onChangeValue={props.onChangeValue}
           placeholder={props.hint || 'Value'}
         />
         {props.onDelete ? (
@@ -308,6 +315,7 @@ function QueryDraftRow(props: {
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
   canDelete?: boolean
+  variableSuggestions: VariableSuggestion[]
 }) {
   const canDelete = props.canDelete ?? true
   return (
@@ -319,11 +327,12 @@ function QueryDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <input
+        <VariableAutocompleteField
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
           value={props.value}
-          onChange={e => props.onChangeValue(e.target.value)}
+          suggestions={props.variableSuggestions}
+          onChangeValue={props.onChangeValue}
           placeholder="Value"
         />
         <button
@@ -348,6 +357,7 @@ function HeaderDraftRow(props: {
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
   canDelete?: boolean
+  variableSuggestions: VariableSuggestion[]
 }) {
   const canDelete = props.canDelete ?? true
   return (
@@ -359,11 +369,12 @@ function HeaderDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <input
+        <VariableAutocompleteField
           className="mono"
           style={{ flex: 1, minWidth: 0 }}
           value={props.value}
-          onChange={e => props.onChangeValue(e.target.value)}
+          suggestions={props.variableSuggestions}
+          onChangeValue={props.onChangeValue}
           placeholder="Value"
         />
         <button
@@ -466,6 +477,8 @@ export function RequestEditor(props: {
     const effectiveWithScheme = applySchemeIfHostLike(effective, scheme)
     return { ...envVars, scheme, baseUrl: effectiveWithScheme }
   }, [baseUrlKey, props.collection.baseUrl, props.environment])
+
+  const variableSuggestions = useMemo<VariableSuggestion[]>(() => getVariableSuggestions(variables), [variables])
 
   const effectiveQueryParams = useMemo(() => {
     const next: Record<string, string> = { ...queryParams }
@@ -1426,11 +1439,12 @@ export function RequestEditor(props: {
           </button>
 
           {isEditingUrl ? (
-            <input
-              ref={urlInputRef}
+            <VariableAutocompleteField
+              ref={urlInputRef as any}
               className="mono"
               value={urlDraftText}
-              onChange={e => setUrlDraftText(e.target.value)}
+              suggestions={variableSuggestions}
+              onChangeValue={setUrlDraftText}
               onClick={e => e.stopPropagation()}
               onKeyDown={e => {
                 if (e.key === 'Enter') commitUrlEdit()
@@ -1540,6 +1554,7 @@ export function RequestEditor(props: {
       ) : headersTab === 'authorization' ? (
         <AuthorizationTab
           value={committedHeaders.Authorization ?? ''}
+          variableSuggestions={variableSuggestions}
           onChangeValue={next => setHeaderValueForRequest('Authorization', next)}
         />
       ) : (
@@ -1585,6 +1600,7 @@ export function RequestEditor(props: {
                   name={h.name}
                   value={value}
                   readOnlyName={isSpec}
+                  variableSuggestions={variableSuggestions}
                   onChangeValue={nextValue => {
                     setHeaderValueForRequest(h.name, nextValue)
                   }}
@@ -1698,6 +1714,7 @@ export function RequestEditor(props: {
                 value={row.value}
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+                variableSuggestions={variableSuggestions}
                 onDelete={() => {
                   setHeaderDraftRows(prev => {
                     if (prev.length === 1 && prev[0]?.id === row.id) {
@@ -1737,7 +1754,7 @@ export function RequestEditor(props: {
           <div className="section">
             <div className="sectionTitle">Path</div>
             {grouped.path.map(p => (
-              <ParamRow key={p.name} param={p} store={pathParams} setStore={setPathParams} />
+              <ParamRow key={p.name} param={p} store={pathParams} setStore={setPathParams} variableSuggestions={variableSuggestions} />
             ))}
           </div>
         )}
@@ -1761,6 +1778,7 @@ export function RequestEditor(props: {
                 value={value}
                 hint={isSpec ? hint : undefined}
                 required={isSpec ? p.required : false}
+                variableSuggestions={variableSuggestions}
                 onChangeValue={nextValue => {
                   setQueryParams(prev => {
                     const next = { ...prev }
@@ -1876,6 +1894,7 @@ export function RequestEditor(props: {
               value={row.value}
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+              variableSuggestions={variableSuggestions}
               onDelete={() => {
                 setQueryDraftRows(prev => {
                   if (prev.length === 1 && prev[0]?.id === row.id) return [{ ...prev[0], name: '', value: '' }]
@@ -2006,11 +2025,13 @@ export function RequestEditor(props: {
             )}
           </div>
         )}
-        <textarea
-          ref={bodyTextareaRef}
+        <VariableAutocompleteField
+          as="textarea"
+          ref={bodyTextareaRef as any}
           className="mono editorTextarea"
           value={bodyText}
-          onChange={e => setBodyText(e.target.value)}
+          suggestions={variableSuggestions}
+          onChangeValue={setBodyText}
           onKeyDown={e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return
             if (e.key === 'Tab') {

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { VariableAutocompleteField } from '../../components/VariableAutocompleteField'
+import type { VariableSuggestion } from '../../shared/utils/variables'
 
 type AuthType = 'none' | 'basic' | 'bearer'
 
@@ -54,7 +56,11 @@ function safeBase64Decode(input: string) {
   }
 }
 
-export function AuthorizationTab(props: { value: string; onChangeValue: (next: string) => void }) {
+export function AuthorizationTab(props: {
+  value: string
+  onChangeValue: (next: string) => void
+  variableSuggestions: VariableSuggestion[]
+}) {
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -221,10 +227,11 @@ export function AuthorizationTab(props: { value: string; onChangeValue: (next: s
           <>
             <div className="formRow">
               <div className="formLabel mono">Username</div>
-              <input
+              <VariableAutocompleteField
                 className="mono"
                 value={username}
-                onChange={e => setUsername(e.target.value)}
+                suggestions={props.variableSuggestions}
+                onChangeValue={setUsername}
                 placeholder="Username"
                 autoComplete="off"
                 autoCorrect="off"
@@ -234,11 +241,12 @@ export function AuthorizationTab(props: { value: string; onChangeValue: (next: s
             </div>
             <div className="formRow">
               <div className="formLabel mono">Password</div>
-              <input
+              <VariableAutocompleteField
                 className="mono"
                 type="password"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                suggestions={props.variableSuggestions}
+                onChangeValue={setPassword}
                 placeholder="Password"
                 autoComplete="off"
                 autoCorrect="off"
@@ -252,10 +260,11 @@ export function AuthorizationTab(props: { value: string; onChangeValue: (next: s
         {type === 'bearer' ? (
           <div className="formRow">
             <div className="formLabel mono">Token</div>
-            <input
+            <VariableAutocompleteField
               className="mono"
               value={token}
-              onChange={e => setToken(e.target.value)}
+              suggestions={props.variableSuggestions}
+              onChangeValue={setToken}
               placeholder="Bearer token…"
               autoComplete="off"
               autoCorrect="off"
