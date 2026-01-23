@@ -47,6 +47,7 @@ export function CollectionsTree(props: {
   collections: Collection[]
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
+  inFlightCountByRequestId?: Record<string, number>
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -206,6 +207,12 @@ export function CollectionsTree(props: {
 
   function displayMethod(m: string) {
     return m === 'DELETE' ? 'DEL' : m
+  }
+
+  function inFlightMethodClass(requestId: string, method: string): string {
+    const inFlight = (props.inFlightCountByRequestId?.[requestId] ?? 0) > 0
+    if (!inFlight) return ''
+    return `treeMethodInFlight treeMethodInFlight${method}`
   }
 
   function onFolderDragStart(e: React.DragEvent, collectionId: string, folderId: string) {
@@ -559,7 +566,7 @@ export function CollectionsTree(props: {
                   onRequestDragEnd()
                 }}
               >
-                <span className="mono small treeMethod">{displayMethod(r.method)}</span>
+                <span className={`mono small treeMethod ${inFlightMethodClass(r.id, r.method)}`}>{displayMethod(r.method)}</span>
                 {isEditingRequest ? (
                   <span className="treeItemNameWrap">
                     <span
@@ -1067,12 +1074,12 @@ export function CollectionsTree(props: {
                 props.onRenameRequest(col.id, r.id, next)
               }
 
-              return (
-                <div
-                  key={r.id}
-                  className={`treeItem ${active ? 'treeItemActive' : ''}`}
-                  draggable={!isEditingRequest}
-                  onClick={() => {
+                return (
+                  <div
+                    key={r.id}
+                    className={`treeItem ${active ? 'treeItemActive' : ''}`}
+                    draggable={!isEditingRequest}
+                    onClick={() => {
                     if (isEditingRequest) return
                     props.onPickRequest(r, col)
                   }}
@@ -1083,14 +1090,14 @@ export function CollectionsTree(props: {
                   onDragEnd={() => {
                     if (isEditingRequest) return
                     onRequestDragEnd()
-                  }}
-                >
-                  <span className="mono small treeMethod">{displayMethod(r.method)}</span>
-                  {isEditingRequest ? (
-                    <span className="treeItemNameWrap">
-                      <span
-                        ref={nameEditableRef as any}
-                        className="treeItemName treeNameEditing"
+                    }}
+                  >
+                    <span className={`mono small treeMethod ${inFlightMethodClass(r.id, r.method)}`}>{displayMethod(r.method)}</span>
+                    {isEditingRequest ? (
+                      <span className="treeItemNameWrap">
+                        <span
+                          ref={nameEditableRef as any}
+                          className="treeItemName treeNameEditing"
                         contentEditable
                         suppressContentEditableWarning
                         onClick={e => e.stopPropagation()}

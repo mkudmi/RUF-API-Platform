@@ -1128,6 +1128,7 @@ export default function App() {
             collections={collections}
             environmentsByCollection={envByCollection}
             activeRequestId={activeRequestId}
+            inFlightCountByRequestId={inFlightCountByRequestId}
             onPickRequest={pick}
             onOpenEnv={setEnvModalCollectionId}
             onUpdateCollectionFromUrl={updateCollectionFromUrl}

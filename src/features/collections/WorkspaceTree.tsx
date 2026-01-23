@@ -27,6 +27,7 @@ export function WorkspaceTree(props: {
   collections: Collection[]
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
+  inFlightCountByRequestId?: Record<string, number>
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -272,6 +273,7 @@ export function WorkspaceTree(props: {
                   collections={cols}
                   environmentsByCollection={props.environmentsByCollection}
                   activeRequestId={props.activeRequestId}
+                  inFlightCountByRequestId={props.inFlightCountByRequestId}
                   onPickRequest={props.onPickRequest}
                   onOpenEnv={props.onOpenEnv}
                   onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
@@ -301,6 +303,7 @@ export function WorkspaceTree(props: {
           collections={rootCollections}
           environmentsByCollection={props.environmentsByCollection}
           activeRequestId={props.activeRequestId}
+          inFlightCountByRequestId={props.inFlightCountByRequestId}
           onPickRequest={props.onPickRequest}
           onOpenEnv={props.onOpenEnv}
           onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
