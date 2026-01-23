@@ -258,24 +258,25 @@ function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNa
   return next
 }
 
-function ParamRow(props: {
-  param: RequestParam
-  store: Record<string, string>
-  setStore: Dispatch<SetStateAction<Record<string, string>>>
-  variableSuggestions: VariableSuggestion[]
-  historyItems?: string[]
-  onRecordHistory?: (value: string) => void
-  onPickHistory?: (value: string) => void
-  onDeleteHistoryItem?: (value: string) => void
-  onClearAllHistory?: () => void
-  historyMenuId?: string
-  historyMenuOpenId?: string | null
-  historyMenuAnchor?: { left: number, top: number, width: number } | null
-  onToggleHistoryMenu?: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseHistoryMenu?: () => void
-  historyMenuPanelRef?: RefObject<HTMLDivElement | null>
-}) {
-  const value = props.store[props.param.name] ?? ''
+function ParamRow(props: { 
+  param: RequestParam 
+  store: Record<string, string> 
+  setStore: Dispatch<SetStateAction<Record<string, string>>> 
+  onClear?: () => void 
+  variableSuggestions: VariableSuggestion[] 
+  historyItems?: string[] 
+  onRecordHistory?: (value: string) => void 
+  onPickHistory?: (value: string) => void 
+  onDeleteHistoryItem?: (value: string) => void 
+  onClearAllHistory?: () => void 
+  historyMenuId?: string 
+  historyMenuOpenId?: string | null 
+  historyMenuAnchor?: { left: number, top: number, width: number } | null 
+  onToggleHistoryMenu?: (menuId: string, anchorEl: HTMLElement) => void 
+  onCloseHistoryMenu?: () => void 
+  historyMenuPanelRef?: RefObject<HTMLDivElement | null> 
+}) { 
+  const value = props.store[props.param.name] ?? '' 
   const hint =
     typeof props.param.example === 'string' || typeof props.param.example === 'number'
       ? String(props.param.example)
@@ -283,16 +284,26 @@ function ParamRow(props: {
 
   return (
     <div className="formRow">
-      <div className="formLabel mono">
-        {props.param.name}
-        {props.param.required ? <span className="reqStar">*</span> : null}
-      </div>
-      <div
-        style={{ position: 'relative', width: '100%' }}
-        data-value-history-anchor
-        data-commit-kind="path"
-        data-commit-key={props.param.name}
-      >
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}> 
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}> 
+          <input 
+            className="mono keyInput" 
+            style={{ width: '100%', pointerEvents: 'none', opacity: 0.75 }} 
+            value={props.param.name}
+            readOnly
+            aria-readonly="true"
+            tabIndex={-1}
+          />
+          {props.param.required ? <span className="reqStar keyReqStar">*</span> : null} 
+        </div> 
+      </div> 
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}> 
+      <div 
+        style={{ position: 'relative', flex: 1, minWidth: 0 }} 
+        data-value-history-anchor 
+        data-commit-kind="path" 
+        data-commit-key={props.param.name} 
+      > 
         <VariableAutocompleteField
           className={`valueHistoryInput ${props.historyMenuId ? 'mono' : ''}`.trim()}
           value={value}
@@ -392,12 +403,30 @@ function ParamRow(props: {
                 </div>
               </div>
             ) : null}
-          </>
-         ) : null}
-      </div>
-    </div>
-  )
-}
+          </> 
+           ) : null} 
+      </div> 
+      {props.onClear ? ( 
+        <button 
+          type="button" 
+          className="rowDeleteBtn" 
+          onClick={e => { 
+            e.preventDefault() 
+            e.stopPropagation() 
+            props.onClear?.() 
+          }} 
+          disabled={!value} 
+          aria-disabled={!value} 
+          aria-label={`Clear path param ${props.param.name}`} 
+          title={value ? 'Clear' : 'Empty'} 
+        > 
+          <CloseIcon size={18} /> 
+        </button> 
+      ) : null} 
+      </div> 
+    </div> 
+  ) 
+} 
 
 function normalizeHeaderParams(requestHeaders: RequestParam[], headersStore: Record<string, string>) {
   const spec = requestHeaders.filter(Boolean)
@@ -638,19 +667,21 @@ function QueryRow(props: {
   return (
     <div className="formRow">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
-        <input
-          className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
-          style={{ flex: 1, minWidth: 0 }}
-          value={draftName}
-          onChange={e => setDraftName(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') commitRename()
-            if (e.key === 'Escape') setDraftName(props.name)
-          }}
-          onBlur={commitRename}
-          placeholder="Key"
-        />
-        {props.required ? <span className="reqStar">*</span> : null}
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+          <input
+            className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
+            style={{ width: '100%' }}
+            value={draftName}
+            onChange={e => setDraftName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') commitRename()
+              if (e.key === 'Escape') setDraftName(props.name)
+            }}
+            onBlur={commitRename}
+            placeholder="Key"
+          />
+          {props.required ? <span className="reqStar keyReqStar">*</span> : null}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <div
@@ -2762,17 +2793,25 @@ export function RequestEditor(props: {
         {grouped.path.length > 0 && (
           <div className="section">
             <div className="sectionTitle">Path</div>
-            {grouped.path.map(p => (
-              <ParamRow
-                key={p.name}
-                param={p}
-                store={pathParams}
-                setStore={setPathParams}
-                variableSuggestions={variableSuggestions}
-                historyItems={valueHistory.path[p.name] ?? []}
-                onRecordHistory={next => recordValueHistory('path', p.name, next)}
-                onPickHistory={next => {
-                  setPathParams(prev => ({ ...prev, [p.name]: next }))
+            {grouped.path.map(p => ( 
+              <ParamRow 
+                key={p.name} 
+                param={p} 
+                store={pathParams} 
+                setStore={setPathParams} 
+                onClear={() => { 
+                  setPathParams(prev => { 
+                    if (!(p.name in prev)) return prev 
+                    const next = { ...prev } 
+                    delete next[p.name] 
+                    return next 
+                  }) 
+                }} 
+                variableSuggestions={variableSuggestions} 
+                historyItems={valueHistory.path[p.name] ?? []} 
+                onRecordHistory={next => recordValueHistory('path', p.name, next)} 
+                onPickHistory={next => { 
+                  setPathParams(prev => ({ ...prev, [p.name]: next })) 
                   recordValueHistory('path', p.name, next)
                 }}
                 onDeleteHistoryItem={next => deleteValueHistoryItem('path', p.name, next)}
