@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../shared/types/collection'
 import { buildImportedCollectionFromText } from './buildImportedCollection'
 import { fetchWithProxyFallback } from '../../shared/utils/proxyFetch'
@@ -8,11 +8,14 @@ export function ImportFab(props: {
   onImported: (c: Collection) => void
   variant?: 'fab' | 'button'
   label?: string
+  showTrigger?: boolean
+  openRef?: React.MutableRefObject<(() => void) | null>
 }) {
   const menuRef = useRef<HTMLDialogElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const variant = props.variant ?? 'fab'
   const label = props.label ?? 'Импорт'
+  const showTrigger = props.showTrigger ?? true
 
   const [view, setView] = useState<'menu' | 'json' | 'url' | 'name'>('menu')
   const [menuError, setMenuError] = useState<string | null>(null)
@@ -58,6 +61,14 @@ export function ImportFab(props: {
     setMenuError(null)
     menuRef.current?.showModal()
   }
+
+  useEffect(() => {
+    if (!props.openRef) return
+    props.openRef.current = openMenu
+    return () => {
+      props.openRef!.current = null
+    }
+  }, [props.openRef])
 
   function closeMenu() {
     menuRef.current?.close()
@@ -152,13 +163,15 @@ export function ImportFab(props: {
         onChange={onFileSelected}
       />
 
-      {variant === 'button' ? (
-        <button onClick={openMenu}>{label}</button>
-      ) : (
-        <button className="fab" onClick={openMenu} aria-label="Import">
-          <span className="fabIcon">+</span>
-        </button>
-      )}
+      {showTrigger ? (
+        variant === 'button' ? (
+          <button onClick={openMenu}>{label}</button>
+        ) : (
+          <button className="fab" onClick={openMenu} aria-label="Import">
+            <span className="fabIcon">+</span>
+          </button>
+        )
+      ) : null}
 
       <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
         <div className="modalHeader">

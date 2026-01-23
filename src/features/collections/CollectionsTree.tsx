@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Collection, Folder, RequestItem } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
-import { readDraggedFolder, readDraggedRequest, setDraggedFolder, setDraggedRequest } from './treeDragDrop'
+import { readDraggedFolder, readDraggedRequest, setDraggedCollection, setDraggedFolder, setDraggedRequest } from './treeDragDrop'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -758,6 +758,7 @@ export function CollectionsTree(props: {
               <>
                 <summary
                   className="treeSummary"
+                  draggable={!isEditing}
                   onPointerDown={e => {
                     if (!isEditing) return
                     const target = e.target as HTMLElement | null
@@ -769,6 +770,10 @@ export function CollectionsTree(props: {
                     e.stopPropagation()
                     suppressNextBlurRef.current = true
                     cancelRename()
+                  }}
+                  onDragStart={e => {
+                    if (isEditing) return
+                    setDraggedCollection(e.dataTransfer, { collectionId: col.id })
                   }}
                   onDragOver={e => {
                     e.preventDefault()

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImportFab } from './features/importSpec/ImportFab'
+import { SidebarCreateMenu } from './components/SidebarCreateMenu'
 import { buildImportedCollectionFromText } from './features/importSpec/buildImportedCollection'
-import { CollectionsTree } from './features/collections/CollectionsTree'
+import { WorkspaceTree } from './features/collections/WorkspaceTree'
 import { RequestEditor } from './features/requestRunner/RequestEditor'
 import { ResponseViewer } from './features/requestRunner/ResponseViewer'
 import { EnvironmentSettings } from './features/environment/EnvironmentSettings'
@@ -9,6 +10,8 @@ import type { Collection, HttpMethod, RequestItem } from './shared/types/collect
 import type { Environment } from './shared/types/environment'
 import { DEFAULT_ENVIRONMENT } from './shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from './shared/utils/storage'
+import type { Workspace } from './shared/types/workspace'
+import { loadWorkspace, saveWorkspace } from './shared/utils/workspaceStorage'
 import type { RunResult } from './features/requestRunner/runRequest'
 import { uid } from './shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
@@ -89,9 +92,11 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
 
 export default function App() {
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const importOpenRef = useRef<(() => void) | null>(null)
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => loadAppSettings().validateCertificates)
 
   const [collections, setCollections] = useState<Collection[]>(() => loadCollections())
+  const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
   const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => {
     const saved = loadActiveSelection()
     if (!saved) return null
@@ -105,6 +110,9 @@ export default function App() {
   const createProjectDialogRef = useRef<HTMLDialogElement | null>(null)
   const [projectName, setProjectName] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
+  const createWorkspaceFolderDialogRef = useRef<HTMLDialogElement | null>(null)
+  const [workspaceFolderName, setWorkspaceFolderName] = useState('New Folder')
+  const [workspaceFolderError, setWorkspaceFolderError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -874,6 +882,15 @@ export default function App() {
       return next
     })
 
+    setWorkspace(prev => {
+      const next: Workspace = {
+        ...prev,
+        folders: prev.folders.map(f => ({ ...f, collectionIds: f.collectionIds.filter(id => id !== collectionId) })),
+      }
+      saveWorkspace(next)
+      return next
+    })
+
     setEnvByCollection(prev => {
       if (!prev[collectionId]) return prev
       const { [collectionId]: _removed, ...rest } = prev
@@ -897,6 +914,75 @@ export default function App() {
     confirmDeleteDialogRef.current?.close()
   }
 
+  function openCreateWorkspaceFolder() {
+    setWorkspaceFolderError(null)
+    setWorkspaceFolderName('New Folder')
+    createWorkspaceFolderDialogRef.current?.showModal()
+  }
+
+  function closeCreateWorkspaceFolder() {
+    createWorkspaceFolderDialogRef.current?.close()
+  }
+
+  function createWorkspaceFolder() {
+    setWorkspaceFolderError(null)
+    const base = workspaceFolderName.trim()
+    if (!base) {
+      setWorkspaceFolderError('Введите имя папки.')
+      return
+    }
+
+    setWorkspace(prev => {
+      const existing = new Set(prev.folders.map(f => f.name))
+      let name = base
+      for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
+
+      const next: Workspace = {
+        ...prev,
+        folders: [{ id: uid('wfolder'), name, collectionIds: [] }, ...prev.folders],
+      }
+      saveWorkspace(next)
+      return next
+    })
+
+    closeCreateWorkspaceFolder()
+  }
+
+  function moveCollectionToWorkspaceFolder(collectionId: string, workspaceFolderId: string | null) {
+    setWorkspace(prev => {
+      const nextFolders = prev.folders.map(f => {
+        const filtered = f.collectionIds.filter(id => id !== collectionId)
+        const shouldAddHere = workspaceFolderId && f.id === workspaceFolderId
+        const collectionIds = shouldAddHere ? [...filtered, collectionId] : filtered
+        return filtered.length === f.collectionIds.length && !shouldAddHere ? f : { ...f, collectionIds }
+      })
+      const next: Workspace = { ...prev, folders: nextFolders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
+  function renameWorkspaceFolder(workspaceFolderId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+    setWorkspace(prev => {
+      const next: Workspace = {
+        ...prev,
+        folders: prev.folders.map(f => (f.id === workspaceFolderId ? { ...f, name: nextName } : f)),
+      }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
+  function deleteWorkspaceFolder(workspaceFolderId: string) {
+    setWorkspace(prev => {
+      const next: Workspace = { ...prev, folders: prev.folders.filter(f => f.id !== workspaceFolderId) }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
   function openCreateProject() {
     setProjectError(null)
     setProjectName('')
@@ -911,18 +997,31 @@ export default function App() {
     setProjectError(null)
     const name = projectName.trim()
     if (!name) {
-      setProjectError('Введите имя проекта.')
+      setProjectError('Введите имя коллекции.')
       return
+    }
+
+    const req: RequestItem = {
+      id: uid('req'),
+      name: 'New Request',
+      method: 'GET',
+      path: '/',
+      urlTemplate: '{{baseUrl}}/',
+      params: [],
+      headers: {},
     }
 
     const col: Collection = {
       id: uid('col'),
       name,
       baseUrl: undefined,
+      requests: [req],
       folders: [],
     }
 
     addCollection(col)
+    setActive({ col, req })
+    saveActiveSelection({ collectionId: col.id, requestId: req.id })
     closeCreateProject()
   }
 
@@ -1008,6 +1107,12 @@ export default function App() {
         <div className="sidebarBrand">
           <div className="sidebarBrandRow">
             <span className="appTitle">Ruf</span> <span className="small">(web-only)</span>
+            <SidebarCreateMenu
+              onImport={() => importOpenRef.current?.()}
+              onCreateCollection={openCreateProject}
+              onCreateFolder={openCreateWorkspaceFolder}
+            />
+            <ImportFab onImported={addCollection} openRef={importOpenRef} showTrigger={false} />
             <button
               className="iconBtn"
               style={{ marginLeft: 'auto' }}
@@ -1020,15 +1125,9 @@ export default function App() {
           </div>
           <div className="small sidebarTagline">API platform</div>
         </div>
-        <div style={{marginBottom: 12}}>
-          <div style={{display:'grid', gap:10}}>
-            <ImportFab variant="button" label="Импорт" onImported={addCollection} />
-            <button onClick={openCreateProject}>Создать проект</button>
-          </div>
-        </div>
-
         <div className="sidebarTreeWrap">
-          <CollectionsTree
+          <WorkspaceTree
+            workspace={workspace}
             collections={collections}
             environmentsByCollection={envByCollection}
             activeRequestId={activeRequestId}
@@ -1047,6 +1146,9 @@ export default function App() {
             onDeleteFolder={deleteFolder}
             onDeleteRequest={deleteRequest}
             onDeleteCollection={requestDeleteCollection}
+            onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
+            onRenameWorkspaceFolder={renameWorkspaceFolder}
+            onDeleteWorkspaceFolder={deleteWorkspaceFolder}
           />
         </div>
 
@@ -1164,7 +1266,7 @@ export default function App() {
         }}
       >
         <div className="modalHeader">
-          <b>Создать проект</b>
+          <b>Create Collection</b>
           <button className="iconBtn" onClick={closeCreateProject} aria-label="Close">✕</button>
         </div>
 
@@ -1176,7 +1278,39 @@ export default function App() {
         {projectError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{projectError}</div>}
 
         <div className="modalActions">
-          <button onClick={createProject}>Создать</button>
+          <button onClick={createProject}>Create</button>
+        </div>
+      </dialog>
+
+      <dialog
+        ref={createWorkspaceFolderDialogRef}
+        className="modal modalSmall"
+        onClose={() => {
+          setWorkspaceFolderError(null)
+          setWorkspaceFolderName('New Folder')
+        }}
+      >
+        <div className="modalHeader">
+          <b>Create Folder</b>
+          <button className="iconBtn" onClick={closeCreateWorkspaceFolder} aria-label="Close">✕</button>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
+          <div className="small">Имя</div>
+          <input
+            style={{ width: '100%' }}
+            value={workspaceFolderName}
+            onChange={e => setWorkspaceFolderName(e.target.value)}
+            onFocus={e => e.currentTarget.select()}
+            autoFocus
+            placeholder="New Folder"
+          />
+        </div>
+
+        {workspaceFolderError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{workspaceFolderError}</div>}
+
+        <div className="modalActions">
+          <button onClick={createWorkspaceFolder}>Create</button>
         </div>
       </dialog>
 
