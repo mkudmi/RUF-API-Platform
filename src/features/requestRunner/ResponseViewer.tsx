@@ -4,8 +4,8 @@ import { safeJsonParse } from '../../shared/utils/http'
 import { generateJsonSchema } from '../../shared/utils/jsonSchema'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
 import type { RunResult } from './runRequest'
-import { evaluateJsonSearch, JsonPathSearch, type JsonValue } from './JsonPathSearch'
-import { CloseIcon, CopyIcon, TrashIcon } from '../../shared/icons'
+import { evaluateJsonSearch, type JsonValue } from './JsonPathSearch'
+import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../shared/icons'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -101,6 +101,10 @@ export function ResponseViewer(props: {
   const saveSchemaDialogRef = useRef<HTMLDialogElement | null>(null)
   const schemaFileNameInputRef = useRef<HTMLInputElement | null>(null)
   const schemaCloseTimerRef = useRef<number | null>(null)
+  const [responseSearchOpen, setResponseSearchOpen] = useState(false)
+  const [responseSearchCopied, setResponseSearchCopied] = useState(false)
+  const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
+  const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
   const sizePopoverAnchorRef = useRef<HTMLSpanElement | null>(null)
   const sizePopoverCloseTimerRef = useRef<number | null>(null)
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
@@ -133,7 +137,8 @@ export function ResponseViewer(props: {
   const headersText = result ? JSON.stringify(result.headers, null, 2) : ''
   const historyItems = props.historyItems ?? []
   const copyPayload = tab === 'body' ? bodyView.text : headersText
-  const canCopyBody = !!result && result.bodyText.length > 0
+  const canCopy = !!result && copyPayload.length > 0
+  const canGenerateSchema = tab === 'body' && isJson
 
   const bodyLineCount = useMemo(() => countLines(bodyView.text), [bodyView.text])
   const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
@@ -147,6 +152,14 @@ export function ResponseViewer(props: {
     await copyText(copyPayload)
     setCopied(true)
     setTimeout(() => setCopied(false), 900)
+  }
+
+  async function onCopyResponseSearch() {
+    const q = bodyQuery.trim()
+    if (!q) return
+    await copyText(q)
+    setResponseSearchCopied(true)
+    setTimeout(() => setResponseSearchCopied(false), 800)
   }
 
   const clearSchemaCloseTimer = useCallback(() => {
@@ -257,6 +270,17 @@ export function ResponseViewer(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const statusLine = inFlightCount > 0 ? 'Sending...' : 'Run a request to see the response.'
 
+  useEffect(() => {
+    if (tab === 'body') return
+    setResponseSearchOpen(false)
+  }, [tab])
+
+  useEffect(() => {
+    if (!responseSearchOpen || tab !== 'body') return
+    const t = window.setTimeout(() => responseSearchInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [responseSearchOpen, tab])
+
   const closeSizePopover = useCallback(() => {
     if (sizePopoverCloseTimerRef.current !== null) {
       window.clearTimeout(sizePopoverCloseTimerRef.current)
@@ -314,7 +338,7 @@ export function ResponseViewer(props: {
   }, [closeSizePopover, sizePopoverOpen])
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr auto', height: '100%', overflow: 'hidden' }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className={`badge ${statusClass(result.status)}`}>
@@ -456,125 +480,20 @@ export function ResponseViewer(props: {
           )}
         </div>
       ) : tab === 'body' ? (
-        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden' }}>
-          <div style={{ marginTop: 10 }}>
-            <JsonPathSearch
-              query={bodyQuery}
-              onQueryChange={setBodyQuery}
-              matchesCount={bodyView.matchesCount}
-              error={bodyView.error}
-              disabled={!isJson}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', paddingRight: 0 }}>
-              {isJson ? (
-                <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
-                  <button
-                    type="button"
-                    className="envBtn"
-                    style={{ height: 32, padding: '0 10px', display: 'inline-flex', alignItems: 'center' }}
-                    aria-haspopup="menu"
-                    aria-expanded={schemaMenuOpen}
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      clearSchemaCloseTimer()
-                      setSchemaCopyFeedback(false)
-                      setSchemaMenuOpen(v => !v)
-                    }}
-                    title="Generate JSON Schema"
-                  >
-                    Generate JSON Schema
-                  </button>
-
-                  {schemaMenuOpen ? (
-                    <div
-                      className="methodMenuPanel"
-                      role="menu"
-                      style={{ minWidth: '100%' }}
-                      onPointerDown={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="methodMenuItem mono"
-                        role="menuitem"
-                        onClick={copySchemaToClipboard}
-                        disabled={schemaCopyFeedback}
-                      >
-                        {schemaCopyFeedback ? 'Copied!' : 'Copy'}
-                      </button>
-                      <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
-                        Save
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {canCopyBody ? (
-                <button className="iconBtn" onClick={onCopy} title="Copy body" aria-label="Copy body">
-                  {copied ? 'OK' : <CopyIcon />}
-                </button>
-              ) : null}
+        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
+          <div style={{ overflow: 'auto', height: '100%' }}>
+            <div className="codeWithGutter" style={{ fontSize: 14 }}>
+              <pre className="mono codeGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
+                {bodyLineNumbers}
+              </pre>
+              <pre className="mono codePre">
+                {bodyView.text}
+              </pre>
             </div>
-            <div style={{ overflow: 'auto', height: '100%' }}>
-              <div className="codeWithGutter" style={{ fontSize: 14 }}>
-                <pre className="mono codeGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
-                  {bodyLineNumbers}
-                </pre>
-                <pre className="mono codePre">
-                  {bodyView.text}
-                </pre>
-              </div>
-            </div>
-
-            <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
-              <div className="modalHeader">
-                <b>Save JSON Schema</b>
-                <button className="iconBtn" onClick={() => saveSchemaDialogRef.current?.close()} aria-label="Close" title="Close">
-                  <CloseIcon />
-                </button>
-              </div>
-
-              <div className="small" style={{ marginBottom: 8 }}>
-                File name
-              </div>
-
-              <input
-                ref={schemaFileNameInputRef}
-                className="mono"
-                style={{ width: '100%' }}
-                value={schemaFileBaseName}
-                onChange={e => setSchemaFileBaseName(e.target.value)}
-                placeholder="requestResponseSchema"
-                onKeyDown={e => {
-                  if (e.key === 'Enter') confirmSaveSchema()
-                }}
-              />
-
-              <div className="modalActions">
-                <button type="button" onClick={confirmSaveSchema}>
-                  Save
-                </button>
-              </div>
-            </dialog>
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', paddingRight: 0 }}>
-            <button className="iconBtn" onClick={onCopy} title="Copy headers" aria-label="Copy headers">
-              {copied ? 'OK' : <CopyIcon />}
-            </button>
-          </div>
+        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
           <div style={{ overflow: 'auto', height: '100%' }}>
             <div className="codeWithGutter" style={{ fontSize: 12 }}>
               <pre className="mono codeGutter" style={{ width: `${headersGutterWidthCh}ch` }} aria-hidden="true">
@@ -587,6 +506,196 @@ export function ResponseViewer(props: {
           </div>
         </div>
       )}
+
+      {result ? (
+        <div className="responseFooterWrap">
+          <div className={`responseSearchWrap ${tab === 'body' && responseSearchOpen ? 'responseSearchWrapOpen' : ''}`}>
+            <div className="responseSearchInner">
+              <input
+                ref={responseSearchInputRef}
+                className="mono"
+                value={bodyQuery}
+                onChange={e => setBodyQuery(e.target.value)}
+                disabled={!isJson}
+                placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
+              />
+              <button
+                type="button"
+                className="iconBtn"
+                onClick={() => responseSearchHelpDialogRef.current?.showModal()}
+                title="Инструкция"
+                aria-label="Инструкция по поиску"
+                style={{ width: 34, height: 34 }}
+              >
+                i
+              </button>
+              <button
+                type="button"
+                className="iconBtn"
+                onClick={onCopyResponseSearch}
+                disabled={!bodyQuery.trim()}
+                title="Copy search"
+                aria-label="Copy search"
+              >
+                {responseSearchCopied ? 'OK' : <CopyIcon />}
+              </button>
+              <button
+                type="button"
+                className="iconBtn"
+                onClick={() => setBodyQuery('')}
+                disabled={!bodyQuery.trim()}
+                title="Clear"
+                aria-label="Clear"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            {bodyView.error ? (
+              <div className="small responseSearchError">{bodyView.error}</div>
+            ) : bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? (
+              <div className="small responseSearchMeta">Matches: <span className="mono">{bodyView.matchesCount}</span></div>
+            ) : null}
+          </div>
+
+          <div className="treeMenuDivider responseFooterDivider" role="separator" />
+
+          <div className="responseFooter">
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={() => setResponseSearchOpen(v => !v)}
+              disabled={tab !== 'body'}
+              title="Search"
+              aria-label="Search"
+            >
+              <SearchIcon />
+            </button>
+
+            <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
+              <button
+                type="button"
+                className="iconBtn"
+                aria-haspopup="menu"
+                aria-expanded={schemaMenuOpen}
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (!canGenerateSchema) return
+                  clearSchemaCloseTimer()
+                  setSchemaCopyFeedback(false)
+                  setSchemaMenuOpen(v => !v)
+                }}
+                disabled={!canGenerateSchema}
+                title="Generate JSON Schema"
+                aria-label="Generate JSON Schema"
+              >
+                <SchemaIcon />
+              </button>
+
+              {schemaMenuOpen ? (
+                <div
+                  className="methodMenuPanel"
+                  role="menu"
+                  style={{ left: 'auto', right: 0, top: 'auto', bottom: 34, minWidth: 170 }}
+                  onPointerDown={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="methodMenuItem mono"
+                    role="menuitem"
+                    onClick={copySchemaToClipboard}
+                    disabled={schemaCopyFeedback}
+                  >
+                    {schemaCopyFeedback ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
+                    Save
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={onCopy}
+              disabled={!canCopy}
+              title={tab === 'body' ? 'Copy body' : 'Copy headers'}
+              aria-label={tab === 'body' ? 'Copy body' : 'Copy headers'}
+            >
+              {copied ? 'OK' : <CopyIcon />}
+            </button>
+          </div>
+
+          <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
+            <div className="modalHeader">
+              <b>Save JSON Schema</b>
+              <button className="iconBtn" onClick={() => saveSchemaDialogRef.current?.close()} aria-label="Close" title="Close">
+                <CloseIcon />
+              </button>
+            </div>
+
+            <div className="small" style={{ marginBottom: 8 }}>
+              File name
+            </div>
+
+            <input
+              ref={schemaFileNameInputRef}
+              className="mono"
+              style={{ width: '100%' }}
+              value={schemaFileBaseName}
+              onChange={e => setSchemaFileBaseName(e.target.value)}
+              placeholder="requestResponseSchema"
+              onKeyDown={e => {
+                if (e.key === 'Enter') confirmSaveSchema()
+              }}
+            />
+
+            <div className="modalActions">
+              <button type="button" onClick={confirmSaveSchema}>
+                Save
+              </button>
+            </div>
+          </dialog>
+
+          <dialog ref={responseSearchHelpDialogRef} className="modal">
+            <div className="modalHeader">
+              <b>Как пользоваться поиском</b>
+              <button
+                className="iconBtn"
+                onClick={() => responseSearchHelpDialogRef.current?.close()}
+                aria-label="Закрыть"
+                title="Закрыть"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+
+            <div className="small" style={{ display: 'grid', gap: 10 }}>
+              <div>
+                Поддерживаются два режима:
+              </div>
+              <div>
+                <b>JSONPath</b> — запрос начинается с <span className="mono">$</span>, например: <span className="mono">$..id</span>
+              </div>
+              <div>
+                <b>Фильтр</b> — выражение вида <span className="mono">field op value</span>, например: <span className="mono">id = 5</span> или <span className="mono">name ~ Максим</span>
+              </div>
+              <div style={{ opacity: 0.8 }}>
+                Операторы: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span>. Списки: <span className="mono">id = 1, 2, 3</span>
+              </div>
+            </div>
+          </dialog>
+        </div>
+      ) : null}
     </div>
   )
 }

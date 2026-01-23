@@ -56,7 +56,7 @@ a { color: inherit; }
   display: grid;
   gap: 4px;
   padding-bottom: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
   border-bottom: 1px solid rgba(255,255,255,.08);
   min-width: 0;
 }
@@ -121,7 +121,7 @@ a { color: inherit; }
 }
 
 .sidebarBottom {
-  margin-top: 12px;
+  margin-top: 4px;
   padding-top: 10px;
   border-top: 1px solid rgba(255,255,255,.08);
   display: flex;
@@ -798,6 +798,32 @@ button:hover { background: rgba(255,255,255,.10); }
 .sizePopoverLabel { opacity: .8; }
 .sizePopoverValue { color: rgba(255,255,255,.86); }
 .sizePopoverDivider { height: 1px; background: rgba(255,255,255,.10); margin: 10px 0; }
+
+.responseFooterWrap { display: grid; grid-template-rows: auto auto auto; gap: 6px; min-height: 0; }
+.responseFooterDivider { margin: 0; }
+.responseFooter { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+
+.responseSearchWrap {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 180ms ease, opacity 180ms ease;
+}
+.responseSearchWrapOpen { max-height: 110px; opacity: 1; }
+.responseSearchInner { display: flex; gap: 8px; align-items: center; }
+.responseSearchInner input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+}
+.responseSearchInner input:focus { outline: none; }
+.responseSearchInner input:focus-visible { outline: none; box-shadow: none; border-color: rgba(255,255,255,.22); }
+.responseSearchError { color: #ff9a9a; margin-top: 6px; }
+.responseSearchMeta { opacity: .85; margin-top: 6px; }
 
 /* Tabs */
 .tabs {
