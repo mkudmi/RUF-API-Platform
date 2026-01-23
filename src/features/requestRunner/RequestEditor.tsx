@@ -856,6 +856,12 @@ export function RequestEditor(props: {
     setHeaderDraftRows([{ id: uid('hrow'), name: '', value: '' }])
   }, [headerDraftRows.length, visibleHeaderParams.length])
 
+  useEffect(() => {
+    if (queryDraftRows.length > 0) return
+    if (queryParamsList.length > 0) return
+    setQueryDraftRows([{ id: uid('qrow'), name: '', value: '' }])
+  }, [queryDraftRows.length, queryParamsList.length])
+
   const hasAnyEditableVisibleHeaderRow = useMemo(() => {
     return visibleHeaderParams.some(h => {
       const isSpec = headerSpecNames.has(h.name)
@@ -1903,7 +1909,10 @@ export function RequestEditor(props: {
               variableSuggestions={variableSuggestions}
               onDelete={() => {
                 setQueryDraftRows(prev => {
-                  if (prev.length === 1 && prev[0]?.id === row.id) return [{ ...prev[0], name: '', value: '' }]
+                  if (prev.length === 1 && prev[0]?.id === row.id) {
+                    if (queryParamsList.length > 0) return []
+                    return [{ ...prev[0], name: '', value: '' }]
+                  }
                   return prev.filter(r => r.id !== row.id)
                 })
               }}
