@@ -771,7 +771,7 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 
 .accordion { border: 1px solid rgba(255,255,255,.10); border-radius: var(--radius); padding: 8px 10px; background: rgba(255,255,255,.03); }
-.accordion > summary { cursor: pointer; font-weight: 600; opacity: .95; display: flex; align-items: center; gap: 14px; }
+.accordion > summary { cursor: pointer; font-weight: 600; opacity: .95; display: flex; align-items: center; gap: 10px; }
 .accordion > summary::marker { content: ''; }
 .accordion > summary::before {
   content: '';
