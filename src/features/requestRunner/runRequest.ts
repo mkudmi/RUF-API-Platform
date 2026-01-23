@@ -88,7 +88,52 @@ function applyVariables(text: string, vars: Record<string, string>) {
 }
 
 function applyPathParams(url: string, values: Record<string,string>) {
-  return url.replaceAll(/\{([^}]+)\}/g, (_, key) => encodeURIComponent(values[key] ?? `{${key}}`))
+  const hashIdx = url.indexOf('#')
+  const beforeHash = hashIdx >= 0 ? url.slice(0, hashIdx) : url
+  const hash = hashIdx >= 0 ? url.slice(hashIdx) : ''
+
+  const queryIdx = beforeHash.indexOf('?')
+  const beforeQuery = queryIdx >= 0 ? beforeHash.slice(0, queryIdx) : beforeHash
+  const query = queryIdx >= 0 ? beforeHash.slice(queryIdx) : ''
+
+  let out = beforeQuery
+
+  out = out.replaceAll(/\/\{([^}]+)\}/g, (m: string, key: string) => {
+    const raw = values[key]
+    if (raw === undefined) return ''
+    if (raw.trim() === '') return ''
+    return m
+  })
+
+  out = out.replaceAll(/\{([^}]+)\}/g, (_m: string, key: string) => {
+    const raw = values[key]
+    if (raw === undefined) return ''
+    const v = raw.trim()
+    if (!v) return ''
+    return encodeURIComponent(v)
+  })
+
+  const schemeIdx = out.indexOf('://')
+  let pathStart = out.length
+  if (schemeIdx >= 0) {
+    const firstSlashAfterHost = out.indexOf('/', schemeIdx + 3)
+    pathStart = firstSlashAfterHost >= 0 ? firstSlashAfterHost : out.length
+  } else if (out.startsWith('//')) {
+    const firstSlashAfterHost = out.indexOf('/', 2)
+    pathStart = firstSlashAfterHost >= 0 ? firstSlashAfterHost : out.length
+  } else {
+    const firstSlash = out.indexOf('/')
+    pathStart = firstSlash >= 0 ? firstSlash : out.length
+  }
+
+  if (pathStart < out.length) {
+    const prefix = out.slice(0, pathStart)
+    let path = out.slice(pathStart)
+    path = path.replaceAll(/\/{2,}/g, '/')
+    out = prefix + path
+  }
+
+  return out + query + hash
 }
 
 function getHeader(headers: Record<string, string>, name: string): string | undefined {

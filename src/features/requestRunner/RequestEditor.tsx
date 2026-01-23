@@ -155,10 +155,21 @@ async function copyText(text: string) {
 }
 
 function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
-  return url.replaceAll(/\{([^}]+)\}/g, (_, key) => {
-    const v = values[key]
-    return v ? v : `{${key}}`
+  let out = url
+
+  out = out.replaceAll(/\/\{([^}]+)\}/g, (m: string, key: string) => {
+    const v = (values[key] ?? '').trim()
+    if (!v) return ''
+    return m
   })
+
+  out = out.replaceAll(/\{([^}]+)\}/g, (_m: string, key: string) => {
+    const v = (values[key] ?? '').trim()
+    return v
+  })
+
+  out = out.replaceAll(/\/{2,}/g, '/')
+  return out
 }
 
 function applyVariablesForDisplay(text: string, vars: Record<string, string>) {
