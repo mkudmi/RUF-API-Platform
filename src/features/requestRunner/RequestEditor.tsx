@@ -1320,6 +1320,12 @@ export function RequestEditor(props: {
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const bodyFormatMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [bodyFormatMenuOpen, setBodyFormatMenuOpen] = useState(false)
+  const bodyFormatMenuPanelRef = useRef<HTMLDivElement | null>(null)
+  const [bodyFormatMenuAnchor, setBodyFormatMenuAnchor] = useState<{ left: number, top: number, width: number }>({
+    left: 0,
+    top: 0,
+    width: 120,
+  })
   const draftSaveTimerRef = useRef<number | null>(null)
 
   const inFlightCount = props.inFlightCount ?? 0
@@ -1576,6 +1582,47 @@ export function RequestEditor(props: {
     return inferBodyFormatFromContentType(effectiveContentType)
   }, [bodyFormat, effectiveContentType])
 
+  function templateForBodyFormat(format: BodyFormat): string {
+    switch (format) {
+      case 'json': return '{\n  \n}'
+      case 'xml': return '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  \n</root>'
+      case 'yaml': return '---\nkey: value\n'
+      case 'text': return ''
+      case 'auto': return ''
+    }
+  }
+
+  function pickBodyFormat(nextFormat: BodyFormat) {
+    setBodyFormatMenuOpen(false)
+    setIsBodyOpen(true)
+    const isReplaceable = !bodyText.trim() || bodyText.trim() === templateForBodyFormat(bodyFormat).trim()
+    setBodyFormat(nextFormat)
+    if (isReplaceable) setBodyText(templateForBodyFormat(nextFormat))
+  }
+
+  useEffect(() => {
+    if (!bodyFormatMenuOpen) return
+
+    function update() {
+      const wrap = bodyFormatMenuWrapRef.current
+      if (!wrap) return
+      const rect = wrap.getBoundingClientRect()
+      setBodyFormatMenuAnchor(prev => {
+        const next = { left: rect.left, top: rect.bottom + 6, width: rect.width }
+        if (prev.left === next.left && prev.top === next.top && prev.width === next.width) return prev
+        return next
+      })
+    }
+
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [bodyFormatMenuOpen])
+
   useEffect(() => {
     if (!bodyFormatMenuOpen) return
 
@@ -1583,6 +1630,8 @@ export function RequestEditor(props: {
       const wrap = bodyFormatMenuWrapRef.current
       const t = e.target as Node | null
       if (wrap && t && wrap.contains(t)) return
+      const panel = bodyFormatMenuPanelRef.current
+      if (panel && t && panel.contains(t)) return
       setBodyFormatMenuOpen(false)
     }
 
@@ -2712,7 +2761,7 @@ export function RequestEditor(props: {
         <summary>
           <span>Body</span>
           <span style={{ marginLeft: 'auto' }} />
-          <div ref={bodyFormatMenuOpen ? bodyFormatMenuWrapRef : null} className="selectMenuWrap" style={{ width: 150 }}>
+          <div ref={bodyFormatMenuWrapRef} className="selectMenuWrap" style={{ width: 120 }}>
             <button
               type="button"
               className="selectMenuBtn mono bodyFormatMenuBtn"
@@ -2729,36 +2778,6 @@ export function RequestEditor(props: {
             >
               {labelForBodyFormat(bodyFormat)}
             </button>
-
-            {bodyFormatMenuOpen ? (
-              <div
-                className="selectMenuPanel"
-                role="menu"
-                onPointerDown={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-              >
-                {(['auto', 'json', 'xml', 'yaml', 'text'] as BodyFormat[]).map(v => (
-                  <button
-                    key={v}
-                    type="button"
-                    className={`selectMenuItem ${bodyFormat === v ? 'selectMenuItemActive' : ''}`}
-                    role="menuitem"
-                    onClick={() => {
-                      setBodyFormatMenuOpen(false)
-                      setBodyFormat(v)
-                    }}
-                  >
-                    {labelForBodyFormat(v)}
-                  </button>
-                ))}
-              </div>
-            ) : null}
           </div>
           <button
             type="button"
@@ -2772,7 +2791,6 @@ export function RequestEditor(props: {
             title="Beautify"
           >
             <StarIcon size={16} />
-            <span>Beautify</span>
           </button>
             <button
               type="button"
@@ -2871,10 +2889,60 @@ export function RequestEditor(props: {
 
               applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
             }
+            if (e.key === '{' || e.key === '[') {
+              const ta = bodyTextareaRef.current
+              if (!ta) return
+
+              const selStart = ta.selectionStart ?? 0
+              const selEnd = ta.selectionEnd ?? 0
+
+              e.preventDefault()
+              e.stopPropagation()
+
+              const open = e.key
+              const close = open === '{' ? '}' : ']'
+
+              if (selStart !== selEnd) {
+                const selected = ta.value.slice(selStart, selEnd)
+                applyBodyTextareaReplacement(selStart, selEnd, `${open}${selected}${close}`, selStart + 1, selEnd + 1)
+                return
+              }
+
+              applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
+            }
           }}
           rows={18}
         />
       </details>
+
+      {bodyFormatMenuOpen ? (
+        <div
+          ref={bodyFormatMenuPanelRef}
+          className="selectMenuPanel"
+          role="menu"
+          style={{ position: 'fixed', left: bodyFormatMenuAnchor.left, top: bodyFormatMenuAnchor.top, width: bodyFormatMenuAnchor.width, zIndex: 200 }}
+          onPointerDown={e => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onClick={e => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          {(['auto', 'json', 'xml', 'yaml', 'text'] as BodyFormat[]).map(v => (
+            <button
+              key={v}
+              type="button"
+              className={`selectMenuItem ${bodyFormat === v ? 'selectMenuItemActive' : ''}`}
+              role="menuitem"
+              onClick={() => pickBodyFormat(v)}
+            >
+              {labelForBodyFormat(v)}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }
