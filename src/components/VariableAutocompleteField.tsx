@@ -337,6 +337,8 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
         onKeyDown?.(e)
       },
       onBlur: (e: any) => {
+        const currentValue = String((e?.target as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '')
+        if (currentValue !== value) onChangeValue(currentValue)
         onBlur?.(e)
         setTimeout(() => setMenuOpen(false), 0)
       },

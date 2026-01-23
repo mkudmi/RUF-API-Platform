@@ -214,7 +214,12 @@ function ParamRow(props: {
         {props.param.name}
         {props.param.required ? <span className="reqStar">*</span> : null}
       </div>
-      <div style={{ position: 'relative', width: '100%' }} data-value-history-anchor>
+      <div
+        style={{ position: 'relative', width: '100%' }}
+        data-value-history-anchor
+        data-commit-kind="path"
+        data-commit-key={props.param.name}
+      >
         <VariableAutocompleteField
           className={`valueHistoryInput ${props.historyMenuId ? 'mono' : ''}`.trim()}
           value={value}
@@ -402,7 +407,12 @@ function HeaderRow(props: {
         />
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+        <div
+          style={{ position: 'relative', flex: 1, minWidth: 0 }}
+          data-value-history-anchor
+          data-commit-kind="header"
+          data-commit-key={props.name}
+        >
           <VariableAutocompleteField
             className="mono valueHistoryInput"
             value={props.value}
@@ -500,6 +510,8 @@ function HeaderRow(props: {
 
 function QueryRow(props: {
   name: string
+  rawName?: string
+  isSpec?: boolean
   value: string
   hint?: string
   required?: boolean
@@ -553,7 +565,14 @@ function QueryRow(props: {
         {props.required ? <span className="reqStar">*</span> : null}
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+        <div
+          style={{ position: 'relative', flex: 1, minWidth: 0 }}
+          data-value-history-anchor
+          data-commit-kind="query"
+          data-commit-key={props.name}
+          data-commit-raw={props.rawName ?? props.name}
+          data-commit-spec={props.isSpec ? '1' : '0'}
+        >
           <VariableAutocompleteField
             className="mono valueHistoryInput"
             value={props.value}
@@ -655,6 +674,7 @@ function QueryRow(props: {
 }
 
 function QueryDraftRow(props: {
+  rowId: string
   name: string
   value: string
   onChangeName: (nextName: string) => void
@@ -684,7 +704,12 @@ function QueryDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+        <div
+          style={{ position: 'relative', flex: 1, minWidth: 0 }}
+          data-value-history-anchor
+          data-commit-kind="queryDraft"
+          data-commit-rowid={props.rowId}
+        >
           <VariableAutocompleteField
             className="mono valueHistoryInput"
             value={props.value}
@@ -786,6 +811,7 @@ function QueryDraftRow(props: {
 }
 
 function HeaderDraftRow(props: {
+  rowId: string
   name: string
   value: string
   onChangeName: (nextName: string) => void
@@ -815,7 +841,12 @@ function HeaderDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+        <div
+          style={{ position: 'relative', flex: 1, minWidth: 0 }}
+          data-value-history-anchor
+          data-commit-kind="headerDraft"
+          data-commit-rowid={props.rowId}
+        >
           <VariableAutocompleteField
             className="mono valueHistoryInput"
             value={props.value}
@@ -1012,6 +1043,60 @@ export function RequestEditor(props: {
 
     setValueHistoryMenuOpenId(menuId)
     setValueHistoryMenuAnchor({ left, top, width })
+  }
+
+  function commitFocusedValueFieldToState() {
+    const active = document.activeElement as (HTMLInputElement | HTMLTextAreaElement | null)
+    if (!active || !(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) return
+
+    const wrap = active.closest<HTMLElement>('[data-commit-kind]')
+    if (!wrap) return
+
+    const kind = wrap.dataset.commitKind
+    const key = wrap.dataset.commitKey ?? ''
+    const rawName = wrap.dataset.commitRaw ?? key
+    const isSpec = wrap.dataset.commitSpec === '1'
+    const rowId = wrap.dataset.commitRowid ?? ''
+    const value = String(active.value ?? '')
+
+    if (kind === 'path') {
+      setPathParams(prev => {
+        if (value !== '') return { ...prev, [key]: value }
+        if (!(key in prev)) return prev
+        const next = { ...prev }
+        delete next[key]
+        return next
+      })
+      return
+    }
+
+    if (kind === 'query') {
+      setQueryParams(prev => {
+        const next = { ...prev }
+        next[key] = value
+        if (isSpec && rawName && key !== rawName) delete next[rawName]
+        return next
+      })
+      return
+    }
+
+    if (kind === 'header') {
+      if (!key) return
+      setHeaderValueForRequest(key, value)
+      return
+    }
+
+    if (kind === 'queryDraft') {
+      if (!rowId) return
+      setQueryDraftRows(prev => prev.map(r => (r.id === rowId ? { ...r, value } : r)))
+      return
+    }
+
+    if (kind === 'headerDraft') {
+      if (!rowId) return
+      setHeaderDraftRows(prev => prev.map(r => (r.id === rowId ? { ...r, value } : r)))
+      return
+    }
   }
 
   useEffect(() => {
@@ -1754,6 +1839,7 @@ export function RequestEditor(props: {
       const target = e.target as HTMLElement | null
       if (target?.closest('dialog')) return
       if (!canSend || isSending) return
+      commitFocusedValueFieldToState()
       e.preventDefault()
       e.stopPropagation()
       sendRef.current?.()
@@ -2021,7 +2107,11 @@ export function RequestEditor(props: {
           </div>
           <span className="editorRequestName">{props.request.name}</span>
         </div>
-        <button onClick={send} disabled={isSending || !canSend}>
+        <button
+          onPointerDown={() => commitFocusedValueFieldToState()}
+          onClick={send}
+          disabled={isSending || !canSend}
+        >
           {isSending ? 'Sending...' : 'Send'}
         </button>
       </div>
@@ -2341,9 +2431,10 @@ export function RequestEditor(props: {
               )
             })}
 
-            {headerDraftRows.map(row => (
+          {headerDraftRows.map(row => (
               <HeaderDraftRow
                 key={row.id}
+                rowId={row.id}
                 name={row.name}
                 value={row.value}
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
@@ -2443,6 +2534,8 @@ export function RequestEditor(props: {
               <QueryRow
                 key={rawName}
                 name={effectiveName}
+                rawName={rawName}
+                isSpec={isSpec}
                 value={value}
                 hint={isSpec ? hint : undefined}
                 required={isSpec ? p.required : false}
@@ -2577,6 +2670,7 @@ export function RequestEditor(props: {
           {queryDraftRows.map(row => (
             <QueryDraftRow
               key={row.id}
+              rowId={row.id}
               name={row.name}
               value={row.value}
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
