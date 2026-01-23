@@ -574,11 +574,12 @@ button:hover { background: rgba(255,255,255,.10); }
   min-width: 0;
   flex: 1 1 auto;
 }
+.treeSummaryFolder .treeSummaryLeft { align-items: center; }
 .treeSummaryRight { display: flex; gap: 8px; align-items: center; margin-left: auto; flex: 0 0 auto; }
 .treeCollectionName { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; min-width: 0; display: block; }
 .treeCollectionNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; flex: 1 1 auto; }
 .treeFolderNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; flex: 1 1 auto; }
-.treeItemNameWrap { display: inline-flex; align-items: baseline; gap: 6px; overflow: hidden; min-width: 0; flex: 1; }
+.treeItemNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; flex: 1; }
 .treeFolderCount { flex: 0 0 auto; }
 .treeCollectionCount { flex: 0 0 auto; margin-left: auto; }
 .treeNameEditing { cursor: text; outline: none; }
@@ -695,7 +696,7 @@ button:hover { background: rgba(255,255,255,.10); }
   border-left: 1px dashed rgba(255,255,255,.10);
 }
 .treeItem { line-height: 1.0; }
-.treeItem { display: flex; justify-content: flex-start; gap: 0.6px; align-items: baseline; min-width: 0; overflow: visible; }
+.treeItem { display: flex; justify-content: flex-start; gap: 0.6px; align-items: center; min-width: 0; overflow: visible; }
 .treeMethod { flex: 0 0 33px; text-align: left; opacity: .9; transition: color .12s ease, text-shadow .12s ease, opacity .12s ease; }
 .treeMethodInFlight { opacity: 1; font-weight: 700; }
 .treeMethodInFlightGET { color: #60a5fa; text-shadow: 0 0 10px rgba(96,165,250,.35); }
