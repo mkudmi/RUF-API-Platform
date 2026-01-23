@@ -1033,6 +1033,12 @@ export function RequestEditor(props: {
         status: 0,
         statusText,
         timeMs: 0,
+        requestHeadersBytes: 0,
+        requestBodyBytes: 0,
+        requestBytes: 0,
+        responseHeadersBytes: 0,
+        responseBodyBytes: 0,
+        responseBytes: 0,
         headers: {},
         bodyText: message,
       })

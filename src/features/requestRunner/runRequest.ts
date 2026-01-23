@@ -8,8 +8,54 @@ export type RunResult = {
   status: number
   statusText: string
   timeMs: number
+  requestHeadersBytes: number
+  requestBodyBytes: number
+  requestBytes: number
+  responseHeadersBytes: number
+  responseBodyBytes: number
+  responseBytes: number
   headers: Record<string, string>
   bodyText: string
+}
+
+function byteLengthUtf8(text: string): number {
+  return new TextEncoder().encode(text).length
+}
+
+function estimateHeadersBytes(headers: HeadersInit | undefined): number {
+  if (!headers) return 0
+  if (Array.isArray(headers)) {
+    let total = 0
+    for (const [k, v] of headers) total += byteLengthUtf8(`${k}: ${v}\r\n`)
+    return total
+  }
+  if (headers instanceof Headers) {
+    let total = 0
+    headers.forEach((v, k) => { total += byteLengthUtf8(`${k}: ${v}\r\n`) })
+    return total
+  }
+  let total = 0
+  for (const [k, v] of Object.entries(headers)) total += byteLengthUtf8(`${k}: ${v}\r\n`)
+  return total
+}
+
+function estimateBodyBytes(body: BodyInit | null | undefined): number {
+  if (!body) return 0
+  if (typeof body === 'string') return byteLengthUtf8(body)
+  if (body instanceof Blob) return body.size
+  if (body instanceof ArrayBuffer) return body.byteLength
+  if (ArrayBuffer.isView(body)) return body.byteLength
+  if (body instanceof URLSearchParams) return byteLengthUtf8(body.toString())
+  if (body instanceof FormData) {
+    let total = 0
+    for (const [k, v] of body.entries()) {
+      total += byteLengthUtf8(k)
+      if (typeof v === 'string') total += byteLengthUtf8(v)
+      else total += v.size
+    }
+    return total
+  }
+  return 0
 }
 
 function maybeProxyUrl(url: string, opts: { insecureTls?: boolean }) {
@@ -160,6 +206,9 @@ export async function runRequest(args: {
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
   const finalUrl = maybeProxyUrl(url, { insecureTls: !validateCertificates })
+  const requestHeadersBytes = estimateHeadersBytes(init.headers)
+  const requestBodyBytes = estimateBodyBytes(init.body)
+  const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
     res = await fetch(finalUrl, init)
@@ -170,6 +219,12 @@ export async function runRequest(args: {
       status: 0,
       statusText: 'Failed to fetch',
       timeMs,
+      requestHeadersBytes,
+      requestBodyBytes,
+      requestBytes,
+      responseHeadersBytes: 0,
+      responseBodyBytes: 0,
+      responseBytes: 0,
       headers: {},
       bodyText: e?.message || String(e),
     }
@@ -180,12 +235,21 @@ export async function runRequest(args: {
   res.headers.forEach((v,k)=>headersObj[k]=v)
 
   const bodyText = await res.text()
+  const responseHeadersBytes = estimateHeadersBytes(headersObj)
+  const responseBodyBytes = byteLengthUtf8(bodyText)
+  const responseBytes = responseHeadersBytes + responseBodyBytes
 
   return {
     ok: res.ok,
     status: res.status,
     statusText: res.statusText,
     timeMs,
+    requestHeadersBytes,
+    requestBodyBytes,
+    requestBytes,
+    responseHeadersBytes,
+    responseBodyBytes,
+    responseBytes,
     headers: headersObj,
     bodyText,
   }

@@ -762,6 +762,43 @@ button:hover { background: rgba(255,255,255,.10); }
 .status5xx { border-color: rgba(255, 110, 110, .55); color: rgb(255, 160, 160); }
 .statusOther { border-color: rgba(200, 200, 200, .35); color: rgba(255, 255, 255, .9); }
 
+.sizePopoverWrap { position: relative; display: inline-flex; align-items: center; outline: none; }
+.sizePopoverTrigger {
+  cursor: help;
+  text-decoration: underline dotted rgba(255,255,255,.28);
+  text-underline-offset: 2px;
+}
+.sizePopoverPortal { position: fixed; inset: 0; z-index: 9999; pointer-events: none; }
+.sizePopoverPanel {
+  min-width: 280px;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0f1117;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  pointer-events: auto;
+}
+.sizePopoverSection { display: grid; gap: 6px; }
+.sizePopoverHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 2px; }
+.sizePopoverTitle { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; color: rgba(255,255,255,.92); }
+.sizePopoverStrong { font-weight: 650; color: rgba(255,255,255,.92); }
+.sizePopoverIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  font-size: 13px;
+  line-height: 1;
+}
+.sizePopoverRow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: rgba(255,255,255,.78); }
+.sizePopoverLabel { opacity: .8; }
+.sizePopoverValue { color: rgba(255,255,255,.86); }
+.sizePopoverDivider { height: 1px; background: rgba(255,255,255,.10); margin: 10px 0; }
+
 /* Tabs */
 .tabs {
   display: flex;

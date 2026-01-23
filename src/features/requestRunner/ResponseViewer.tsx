@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../shared/utils/http'
 import { generateJsonSchema } from '../../shared/utils/jsonSchema'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
@@ -37,6 +38,24 @@ function statusClass(status: number) {
   if (status >= 400 && status < 500) return 'status4xx'
   if (status >= 500 && status < 600) return 'status5xx'
   return 'statusOther'
+}
+
+function compactStatusText(text: string) {
+  const trimmed = (text || '').trim()
+  if (!trimmed) return ''
+  return trimmed
+    .replaceAll(/[^A-Za-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/g)
+    .map(w => w.slice(0, 1).toUpperCase() + w.slice(1))
+    .join('')
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
 function formatDateTime24(ts: number) {
@@ -82,6 +101,10 @@ export function ResponseViewer(props: {
   const saveSchemaDialogRef = useRef<HTMLDialogElement | null>(null)
   const schemaFileNameInputRef = useRef<HTMLInputElement | null>(null)
   const schemaCloseTimerRef = useRef<number | null>(null)
+  const sizePopoverAnchorRef = useRef<HTMLSpanElement | null>(null)
+  const sizePopoverCloseTimerRef = useRef<number | null>(null)
+  const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
+  const [sizePopoverPos, setSizePopoverPos] = useState<{ left: number, top: number } | null>(null)
 
   const parsed = useMemo(() => {
     if (!props.result) return null
@@ -234,18 +257,138 @@ export function ResponseViewer(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const statusLine = inFlightCount > 0 ? 'Sending...' : 'Run a request to see the response.'
 
+  const closeSizePopover = useCallback(() => {
+    if (sizePopoverCloseTimerRef.current !== null) {
+      window.clearTimeout(sizePopoverCloseTimerRef.current)
+      sizePopoverCloseTimerRef.current = null
+    }
+    setSizePopoverOpen(false)
+  }, [])
+
+  const openSizePopover = useCallback(() => {
+    if (sizePopoverCloseTimerRef.current !== null) {
+      window.clearTimeout(sizePopoverCloseTimerRef.current)
+      sizePopoverCloseTimerRef.current = null
+    }
+    const el = sizePopoverAnchorRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const left = Math.min(Math.max(8, r.right), window.innerWidth - 8)
+    const top = Math.min(Math.max(8, r.bottom + 6), window.innerHeight - 8)
+    setSizePopoverPos({ left, top })
+    setSizePopoverOpen(true)
+  }, [])
+
+  const scheduleCloseSizePopover = useCallback(() => {
+    if (sizePopoverCloseTimerRef.current !== null) window.clearTimeout(sizePopoverCloseTimerRef.current)
+    sizePopoverCloseTimerRef.current = window.setTimeout(() => {
+      sizePopoverCloseTimerRef.current = null
+      setSizePopoverOpen(false)
+    }, 120)
+  }, [])
+
+  useEffect(() => {
+    if (!sizePopoverOpen) return
+
+    function updatePos() {
+      const el = sizePopoverAnchorRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const left = Math.min(Math.max(8, r.right), window.innerWidth - 8)
+      const top = Math.min(Math.max(8, r.bottom + 6), window.innerHeight - 8)
+      setSizePopoverPos({ left, top })
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeSizePopover()
+    }
+
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [closeSizePopover, sizePopoverOpen])
+
   return (
     <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr', height: '100%', overflow: 'hidden' }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span className={`badge ${statusClass(result.status)}`}>HTTP {result.status}</span>
-          <span className="small">{result.statusText}</span>
-          <span className="small">Time {result.timeMs} ms</span>
+          <span className={`badge ${statusClass(result.status)}`}>
+            HTTP {result.status}{result.statusText ? ` ${compactStatusText(result.statusText)}` : ''}
+          </span>
+          <span className="small" style={{ opacity: 0.6 }}>·</span>
+          <span className="small">{result.timeMs} ms</span>
+          <span className="small" style={{ opacity: 0.6 }}>·</span>
+          <span
+            ref={sizePopoverAnchorRef}
+            className="small sizePopoverWrap"
+            tabIndex={0}
+            onMouseEnter={openSizePopover}
+            onMouseLeave={scheduleCloseSizePopover}
+            onFocus={openSizePopover}
+            onBlur={scheduleCloseSizePopover}
+          >
+            <span className="sizePopoverTrigger">{formatBytes(result.responseBytes)}</span>
+          </span>
           {inFlightCount > 0 ? <span className="small" style={{ marginLeft: 'auto' }}>Sending…</span> : null}
         </div>
       ) : (
         <div className="small">{statusLine}</div>
       )}
+
+      {result && sizePopoverOpen && sizePopoverPos
+        ? createPortal(
+          <div
+            className="sizePopoverPortal"
+            onMouseEnter={openSizePopover}
+            onMouseLeave={scheduleCloseSizePopover}
+          >
+            <div
+              className="sizePopoverPanel"
+              role="tooltip"
+              aria-label="Request/response size breakdown"
+              style={{ position: 'fixed', left: sizePopoverPos.left, top: sizePopoverPos.top, transform: 'translateX(-100%)' }}
+            >
+              <div className="sizePopoverSection">
+                <div className="sizePopoverHeader">
+                  <div className="sizePopoverTitle"><span className="sizePopoverIcon">↓</span>Response Size</div>
+                  <div className="sizePopoverStrong">{formatBytes(result.responseBytes)}</div>
+                </div>
+                <div className="sizePopoverRow">
+                  <div className="sizePopoverLabel">Headers</div>
+                  <div className="sizePopoverValue">{formatBytes(result.responseHeadersBytes)}</div>
+                </div>
+                <div className="sizePopoverRow">
+                  <div className="sizePopoverLabel">Body</div>
+                  <div className="sizePopoverValue">{formatBytes(result.responseBodyBytes)}</div>
+                </div>
+              </div>
+
+              <div className="sizePopoverDivider" />
+
+              <div className="sizePopoverSection">
+                <div className="sizePopoverHeader">
+                  <div className="sizePopoverTitle"><span className="sizePopoverIcon">↑</span>Request Size</div>
+                  <div className="sizePopoverStrong">{formatBytes(result.requestBytes)}</div>
+                </div>
+                <div className="sizePopoverRow">
+                  <div className="sizePopoverLabel">Headers</div>
+                  <div className="sizePopoverValue">{formatBytes(result.requestHeadersBytes)}</div>
+                </div>
+                <div className="sizePopoverRow">
+                  <div className="sizePopoverLabel">Body</div>
+                  <div className="sizePopoverValue">{formatBytes(result.requestBodyBytes)}</div>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+        : null}
 
       <div className="tabs" style={{ marginTop: 10 }}>
         <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('body')}>
