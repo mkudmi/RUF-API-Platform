@@ -1538,9 +1538,14 @@ export function RequestEditor(props: {
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
+  const applyDraftRef = useRef<RequestDraft | null>(null)
   useEffect(() => {
-    if (!applyDraftToken || !props.applyDraft) return
-    const draft = props.applyDraft.draft
+    applyDraftRef.current = props.applyDraft?.draft ?? null
+  }, [props.applyDraft])
+
+  useEffect(() => {
+    const draft = applyDraftRef.current
+    if (!applyDraftToken || !draft) return
 
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
@@ -1629,7 +1634,7 @@ export function RequestEditor(props: {
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
     })
-  }, [applyDraftToken, props.applyDraft, props.environment, props.request.body, props.request.headers, props.request.id, props.request.params])
+  }, [applyDraftToken])
 
   useEffect(() => {
     if (!props.request.id) return
@@ -1941,57 +1946,9 @@ export function RequestEditor(props: {
         })()
         : disabledQueryParamNames
 
-      if (hasDraftHeadersToCommit) {
-        setHeaderOverrides(prev => {
-          let changed = false
-          const next = { ...prev }
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next[key] = row.value
-            changed = true
-          }
-          return changed ? next : prev
-        })
-        setDisabledHeaderNames(prev => {
-          let changed = false
-          const next = { ...prev }
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            if (key in next) {
-              delete next[key]
-              changed = true
-            }
-          }
-          return changed ? next : prev
-        })
-        setInactiveHeaderNames(prev => {
-          let next = prev
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next = setFlagForHeaderName(next, key, row.isActive)
-          }
-          return next
-        })
-        setHeaderDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
-      }
-
-      if (hasDraftQueryToCommit) {
-        setQueryParams(effectiveQueryParamsForCommit)
-        setQueryDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
-        setInactiveQueryParamNames(prev => {
-          let next = prev
-          for (const row of queryDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next = setFlagForKey(next, key, row.isActive)
-          }
-          return next
-        })
-        setDisabledQueryParamNames(effectiveDisabledQueryParamNamesForSend)
-      }
+      // Intentionally avoid mutating editor state on send.
+      // In-flight updates (parent re-render) could cause visible checkbox flicker and mismatch
+      // between what's sent and what the UI shows.
 
       props.onBeforeSend?.(props.request.id, {
         id: uid('hist'),
