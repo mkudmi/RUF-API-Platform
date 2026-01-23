@@ -267,6 +267,64 @@ input, textarea, select, button {
 .selectMenuItem:hover { background: rgba(255,255,255,.08); }
 .selectMenuItemActive { background: rgba(255,255,255,.10); }
 
+.valueHistoryInput { padding-right: 60px; box-sizing: border-box; }
+.valueHistoryBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255,255,255,.85);
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+}
+.valueHistoryBtn:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16); color: rgba(255,255,255,.98); }
+.valueHistoryBtn:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
+.valueHistoryPanel { max-height: 240px; overflow: auto; }
+.valueHistoryEmpty { padding: 8px 10px; opacity: .75; }
+.valueHistoryFooterRow {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 2px 2px;
+  background: #0f1117;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.valueHistoryClearBtn {
+  border: 0;
+  background: transparent;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: rgba(255,255,255,.70);
+}
+.valueHistoryClearBtn:hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
+.valueHistoryClearBtn:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
+.valueHistoryItemRow { display: flex; gap: 6px; align-items: center; }
+.valueHistoryPickBtn { flex: 1; min-width: 0; }
+.valueHistoryText { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.valueHistoryDeleteBtn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.70);
+  border-radius: var(--radius);
+}
+.valueHistoryDeleteBtn:hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
+.valueHistoryDeleteBtn:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
+
 button { cursor: pointer; }
 button:hover { background: rgba(255,255,255,.10); }
 
@@ -734,6 +792,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .headerAdd { display: grid; grid-template-columns: 220px 1fr auto; gap: 10px; }
 .headerAdd button { width: 64px; }
 .editor .formRow input { height: 36px; padding: 8px 10px; }
+.editor .formRow input.valueHistoryInput, .editor .formRow textarea.valueHistoryInput { padding-right: 35px; }
 .editor .headerDeleteBtn, .editor .rowDeleteBtn { height: 36px; }
 .headerDeleteBtn {
   width: 44px;

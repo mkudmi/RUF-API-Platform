@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
@@ -14,8 +14,11 @@ import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion }
 import { VariableAutocompleteField } from '../../components/VariableAutocompleteField'
 
 const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
+const VALUE_HISTORY_KEY = 'ruf_value_history_v1'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
+type ValueHistoryKind = 'header' | 'query' | 'path'
+type ValueHistoryStore = Record<ValueHistoryKind, Record<string, string[]>>
 
 function labelForBodyFormat(format: BodyFormat) {
   switch (format) {
@@ -53,6 +56,71 @@ function safeParseJson<T>(raw: string | null): T | null {
   } catch {
     return null
   }
+}
+
+function loadValueHistory(): ValueHistoryStore {
+  const parsed = safeParseJson<any>(localStorage.getItem(VALUE_HISTORY_KEY))
+  const empty: ValueHistoryStore = { header: {}, query: {}, path: {} }
+  if (!parsed || typeof parsed !== 'object') return empty
+  const obj = parsed as Partial<ValueHistoryStore>
+  return {
+    header: obj.header && typeof obj.header === 'object' ? obj.header : {},
+    query: obj.query && typeof obj.query === 'object' ? obj.query : {},
+    path: obj.path && typeof obj.path === 'object' ? obj.path : {},
+  }
+}
+
+function saveValueHistory(store: ValueHistoryStore) {
+  localStorage.setItem(VALUE_HISTORY_KEY, JSON.stringify(store))
+}
+
+function addValueHistoryEntry(
+  prev: ValueHistoryStore,
+  kind: ValueHistoryKind,
+  keyRaw: string,
+  valueRaw: string,
+  maxItems = 10,
+): ValueHistoryStore {
+  const key = keyRaw.trim()
+  const value = valueRaw.trim()
+  if (!key || !value) return prev
+
+  const prevByKind = prev[kind] ?? {}
+  const prevList = prevByKind[key] ?? []
+  const nextList = [value, ...prevList.filter(v => v !== value)].slice(0, maxItems)
+  if (prevList.length === nextList.length && prevList.every((v, i) => v === nextList[i])) return prev
+
+  return {
+    ...prev,
+    [kind]: {
+      ...prevByKind,
+      [key]: nextList,
+    },
+  }
+}
+
+function removeValueHistoryEntry(
+  prev: ValueHistoryStore,
+  kind: ValueHistoryKind,
+  keyRaw: string,
+  valueRaw: string,
+): ValueHistoryStore {
+  const key = keyRaw.trim()
+  const value = valueRaw.trim()
+  if (!key || !value) return prev
+
+  const prevByKind = prev[kind] ?? {}
+  const prevList = prevByKind[key] ?? []
+  if (!prevList.length) return prev
+
+  const nextList = prevList.filter(v => v !== value)
+  if (nextList.length === prevList.length) return prev
+
+  const nextByKind: Record<string, string[]> = { ...prevByKind }
+  if (nextList.length) nextByKind[key] = nextList
+  else delete nextByKind[key]
+
+  return { ...prev, [kind]: nextByKind }
 }
 
 function loadDraft(requestId: string): RequestDraft | null {
@@ -122,6 +190,17 @@ function ParamRow(props: {
   store: Record<string, string>
   setStore: Dispatch<SetStateAction<Record<string, string>>>
   variableSuggestions: VariableSuggestion[]
+  historyItems?: string[]
+  onRecordHistory?: (value: string) => void
+  onPickHistory?: (value: string) => void
+  onDeleteHistoryItem?: (value: string) => void
+  onClearAllHistory?: () => void
+  historyMenuId?: string
+  historyMenuOpenId?: string | null
+  historyMenuAnchor?: { left: number, top: number, width: number } | null
+  onToggleHistoryMenu?: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseHistoryMenu?: () => void
+  historyMenuPanelRef?: RefObject<HTMLDivElement | null>
 }) {
   const value = props.store[props.param.name] ?? ''
   const hint =
@@ -135,20 +214,109 @@ function ParamRow(props: {
         {props.param.name}
         {props.param.required ? <span className="reqStar">*</span> : null}
       </div>
-      <VariableAutocompleteField
-        value={value}
-        placeholder={hint}
-        suggestions={props.variableSuggestions}
-        onChangeValue={nextValue => {
-          props.setStore(prev => {
-            if (nextValue !== '') return { ...prev, [props.param.name]: nextValue }
-            if (!(props.param.name in prev)) return prev
-            const next = { ...prev }
-            delete next[props.param.name]
-            return next
-          })
-        }}
-      />
+      <div style={{ position: 'relative', width: '100%' }} data-value-history-anchor>
+        <VariableAutocompleteField
+          className={`valueHistoryInput ${props.historyMenuId ? 'mono' : ''}`.trim()}
+          value={value}
+          placeholder={hint}
+          suggestions={props.variableSuggestions}
+          onBlur={
+            props.onRecordHistory
+              ? e => props.onRecordHistory!((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? value)
+              : undefined
+          }
+          onChangeValue={nextValue => {
+            props.setStore(prev => {
+              if (nextValue !== '') return { ...prev, [props.param.name]: nextValue }
+              if (!(props.param.name in prev)) return prev
+              const next = { ...prev }
+              delete next[props.param.name]
+              return next
+            })
+          }}
+        />
+
+        {props.historyMenuId && props.onToggleHistoryMenu && props.historyMenuOpenId !== undefined ? (
+          <>
+            <button
+              type="button"
+              className="valueHistoryBtn"
+              data-value-history-btn
+              aria-label="Value history"
+              title="Value history"
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+                props.onToggleHistoryMenu?.(props.historyMenuId!, anchorEl)
+              }}
+            >
+              ▾
+            </button>
+            {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor && props.historyMenuPanelRef ? (
+              <div
+                className="selectMenuPanel valueHistoryPanel"
+                ref={props.historyMenuPanelRef}
+                role="menu"
+                style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+              >
+                {(props.historyItems ?? []).length ? (
+                  (props.historyItems ?? []).map(v => (
+                    <div key={v} className="valueHistoryItemRow">
+                      <button
+                        type="button"
+                        className="selectMenuItem valueHistoryPickBtn"
+                        role="menuitem"
+                        onClick={() => {
+                          props.onPickHistory?.(v)
+                          props.onCloseHistoryMenu?.()
+                        }}
+                      >
+                        <div className="mono valueHistoryText">{v}</div>
+                      </button>
+                      <button
+                        type="button"
+                        className="valueHistoryDeleteBtn"
+                        aria-label="Remove from history"
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          props.onDeleteHistoryItem?.(v)
+                        }}
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="valueHistoryEmpty small">No history</div>
+                )}
+                <div className="valueHistoryFooterRow">
+                  <button
+                    type="button"
+                    className="valueHistoryClearBtn"
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      props.onClearAllHistory?.()
+                    }}
+                  >
+                    Clear History
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -188,6 +356,17 @@ function HeaderRow(props: {
   onRename?: (nextName: string) => void
   onDelete?: () => void
   variableSuggestions: VariableSuggestion[]
+  historyItems: string[]
+  onRecordHistory: (value: string) => void
+  onPickHistory: (value: string) => void
+  onDeleteHistoryItem: (value: string) => void
+  onClearAllHistory: () => void
+  historyMenuId: string
+  historyMenuOpenId: string | null
+  historyMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseHistoryMenu: () => void
+  historyMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
 
@@ -223,14 +402,92 @@ function HeaderRow(props: {
         />
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <VariableAutocompleteField
-          className="mono"
-          style={{ flex: 1, minWidth: 0 }}
-          value={props.value}
-          suggestions={props.variableSuggestions}
-          onChangeValue={props.onChangeValue}
-          placeholder="Value"
-        />
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+          <VariableAutocompleteField
+            className="mono valueHistoryInput"
+            value={props.value}
+            suggestions={props.variableSuggestions}
+            onChangeValue={props.onChangeValue}
+            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            placeholder="Value"
+          />
+          <button
+            type="button"
+            className="valueHistoryBtn"
+            data-value-history-btn
+            aria-label="Value history"
+            title="Value history"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
+            }}
+          >
+            ▾
+          </button>
+          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
+            <div
+              className="selectMenuPanel valueHistoryPanel"
+              ref={props.historyMenuPanelRef}
+              role="menu"
+              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+            >
+              {props.historyItems.length ? (
+                props.historyItems.map(v => (
+                  <div key={v} className="valueHistoryItemRow">
+                    <button
+                      type="button"
+                      className="selectMenuItem valueHistoryPickBtn"
+                      role="menuitem"
+                      onClick={() => {
+                        props.onPickHistory(v)
+                        props.onCloseHistoryMenu()
+                      }}
+                    >
+                      <div className="mono valueHistoryText">{v}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className="valueHistoryDeleteBtn"
+                      aria-label="Remove from history"
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onDeleteHistoryItem(v)
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="valueHistoryEmpty small">No history</div>
+              )}
+              <div className="valueHistoryFooterRow">
+                <button
+                  type="button"
+                  className="valueHistoryClearBtn"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    props.onClearAllHistory()
+                  }}
+                >
+                  Clear History
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         {props.onDelete ? (
           <button className="headerDeleteBtn" onClick={props.onDelete} aria-label={`Delete header ${props.name}`} title="Delete">
             <CloseIcon size={18} />
@@ -250,6 +507,17 @@ function QueryRow(props: {
   onRename?: (nextName: string) => void
   onDelete?: () => void
   variableSuggestions: VariableSuggestion[]
+  historyItems: string[]
+  onRecordHistory: (value: string) => void
+  onPickHistory: (value: string) => void
+  onDeleteHistoryItem: (value: string) => void
+  onClearAllHistory: () => void
+  historyMenuId: string
+  historyMenuOpenId: string | null
+  historyMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseHistoryMenu: () => void
+  historyMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
 
@@ -285,14 +553,92 @@ function QueryRow(props: {
         {props.required ? <span className="reqStar">*</span> : null}
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <VariableAutocompleteField
-          className="mono"
-          style={{ flex: 1, minWidth: 0 }}
-          value={props.value}
-          suggestions={props.variableSuggestions}
-          onChangeValue={props.onChangeValue}
-          placeholder={props.hint || 'Value'}
-        />
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+          <VariableAutocompleteField
+            className="mono valueHistoryInput"
+            value={props.value}
+            suggestions={props.variableSuggestions}
+            onChangeValue={props.onChangeValue}
+            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            placeholder={props.hint || 'Value'}
+          />
+          <button
+            type="button"
+            className="valueHistoryBtn"
+            data-value-history-btn
+            aria-label="Value history"
+            title="Value history"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
+            }}
+          >
+            ▾
+          </button>
+          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
+            <div
+              className="selectMenuPanel valueHistoryPanel"
+              ref={props.historyMenuPanelRef}
+              role="menu"
+              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+            >
+              {props.historyItems.length ? (
+                props.historyItems.map(v => (
+                  <div key={v} className="valueHistoryItemRow">
+                    <button
+                      type="button"
+                      className="selectMenuItem valueHistoryPickBtn"
+                      role="menuitem"
+                      onClick={() => {
+                        props.onPickHistory(v)
+                        props.onCloseHistoryMenu()
+                      }}
+                    >
+                      <div className="mono valueHistoryText">{v}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className="valueHistoryDeleteBtn"
+                      aria-label="Remove from history"
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onDeleteHistoryItem(v)
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="valueHistoryEmpty small">No history</div>
+              )}
+              <div className="valueHistoryFooterRow">
+                <button
+                  type="button"
+                  className="valueHistoryClearBtn"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    props.onClearAllHistory()
+                  }}
+                >
+                  Clear History
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         {props.onDelete ? (
           <button
             className="rowDeleteBtn"
@@ -316,6 +662,17 @@ function QueryDraftRow(props: {
   onDelete: () => void
   canDelete?: boolean
   variableSuggestions: VariableSuggestion[]
+  historyItems: string[]
+  onRecordHistory: (value: string) => void
+  onPickHistory: (value: string) => void
+  onDeleteHistoryItem: (value: string) => void
+  onClearAllHistory: () => void
+  historyMenuId: string
+  historyMenuOpenId: string | null
+  historyMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseHistoryMenu: () => void
+  historyMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const canDelete = props.canDelete ?? true
   return (
@@ -327,14 +684,92 @@ function QueryDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <VariableAutocompleteField
-          className="mono"
-          style={{ flex: 1, minWidth: 0 }}
-          value={props.value}
-          suggestions={props.variableSuggestions}
-          onChangeValue={props.onChangeValue}
-          placeholder="Value"
-        />
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+          <VariableAutocompleteField
+            className="mono valueHistoryInput"
+            value={props.value}
+            suggestions={props.variableSuggestions}
+            onChangeValue={props.onChangeValue}
+            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            placeholder="Value"
+          />
+          <button
+            type="button"
+            className="valueHistoryBtn"
+            data-value-history-btn
+            aria-label="Value history"
+            title="Value history"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
+            }}
+          >
+            ▾
+          </button>
+          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
+            <div
+              className="selectMenuPanel valueHistoryPanel"
+              ref={props.historyMenuPanelRef}
+              role="menu"
+              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+            >
+              {props.historyItems.length ? (
+                props.historyItems.map(v => (
+                  <div key={v} className="valueHistoryItemRow">
+                    <button
+                      type="button"
+                      className="selectMenuItem valueHistoryPickBtn"
+                      role="menuitem"
+                      onClick={() => {
+                        props.onPickHistory(v)
+                        props.onCloseHistoryMenu()
+                      }}
+                    >
+                      <div className="mono valueHistoryText">{v}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className="valueHistoryDeleteBtn"
+                      aria-label="Remove from history"
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onDeleteHistoryItem(v)
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="valueHistoryEmpty small">No history</div>
+              )}
+              <div className="valueHistoryFooterRow">
+                <button
+                  type="button"
+                  className="valueHistoryClearBtn"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    props.onClearAllHistory()
+                  }}
+                >
+                  Clear History
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button
           className="rowDeleteBtn"
           onClick={canDelete ? props.onDelete : undefined}
@@ -358,6 +793,17 @@ function HeaderDraftRow(props: {
   onDelete: () => void
   canDelete?: boolean
   variableSuggestions: VariableSuggestion[]
+  historyItems: string[]
+  onRecordHistory: (value: string) => void
+  onPickHistory: (value: string) => void
+  onDeleteHistoryItem: (value: string) => void
+  onClearAllHistory: () => void
+  historyMenuId: string
+  historyMenuOpenId: string | null
+  historyMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseHistoryMenu: () => void
+  historyMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const canDelete = props.canDelete ?? true
   return (
@@ -369,14 +815,92 @@ function HeaderDraftRow(props: {
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <VariableAutocompleteField
-          className="mono"
-          style={{ flex: 1, minWidth: 0 }}
-          value={props.value}
-          suggestions={props.variableSuggestions}
-          onChangeValue={props.onChangeValue}
-          placeholder="Value"
-        />
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-value-history-anchor>
+          <VariableAutocompleteField
+            className="mono valueHistoryInput"
+            value={props.value}
+            suggestions={props.variableSuggestions}
+            onChangeValue={props.onChangeValue}
+            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            placeholder="Value"
+          />
+          <button
+            type="button"
+            className="valueHistoryBtn"
+            data-value-history-btn
+            aria-label="Value history"
+            title="Value history"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
+            }}
+          >
+            ▾
+          </button>
+          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
+            <div
+              className="selectMenuPanel valueHistoryPanel"
+              ref={props.historyMenuPanelRef}
+              role="menu"
+              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+            >
+              {props.historyItems.length ? (
+                props.historyItems.map(v => (
+                  <div key={v} className="valueHistoryItemRow">
+                    <button
+                      type="button"
+                      className="selectMenuItem valueHistoryPickBtn"
+                      role="menuitem"
+                      onClick={() => {
+                        props.onPickHistory(v)
+                        props.onCloseHistoryMenu()
+                      }}
+                    >
+                      <div className="mono valueHistoryText">{v}</div>
+                    </button>
+                    <button
+                      type="button"
+                      className="valueHistoryDeleteBtn"
+                      aria-label="Remove from history"
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        props.onDeleteHistoryItem(v)
+                      }}
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="valueHistoryEmpty small">No history</div>
+              )}
+              <div className="valueHistoryFooterRow">
+                <button
+                  type="button"
+                  className="valueHistoryClearBtn"
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    props.onClearAllHistory()
+                  }}
+                >
+                  Clear History
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button
           className="headerDeleteBtn"
           onClick={canDelete ? props.onDelete : undefined}
@@ -409,6 +933,7 @@ export function RequestEditor(props: {
   const urlEditStartRef = useRef('')
   const ignoreNextUrlBlurCommitRef = useRef(false)
   const methodMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const valueHistoryMenuPanelRef = useRef<HTMLDivElement | null>(null)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -418,6 +943,9 @@ export function RequestEditor(props: {
   const [headerOverrides, setHeaderOverrides] = useState<Record<string, string>>({})
   const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
   const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
+  const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
+  const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
+  const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
   const [bodyFile, setBodyFile] = useState<File | null>(null)
   const [fileFieldName, setFileFieldName] = useState('file')
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
@@ -428,6 +956,86 @@ export function RequestEditor(props: {
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
   const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
+
+  function recordValueHistory(kind: ValueHistoryKind, key: string, value: string) {
+    setValueHistory(prev => {
+      const next = addValueHistoryEntry(prev, kind, key, value, 10)
+      if (next === prev) return prev
+      saveValueHistory(next)
+      return next
+    })
+  }
+
+  function deleteValueHistoryItem(kind: ValueHistoryKind, key: string, value: string) {
+    setValueHistory(prev => {
+      const next = removeValueHistoryEntry(prev, kind, key, value)
+      if (next === prev) return prev
+      saveValueHistory(next)
+      return next
+    })
+  }
+
+  function clearAllValueHistory() {
+    const empty: ValueHistoryStore = { header: {}, query: {}, path: {} }
+    setValueHistory(empty)
+    saveValueHistory(empty)
+  }
+
+  function closeValueHistoryMenu() {
+    setValueHistoryMenuOpenId(null)
+    setValueHistoryMenuAnchor(null)
+  }
+
+  function toggleValueHistoryMenu(menuId: string, anchorEl: HTMLElement) {
+    if (valueHistoryMenuOpenId === menuId) {
+      closeValueHistoryMenu()
+      return
+    }
+
+    const rect = anchorEl.getBoundingClientRect()
+    const margin = 8
+    const assumedMaxHeight = 240
+
+    let width = rect.width
+    if (width < 220) width = 220
+    if (width > 520) width = 520
+
+    let left = rect.left
+    let top = rect.bottom + 6
+
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width)
+    if (left < margin) left = margin
+
+    if (top + assumedMaxHeight > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - 6 - assumedMaxHeight)
+    }
+
+    setValueHistoryMenuOpenId(menuId)
+    setValueHistoryMenuAnchor({ left, top, width })
+  }
+
+  useEffect(() => {
+    if (!valueHistoryMenuOpenId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (valueHistoryMenuPanelRef.current && valueHistoryMenuPanelRef.current.contains(t)) return
+      if (t.closest?.('[data-value-history-btn]')) return
+      closeValueHistoryMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeValueHistoryMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [valueHistoryMenuOpenId])
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
 
@@ -1613,6 +2221,20 @@ export function RequestEditor(props: {
                   value={value}
                   readOnlyName={isSpec}
                   variableSuggestions={variableSuggestions}
+                  historyItems={valueHistory.header[h.name] ?? []}
+                  onRecordHistory={next => recordValueHistory('header', h.name, next)}
+                  onPickHistory={next => {
+                    setHeaderValueForRequest(h.name, next)
+                    recordValueHistory('header', h.name, next)
+                  }}
+                  onDeleteHistoryItem={next => deleteValueHistoryItem('header', h.name, next)}
+                  onClearAllHistory={clearAllValueHistory}
+                  historyMenuId={`header:${h.name}`}
+                  historyMenuOpenId={valueHistoryMenuOpenId}
+                  historyMenuAnchor={valueHistoryMenuAnchor}
+                  onToggleHistoryMenu={toggleValueHistoryMenu}
+                  onCloseHistoryMenu={closeValueHistoryMenu}
+                  historyMenuPanelRef={valueHistoryMenuPanelRef}
                   onChangeValue={nextValue => {
                     setHeaderValueForRequest(h.name, nextValue)
                   }}
@@ -1727,6 +2349,20 @@ export function RequestEditor(props: {
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
                 variableSuggestions={variableSuggestions}
+                historyItems={valueHistory.header[row.name.trim()] ?? []}
+                onRecordHistory={next => recordValueHistory('header', row.name, next)}
+                onPickHistory={next => {
+                  setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
+                  recordValueHistory('header', row.name, next)
+                }}
+                onDeleteHistoryItem={next => deleteValueHistoryItem('header', row.name, next)}
+                onClearAllHistory={clearAllValueHistory}
+                historyMenuId={`headerDraft:${row.id}`}
+                historyMenuOpenId={valueHistoryMenuOpenId}
+                historyMenuAnchor={valueHistoryMenuAnchor}
+                onToggleHistoryMenu={toggleValueHistoryMenu}
+                onCloseHistoryMenu={closeValueHistoryMenu}
+                historyMenuPanelRef={valueHistoryMenuPanelRef}
                 onDelete={() => {
                   setHeaderDraftRows(prev => {
                     if (prev.length === 1 && prev[0]?.id === row.id) {
@@ -1766,7 +2402,27 @@ export function RequestEditor(props: {
           <div className="section">
             <div className="sectionTitle">Path</div>
             {grouped.path.map(p => (
-              <ParamRow key={p.name} param={p} store={pathParams} setStore={setPathParams} variableSuggestions={variableSuggestions} />
+              <ParamRow
+                key={p.name}
+                param={p}
+                store={pathParams}
+                setStore={setPathParams}
+                variableSuggestions={variableSuggestions}
+                historyItems={valueHistory.path[p.name] ?? []}
+                onRecordHistory={next => recordValueHistory('path', p.name, next)}
+                onPickHistory={next => {
+                  setPathParams(prev => ({ ...prev, [p.name]: next }))
+                  recordValueHistory('path', p.name, next)
+                }}
+                onDeleteHistoryItem={next => deleteValueHistoryItem('path', p.name, next)}
+                onClearAllHistory={clearAllValueHistory}
+                historyMenuId={`path:${p.name}`}
+                historyMenuOpenId={valueHistoryMenuOpenId}
+                historyMenuAnchor={valueHistoryMenuAnchor}
+                onToggleHistoryMenu={toggleValueHistoryMenu}
+                onCloseHistoryMenu={closeValueHistoryMenu}
+                historyMenuPanelRef={valueHistoryMenuPanelRef}
+              />
             ))}
           </div>
         )}
@@ -1791,6 +2447,25 @@ export function RequestEditor(props: {
                 hint={isSpec ? hint : undefined}
                 required={isSpec ? p.required : false}
                 variableSuggestions={variableSuggestions}
+                historyItems={valueHistory.query[effectiveName] ?? []}
+                onRecordHistory={next => recordValueHistory('query', effectiveName, next)}
+                onPickHistory={next => {
+                  setQueryParams(prev => {
+                    const nextParams = { ...prev }
+                    nextParams[effectiveName] = next
+                    if (isSpec && effectiveName !== rawName) delete nextParams[rawName]
+                    return nextParams
+                  })
+                  recordValueHistory('query', effectiveName, next)
+                }}
+                onDeleteHistoryItem={next => deleteValueHistoryItem('query', effectiveName, next)}
+                onClearAllHistory={clearAllValueHistory}
+                historyMenuId={`query:${effectiveName}`}
+                historyMenuOpenId={valueHistoryMenuOpenId}
+                historyMenuAnchor={valueHistoryMenuAnchor}
+                onToggleHistoryMenu={toggleValueHistoryMenu}
+                onCloseHistoryMenu={closeValueHistoryMenu}
+                historyMenuPanelRef={valueHistoryMenuPanelRef}
                 onChangeValue={nextValue => {
                   setQueryParams(prev => {
                     const next = { ...prev }
@@ -1907,6 +2582,20 @@ export function RequestEditor(props: {
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
               variableSuggestions={variableSuggestions}
+              historyItems={valueHistory.query[row.name.trim()] ?? []}
+              onRecordHistory={next => recordValueHistory('query', row.name, next)}
+              onPickHistory={next => {
+                setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
+                recordValueHistory('query', row.name, next)
+              }}
+              onDeleteHistoryItem={next => deleteValueHistoryItem('query', row.name, next)}
+              onClearAllHistory={clearAllValueHistory}
+              historyMenuId={`queryDraft:${row.id}`}
+              historyMenuOpenId={valueHistoryMenuOpenId}
+              historyMenuAnchor={valueHistoryMenuAnchor}
+              onToggleHistoryMenu={toggleValueHistoryMenu}
+              onCloseHistoryMenu={closeValueHistoryMenu}
+              historyMenuPanelRef={valueHistoryMenuPanelRef}
               onDelete={() => {
                 setQueryDraftRows(prev => {
                   if (prev.length === 1 && prev[0]?.id === row.id) {
