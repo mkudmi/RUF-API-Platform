@@ -185,6 +185,79 @@ function defaultQueryParamsFromSpec(_params: RequestParam[]) {
   return {}
 }
 
+function setFlagForKey(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
+  const key = keyRaw.trim()
+  if (!key) return prev
+  if (active) {
+    if (!(key in prev)) return prev
+    const next = { ...prev }
+    delete next[key]
+    return next
+  }
+  if (key in prev) return prev
+  return { ...prev, [key]: true }
+}
+
+function renameFlagKey(prev: Record<string, true>, fromKey: string, toKey: string): Record<string, true> {
+  const from = fromKey.trim()
+  const to = toKey.trim()
+  if (!from || !to || from === to) return prev
+  if (!(from in prev)) return prev
+  if (to in prev) {
+    const next = { ...prev }
+    delete next[from]
+    return next
+  }
+  const next = { ...prev }
+  delete next[from]
+  next[to] = true
+  return next
+}
+
+function setFlagForHeaderName(prev: Record<string, true>, headerNameRaw: string, active: boolean): Record<string, true> {
+  const headerName = headerNameRaw.trim()
+  if (!headerName) return prev
+  const needle = headerName.toLowerCase()
+
+  let changed = false
+  const next: Record<string, true> = {}
+  for (const k of Object.keys(prev)) {
+    if (k.toLowerCase() === needle) {
+      changed = true
+      continue
+    }
+    next[k] = true
+  }
+
+  if (!active) {
+    if (!(headerName in next)) {
+      next[headerName] = true
+      changed = true
+    }
+  }
+
+  return changed ? next : prev
+}
+
+function headerIsInactive(inactiveHeaderNames: Record<string, true>, headerName: string): boolean {
+  const needle = headerName.toLowerCase()
+  for (const k of Object.keys(inactiveHeaderNames)) {
+    if (k.toLowerCase() === needle) return true
+  }
+  return false
+}
+
+function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNames: Record<string, true>): Record<string, string> {
+  const needles = new Set(Object.keys(inactiveHeaderNames).map(k => k.toLowerCase()).filter(Boolean))
+  if (!needles.size) return headers
+  const next: Record<string, string> = {}
+  for (const [k, v] of Object.entries(headers)) {
+    if (needles.has(k.toLowerCase())) continue
+    next[k] = v
+  }
+  return next
+}
+
 function ParamRow(props: {
   param: RequestParam
   store: Record<string, string>
@@ -320,7 +393,7 @@ function ParamRow(props: {
               </div>
             ) : null}
           </>
-        ) : null}
+         ) : null}
       </div>
     </div>
   )
@@ -357,6 +430,8 @@ function HeaderRow(props: {
   name: string
   value: string
   readOnlyName: boolean
+  isActive: boolean
+  onToggleActive: (isActive: boolean) => void
   onChangeValue: (value: string) => void
   onRename?: (nextName: string) => void
   onDelete?: () => void
@@ -392,10 +467,10 @@ function HeaderRow(props: {
   return (
     <div className="formRow">
       {props.readOnlyName ? (
-        <div className="formLabel mono">{props.name}</div>
+        <div className={`formLabel mono ${props.isActive ? '' : 'rowInactive'}`.trim()}>{props.name}</div>
       ) : (
         <input
-          className="mono"
+          className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
           value={draftName}
           onChange={e => setDraftName(e.target.value)}
           onKeyDown={e => {
@@ -414,7 +489,7 @@ function HeaderRow(props: {
           data-commit-key={props.name}
         >
           <VariableAutocompleteField
-            className="mono valueHistoryInput"
+            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
@@ -498,6 +573,17 @@ function HeaderRow(props: {
             </div>
           ) : null}
         </div>
+        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
+          <input
+            type="checkbox"
+            className="checkInput"
+            checked={props.isActive}
+            aria-label={`Toggle ${props.name}`}
+            onChange={e => props.onToggleActive(e.target.checked)}
+            onClick={e => e.stopPropagation()}
+          />
+          <span className="checkBox" aria-hidden="true" />
+        </label>
         {props.onDelete ? (
           <button className="headerDeleteBtn" onClick={props.onDelete} aria-label={`Delete header ${props.name}`} title="Delete">
             <CloseIcon size={18} />
@@ -515,6 +601,8 @@ function QueryRow(props: {
   value: string
   hint?: string
   required?: boolean
+  isActive: boolean
+  onToggleActive: (isActive: boolean) => void
   onChangeValue: (value: string) => void
   onRename?: (nextName: string) => void
   onDelete?: () => void
@@ -551,7 +639,7 @@ function QueryRow(props: {
     <div className="formRow">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
         <input
-          className="mono"
+          className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
           style={{ flex: 1, minWidth: 0 }}
           value={draftName}
           onChange={e => setDraftName(e.target.value)}
@@ -574,7 +662,7 @@ function QueryRow(props: {
           data-commit-spec={props.isSpec ? '1' : '0'}
         >
           <VariableAutocompleteField
-            className="mono valueHistoryInput"
+            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
@@ -658,6 +746,17 @@ function QueryRow(props: {
             </div>
           ) : null}
         </div>
+        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
+          <input
+            type="checkbox"
+            className="checkInput"
+            checked={props.isActive}
+            aria-label={`Toggle ${props.name}`}
+            onChange={e => props.onToggleActive(e.target.checked)}
+            onClick={e => e.stopPropagation()}
+          />
+          <span className="checkBox" aria-hidden="true" />
+        </label>
         {props.onDelete ? (
           <button
             className="rowDeleteBtn"
@@ -677,6 +776,8 @@ function QueryDraftRow(props: {
   rowId: string
   name: string
   value: string
+  isActive: boolean
+  onToggleActive: (isActive: boolean) => void
   onChangeName: (nextName: string) => void
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
@@ -698,7 +799,7 @@ function QueryDraftRow(props: {
   return (
     <div className="formRow">
       <input
-        className="mono"
+        className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
         value={props.name}
         onChange={e => props.onChangeName(e.target.value)}
         placeholder="Key"
@@ -711,7 +812,7 @@ function QueryDraftRow(props: {
           data-commit-rowid={props.rowId}
         >
           <VariableAutocompleteField
-            className="mono valueHistoryInput"
+            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
@@ -795,6 +896,17 @@ function QueryDraftRow(props: {
             </div>
           ) : null}
         </div>
+        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
+          <input
+            type="checkbox"
+            className="checkInput"
+            checked={props.isActive}
+            aria-label={`Toggle ${props.name || 'query param'}`}
+            onChange={e => props.onToggleActive(e.target.checked)}
+            onClick={e => e.stopPropagation()}
+          />
+          <span className="checkBox" aria-hidden="true" />
+        </label>
         <button
           className="rowDeleteBtn"
           onClick={canDelete ? props.onDelete : undefined}
@@ -814,6 +926,8 @@ function HeaderDraftRow(props: {
   rowId: string
   name: string
   value: string
+  isActive: boolean
+  onToggleActive: (isActive: boolean) => void
   onChangeName: (nextName: string) => void
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
@@ -932,6 +1046,17 @@ function HeaderDraftRow(props: {
             </div>
           ) : null}
         </div>
+        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
+          <input
+            type="checkbox"
+            className="checkInput"
+            checked={props.isActive}
+            aria-label={`Toggle ${props.name || 'header'}`}
+            onChange={e => props.onToggleActive(e.target.checked)}
+            onClick={e => e.stopPropagation()}
+          />
+          <span className="checkBox" aria-hidden="true" />
+        </label>
         <button
           className="headerDeleteBtn"
           onClick={canDelete ? props.onDelete : undefined}
@@ -968,12 +1093,14 @@ export function RequestEditor(props: {
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
-  const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
+  const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
   const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
   const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
+  const [inactiveQueryParamNames, setInactiveQueryParamNames] = useState<Record<string, true>>({})
   const [headerOverrides, setHeaderOverrides] = useState<Record<string, string>>({})
   const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
-  const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string }>>([])
+  const [inactiveHeaderNames, setInactiveHeaderNames] = useState<Record<string, true>>({})
+  const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
@@ -1238,6 +1365,7 @@ export function RequestEditor(props: {
     const defaultValue = baseHas ? (requestBaseHeaders[headerName] ?? '') : envHas ? (envHeaders[headerName] ?? '') : ''
 
     if (nextValue === '') {
+      setInactiveHeaderNames(prev => setFlagForHeaderName(prev, headerName, true))
       setHeaderOverrides(prev => {
         if (!hasOwn(prev, headerName)) return prev
         const { [headerName]: _removed, ...rest } = prev
@@ -1288,7 +1416,10 @@ export function RequestEditor(props: {
     const withPathParams = applyPathParamsForDisplay(url, pathParams)
 
     const usp = new URLSearchParams()
+    const inactiveDraftKeys = new Set(queryDraftRows.filter(r => !r.isActive).map(r => r.name.trim()).filter(Boolean))
     for (const [k, v] of Object.entries(effectiveQueryParams)) {
+      if (inactiveQueryParamNames[k]) continue
+      if (inactiveDraftKeys.has(k)) continue
       const nextK = applyVariablesForDisplay(k, variables)
       const nextV = applyVariablesForDisplay(v, variables)
       if (nextK && nextV !== '') usp.set(nextK, nextV)
@@ -1296,7 +1427,7 @@ export function RequestEditor(props: {
     const qs = usp.toString()
     if (!qs) return withPathParams
     return withPathParams + (withPathParams.includes('?') ? '&' : '?') + qs
-  }, [baseUrl, effectiveQueryParams, pathParams, props.request.path, props.request.urlTemplate, variables, urlTemplateOverride])
+  }, [baseUrl, effectiveQueryParams, inactiveQueryParamNames, pathParams, props.request.path, props.request.urlTemplate, queryDraftRows, variables, urlTemplateOverride])
 
   const canSend = useMemo(() => {
     const override = urlTemplateOverride.trim()
@@ -1343,6 +1474,8 @@ export function RequestEditor(props: {
     const draft = loadDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextInactiveQueryParamNames =
+      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
 
     const env = props.environment?.headers ?? {}
     const base = props.request.headers ?? {}
@@ -1362,6 +1495,9 @@ export function RequestEditor(props: {
     const nextDisabledHeaderNames =
       draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object' ? draft.disabledHeaderNames : {}
 
+    const nextInactiveHeaderNames =
+      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? draft.inactiveHeaderNames : {}
+
     const headersForSeedCheck = (() => {
       const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
       for (const key of Object.keys(nextDisabledHeaderNames)) delete next[key]
@@ -1378,12 +1514,14 @@ export function RequestEditor(props: {
 
     setPathParams(nextPathParams)
     setQueryParams(nextQueryParams)
-    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
+    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : [])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setInactiveQueryParamNames(nextInactiveQueryParamNames)
     setHeaderOverrides(nextHeaderOverrides)
     setDisabledHeaderNames(nextDisabledHeaderNames)
-    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
+    setInactiveHeaderNames(nextInactiveHeaderNames)
+    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
@@ -1406,24 +1544,41 @@ export function RequestEditor(props: {
 
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextInactiveQueryParamNames =
+      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
 
     const env = props.environment?.headers ?? {}
     const base = props.request.headers ?? {}
 
     const target = (draft?.headers && typeof draft.headers === 'object') ? draft.headers : {}
 
-    const nextDisabledHeaderNames: Record<string, true> = {}
-    for (const key of Object.keys({ ...env, ...base })) {
-      if (!(key in target)) nextDisabledHeaderNames[key] = true
-    }
+    const nextHeaderOverrides = (() => {
+      if (draft?.headerOverrides && typeof draft.headerOverrides === 'object') return draft.headerOverrides as Record<string, string>
+      const overrides: Record<string, string> = {}
+      for (const [k, v] of Object.entries(target)) {
+        if (!(k in base) && (k in env) && env[k] === v) continue
+        if (!(k in base) || base[k] !== v) overrides[k] = v
+      }
+      return overrides
+    })()
 
-    const nextHeaderOverrides: Record<string, string> = {}
-    for (const [k, v] of Object.entries(target)) {
-      if (!(k in base) && (k in env) && env[k] === v) continue
-      if (!(k in base) || base[k] !== v) nextHeaderOverrides[k] = v
-    }
+    const nextDisabledHeaderNames = (() => {
+      if (draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object') return draft.disabledHeaderNames as Record<string, true>
+      const disabled: Record<string, true> = {}
+      for (const key of Object.keys({ ...env, ...base })) {
+        if (!(key in target)) disabled[key] = true
+      }
+      return disabled
+    })()
 
-    const headersForSeedCheck = { ...env, ...target }
+    const nextInactiveHeaderNames =
+      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? (draft.inactiveHeaderNames as Record<string, true>) : {}
+
+    const headersForSeedCheck = (() => {
+      const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
+      for (const key of Object.keys(nextDisabledHeaderNames)) delete next[key]
+      return next
+    })()
 
     const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
     const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
@@ -1435,12 +1590,14 @@ export function RequestEditor(props: {
 
     setPathParams(nextPathParams)
     setQueryParams(nextQueryParams)
-    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '' }] : [])
+    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : [])
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
     setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setInactiveQueryParamNames(nextInactiveQueryParamNames)
     setHeaderOverrides(nextHeaderOverrides)
     setDisabledHeaderNames(nextDisabledHeaderNames)
-    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '' }] : [])
+    setInactiveHeaderNames(nextInactiveHeaderNames)
+    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : [])
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
@@ -1458,12 +1615,14 @@ export function RequestEditor(props: {
     saveDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
+      inactiveQueryParamNames: nextInactiveQueryParamNames,
       queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
       disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
       preSqlScript: draft?.preSqlScript ?? '',
       postSqlScript: draft?.postSqlScript ?? '',
       headerOverrides: nextHeaderOverrides,
       disabledHeaderNames: nextDisabledHeaderNames,
+      inactiveHeaderNames: nextInactiveHeaderNames,
       bodyText: nextBodyText,
       bodyFormat: draft?.bodyFormat ?? 'auto',
       fileFieldName: draft?.fileFieldName || 'file',
@@ -1479,12 +1638,14 @@ export function RequestEditor(props: {
       saveDraft(props.request.id, {
         pathParams,
         queryParams,
+        inactiveQueryParamNames,
         queryParamKeyOverrides,
         disabledQueryParamNames,
         preSqlScript,
         postSqlScript,
         headerOverrides,
         disabledHeaderNames,
+        inactiveHeaderNames,
         bodyText,
         bodyFormat,
         fileFieldName,
@@ -1501,6 +1662,7 @@ export function RequestEditor(props: {
     bodyText,
     bodyFormat,
     disabledHeaderNames,
+    inactiveHeaderNames,
     fileFieldName,
     headerOverrides,
     pathParams,
@@ -1508,6 +1670,7 @@ export function RequestEditor(props: {
     preSqlScript,
     props.request.id,
     queryParams,
+    inactiveQueryParamNames,
     queryParamKeyOverrides,
     disabledQueryParamNames,
     urlTemplateOverride,
@@ -1552,13 +1715,13 @@ export function RequestEditor(props: {
   useEffect(() => {
     if (headerDraftRows.length > 0) return
     if (visibleHeaderParams.length > 0) return
-    setHeaderDraftRows([{ id: uid('hrow'), name: '', value: '' }])
+    setHeaderDraftRows([{ id: uid('hrow'), name: '', value: '', isActive: true }])
   }, [headerDraftRows.length, visibleHeaderParams.length])
 
   useEffect(() => {
     if (queryDraftRows.length > 0) return
     if (queryParamsList.length > 0) return
-    setQueryDraftRows([{ id: uid('qrow'), name: '', value: '' }])
+    setQueryDraftRows([{ id: uid('qrow'), name: '', value: '', isActive: true }])
   }, [queryDraftRows.length, queryParamsList.length])
 
   const hasAnyEditableVisibleHeaderRow = useMemo(() => {
@@ -1569,9 +1732,10 @@ export function RequestEditor(props: {
   }, [envHeaders, headerSpecNames, requestBaseHeaders, visibleHeaderParams])
 
   const effectiveContentType = useMemo(() => {
-    const fromHeadersOrSpec = (effectiveHeaders['Content-Type'] || effectiveHeaders['content-type'] || props.request.body?.contentType || '').trim()
+    const activeHeaders = removeInactiveHeaders(effectiveHeaders, inactiveHeaderNames)
+    const fromHeadersOrSpec = (activeHeaders['Content-Type'] || activeHeaders['content-type'] || props.request.body?.contentType || '').trim()
     return bodyFormat === 'auto' ? fromHeadersOrSpec : contentTypeForBodyFormat(bodyFormat)
-  }, [bodyFormat, effectiveHeaders, props.request.body?.contentType])
+  }, [bodyFormat, effectiveHeaders, inactiveHeaderNames, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
   const supportsFile = props.request.method !== 'GET' && props.request.method !== 'HEAD' && (
     isMultipartForm || effectiveContentType.toLowerCase().includes('application/octet-stream')
@@ -1648,11 +1812,11 @@ export function RequestEditor(props: {
   }, [bodyFormatMenuOpen])
 
   function addHeaderDraftRow() {
-    setHeaderDraftRows(prev => [...prev, { id: uid('hrow'), name: '', value: '' }])
+    setHeaderDraftRows(prev => [...prev, { id: uid('hrow'), name: '', value: '', isActive: true }])
   }
 
   function addQueryDraftRow() {
-    setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value: '' }])
+    setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value: '', isActive: true }])
   }
 
   function parseFormFieldsFromBodyText(text: string): Record<string, string> {
@@ -1677,10 +1841,54 @@ export function RequestEditor(props: {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
-      const hasDraftHeadersToCommit = headerDraftRows.some(r => r.name.trim() && r.value !== '')
-      const baseHeadersForSend = hasDraftHeadersToCommit
-        ? effectiveHeaders
-        : committedHeaders
+      const headerDraftRowsToCommit = headerDraftRows.filter(r => r.name.trim() && r.value !== '')
+      const hasDraftHeadersToCommit = headerDraftRowsToCommit.length > 0
+
+      const nextHeaderOverridesForSend = hasDraftHeadersToCommit
+        ? (() => {
+          const next = { ...headerOverrides }
+          for (const row of headerDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            next[key] = row.value
+          }
+          return next
+        })()
+        : headerOverrides
+
+      const nextDisabledHeaderNamesForSend = hasDraftHeadersToCommit
+        ? (() => {
+          let changed = false
+          const next = { ...disabledHeaderNames }
+          for (const row of headerDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            if (key in next) {
+              delete next[key]
+              changed = true
+            }
+          }
+          return changed ? next : disabledHeaderNames
+        })()
+        : disabledHeaderNames
+
+      const nextInactiveHeaderNamesForSend = hasDraftHeadersToCommit
+        ? (() => {
+          let next = inactiveHeaderNames
+          for (const row of headerDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            next = setFlagForHeaderName(next, key, row.isActive)
+          }
+          return next
+        })()
+        : inactiveHeaderNames
+
+      const baseHeadersForSend = (() => {
+        const merged = { ...envHeaders, ...requestBaseHeaders, ...nextHeaderOverridesForSend }
+        for (const key of Object.keys(nextDisabledHeaderNamesForSend)) delete merged[key]
+        return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
+      })()
 
       const hasAnyBodyInput =
         !!bodyText.trim() ||
@@ -1689,10 +1897,32 @@ export function RequestEditor(props: {
       const effectiveHeadersForSend = (() => {
         if (!hasAnyBodyInput) return baseHeadersForSend
         if (bodyFormat === 'auto') return baseHeadersForSend
-        return { ...baseHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) }
+        const next = { ...baseHeadersForSend }
+        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
+        return next
       })()
-      const hasDraftQueryToCommit = queryDraftRows.some(r => r.name.trim() && r.value !== '')
-      const effectiveQueryParamsForSend = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
+      const queryDraftRowsToCommit = queryDraftRows.filter(r => r.name.trim() && r.value !== '')
+      const hasDraftQueryToCommit = queryDraftRowsToCommit.length > 0
+      const effectiveQueryParamsForCommit = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
+      const nextInactiveQueryParamNamesForSend = hasDraftQueryToCommit
+        ? (() => {
+          let next = inactiveQueryParamNames
+          for (const row of queryDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            next = setFlagForKey(next, key, row.isActive)
+          }
+          return next
+        })()
+        : inactiveQueryParamNames
+      const effectiveQueryParamsForSend = (() => {
+        const out: Record<string, string> = {}
+        for (const [k, v] of Object.entries(effectiveQueryParamsForCommit)) {
+          if (nextInactiveQueryParamNamesForSend[k]) continue
+          out[k] = v
+        }
+        return out
+      })()
       const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
         ? (() => {
           let changed = false
@@ -1715,10 +1945,9 @@ export function RequestEditor(props: {
         setHeaderOverrides(prev => {
           let changed = false
           const next = { ...prev }
-          for (const row of headerDraftRows) {
+          for (const row of headerDraftRowsToCommit) {
             const key = row.name.trim()
             if (!key) continue
-            if (row.value === '') continue
             next[key] = row.value
             changed = true
           }
@@ -1727,10 +1956,9 @@ export function RequestEditor(props: {
         setDisabledHeaderNames(prev => {
           let changed = false
           const next = { ...prev }
-          for (const row of headerDraftRows) {
+          for (const row of headerDraftRowsToCommit) {
             const key = row.name.trim()
             if (!key) continue
-            if (row.value === '') continue
             if (key in next) {
               delete next[key]
               changed = true
@@ -1738,12 +1966,30 @@ export function RequestEditor(props: {
           }
           return changed ? next : prev
         })
+        setInactiveHeaderNames(prev => {
+          let next = prev
+          for (const row of headerDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            next = setFlagForHeaderName(next, key, row.isActive)
+          }
+          return next
+        })
         setHeaderDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
       }
 
       if (hasDraftQueryToCommit) {
-        setQueryParams(effectiveQueryParamsForSend)
+        setQueryParams(effectiveQueryParamsForCommit)
         setQueryDraftRows(prev => prev.filter(r => !(r.name.trim() && r.value !== '')))
+        setInactiveQueryParamNames(prev => {
+          let next = prev
+          for (const row of queryDraftRowsToCommit) {
+            const key = row.name.trim()
+            if (!key) continue
+            next = setFlagForKey(next, key, row.isActive)
+          }
+          return next
+        })
         setDisabledQueryParamNames(effectiveDisabledQueryParamNamesForSend)
       }
 
@@ -1754,10 +2000,14 @@ export function RequestEditor(props: {
         url: displayUrl,
         draft: {
           pathParams,
-          queryParams: effectiveQueryParamsForSend,
+          queryParams: effectiveQueryParamsForCommit,
+          inactiveQueryParamNames: nextInactiveQueryParamNamesForSend,
           queryParamKeyOverrides,
           disabledQueryParamNames: effectiveDisabledQueryParamNamesForSend,
           headers: effectiveHeadersForSend,
+          headerOverrides: nextHeaderOverridesForSend,
+          disabledHeaderNames: nextDisabledHeaderNamesForSend,
+          inactiveHeaderNames: nextInactiveHeaderNamesForSend,
           preSqlScript,
           postSqlScript,
           bodyText,
@@ -2359,6 +2609,10 @@ export function RequestEditor(props: {
                   name={h.name}
                   value={value}
                   readOnlyName={isSpec}
+                  isActive={!headerIsInactive(inactiveHeaderNames, h.name)}
+                  onToggleActive={isActive => {
+                    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, isActive))
+                  }}
                   variableSuggestions={variableSuggestions}
                   historyItems={valueHistory.header[h.name] ?? []}
                   onRecordHistory={next => recordValueHistory('header', h.name, next)}
@@ -2385,7 +2639,8 @@ export function RequestEditor(props: {
                         if (nextKey === h.name) return
 
                         if (!nextKey) {
-                          setHeaderDraftRows(draftPrev => [...draftPrev, { id: uid('hrow'), name: '', value }])
+                          setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, true))
+                          setHeaderDraftRows(draftPrev => [...draftPrev, { id: uid('hrow'), name: '', value, isActive: true }])
                           if (isInBase) {
                             setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                             setHeaderOverrides(prev => {
@@ -2419,12 +2674,19 @@ export function RequestEditor(props: {
                           delete next[nextKey]
                           return next
                         })
+                        setInactiveHeaderNames(prev => {
+                          const wasInactive = headerIsInactive(prev, h.name)
+                          let next = setFlagForHeaderName(prev, h.name, true)
+                          if (wasInactive) next = setFlagForHeaderName(next, nextKey, false)
+                          return next
+                        })
                       }
                   }
                   onDelete={
                     isSpec
                       ? undefined
                       : () => {
+                        setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, true))
                         const shouldEnsureEmptyRowAfterDelete =
                           isEnvOnly && headerDraftRows.length === 0 && !hasAnyEditableVisibleHeaderRow
 
@@ -2446,7 +2708,7 @@ export function RequestEditor(props: {
                               return rest
                             })
                           }
-                          setHeaderDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '' }, ...prev.slice(1)] : [{ id: uid('hrow'), name: '', value: '' }]))
+                          setHeaderDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('hrow'), name: '', value: '', isActive: true }]))
                           return
                         }
 
@@ -2459,7 +2721,7 @@ export function RequestEditor(props: {
                           })
                           if (shouldEnsureEmptyRowAfterDelete) {
                             setHeaderDraftRows(prev =>
-                              prev.length ? prev : [{ id: uid('hrow'), name: '', value: '' }],
+                              prev.length ? prev : [{ id: uid('hrow'), name: '', value: '', isActive: true }],
                             )
                           }
                           return
@@ -2471,7 +2733,7 @@ export function RequestEditor(props: {
                         })
                         if (shouldEnsureEmptyRowAfterDelete) {
                           setHeaderDraftRows(prev =>
-                            prev.length ? prev : [{ id: uid('hrow'), name: '', value: '' }],
+                            prev.length ? prev : [{ id: uid('hrow'), name: '', value: '', isActive: true }],
                           )
                         }
                       }
@@ -2486,6 +2748,8 @@ export function RequestEditor(props: {
                 rowId={row.id}
                 name={row.name}
                 value={row.value}
+                isActive={row.isActive}
+                onToggleActive={isActive => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
                 variableSuggestions={variableSuggestions}
@@ -2507,7 +2771,7 @@ export function RequestEditor(props: {
                   setHeaderDraftRows(prev => {
                     if (prev.length === 1 && prev[0]?.id === row.id) {
                       if (visibleHeaderParams.length > 0) return []
-                      return [{ ...prev[0], name: '', value: '' }]
+                      return [{ ...prev[0], name: '', value: '', isActive: true }]
                     }
                     return prev.filter(r => r.id !== row.id)
                   })
@@ -2574,6 +2838,7 @@ export function RequestEditor(props: {
             const isSpec = querySpecNames.has(rawName)
             const effectiveName = isSpec ? (queryParamKeyOverrides[rawName] ?? rawName) : rawName
             const value = queryParams[effectiveName] ?? ''
+            const isActive = !inactiveQueryParamNames[effectiveName]
             const hint =
               typeof p.example === 'string' || typeof p.example === 'number'
                 ? String(p.example)
@@ -2588,6 +2853,8 @@ export function RequestEditor(props: {
                 value={value}
                 hint={isSpec ? hint : undefined}
                 required={isSpec ? p.required : false}
+                isActive={isActive}
+                onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
                 variableSuggestions={variableSuggestions}
                 historyItems={valueHistory.query[effectiveName] ?? []}
                 onRecordHistory={next => recordValueHistory('query', effectiveName, next)}
@@ -2598,6 +2865,7 @@ export function RequestEditor(props: {
                     if (isSpec && effectiveName !== rawName) delete nextParams[rawName]
                     return nextParams
                   })
+                  setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
                   recordValueHistory('query', effectiveName, next)
                 }}
                 onDeleteHistoryItem={next => deleteValueHistoryItem('query', effectiveName, next)}
@@ -2630,30 +2898,39 @@ export function RequestEditor(props: {
                           if (rawName !== effectiveName) delete next[rawName]
                           return next
                         })
+                        setInactiveQueryParamNames(prev => {
+                          let next = setFlagForKey(prev, effectiveName, true)
+                          if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                          return next
+                        })
                         return
                       }
                       setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                      setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
                       setQueryParamKeyOverrides(prev => {
                         const next = { ...prev }
                         if (trimmed === rawName) delete next[rawName]
                         else next[rawName] = trimmed
                         return next
                       })
+                      setInactiveQueryParamNames(prev => setFlagForKey(prev, trimmed, isActive))
                       return
                     }
 
                     if (!trimmed) {
-                      setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value }])
+                      setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value, isActive: true }])
                       setQueryParams(prev => {
                         if (!(effectiveName in prev)) return prev
                         const next = { ...prev }
                         delete next[effectiveName]
                         return next
                       })
+                      setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
                       return
                     }
 
                     setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                    setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
                   }
                 }
                 onDelete={() => {
@@ -2667,6 +2944,11 @@ export function RequestEditor(props: {
                         const next = { ...prev }
                         delete next[effectiveName]
                         if (rawName !== effectiveName) delete next[rawName]
+                        return next
+                      })
+                      setInactiveQueryParamNames(prev => {
+                        let next = setFlagForKey(prev, effectiveName, true)
+                        if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
                         return next
                       })
                       setQueryParamKeyOverrides(prev => {
@@ -2691,7 +2973,12 @@ export function RequestEditor(props: {
                       if (rawName !== effectiveName) delete next[rawName]
                       return next
                     })
-                    setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '' }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '' }]))
+                    setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
+                    setInactiveQueryParamNames(prev => {
+                      let next = setFlagForKey(prev, effectiveName, true)
+                      if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                      return next
+                    })
                     return
                   }
 
@@ -2700,6 +2987,11 @@ export function RequestEditor(props: {
                     const next = { ...prev }
                     delete next[effectiveName]
                     if (rawName !== effectiveName) delete next[rawName]
+                    return next
+                  })
+                  setInactiveQueryParamNames(prev => {
+                    let next = setFlagForKey(prev, effectiveName, true)
+                    if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
                     return next
                   })
                   if (isSpec) {
@@ -2722,6 +3014,8 @@ export function RequestEditor(props: {
               rowId={row.id}
               name={row.name}
               value={row.value}
+              isActive={row.isActive}
+              onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
               variableSuggestions={variableSuggestions}
@@ -2729,6 +3023,7 @@ export function RequestEditor(props: {
               onRecordHistory={next => recordValueHistory('query', row.name, next)}
               onPickHistory={next => {
                 setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
+                setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: true } : r)))
                 recordValueHistory('query', row.name, next)
               }}
               onDeleteHistoryItem={next => deleteValueHistoryItem('query', row.name, next)}
@@ -2743,7 +3038,7 @@ export function RequestEditor(props: {
                 setQueryDraftRows(prev => {
                   if (prev.length === 1 && prev[0]?.id === row.id) {
                     if (queryParamsList.length > 0) return []
-                    return [{ ...prev[0], name: '', value: '' }]
+                    return [{ ...prev[0], name: '', value: '', isActive: true }]
                   }
                   return prev.filter(r => r.id !== row.id)
                 })

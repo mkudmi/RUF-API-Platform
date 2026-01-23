@@ -3,6 +3,7 @@ import type { HttpMethod } from './collection'
 export type RequestDraft = {
   pathParams?: Record<string, string>
   queryParams?: Record<string, string>
+  inactiveQueryParamNames?: Record<string, true>
   queryParamKeyOverrides?: Record<string, string>
   disabledQueryParamNames?: Record<string, true>
   preSqlScript?: string
@@ -14,6 +15,7 @@ export type RequestDraft = {
   headers?: Record<string, string>
   headerOverrides?: Record<string, string>
   disabledHeaderNames?: Record<string, true>
+  inactiveHeaderNames?: Record<string, true>
   bodyText?: string
   bodyFormat?: 'auto' | 'json' | 'xml' | 'yaml' | 'text'
   fileFieldName?: string
