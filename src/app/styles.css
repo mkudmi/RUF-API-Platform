@@ -754,6 +754,17 @@ button:hover { background: rgba(255,255,255,.10); }
   gap: 10px;
   align-items: center;
 }
+.editorUrlInput {
+  height: 28px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  line-height: 28px;
+}
+.editorUrlInput:focus { outline: none; box-shadow: none; }
+.editorUrlInput:focus-visible { outline: 2px solid rgba(255,255,255,.22); outline-offset: 2px; border-radius: var(--radius); }
+.editorUrlEditGlyph { display: block; transform: translateY(1px); line-height: 1; }
 .editorUrlText {
   flex: 1;
   min-width: 0;

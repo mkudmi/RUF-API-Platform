@@ -2416,7 +2416,7 @@ export function RequestEditor(props: {
           {isEditingUrl ? (
             <VariableAutocompleteField
               ref={urlInputRef as any}
-              className="mono"
+              className="mono editorUrlInput"
               value={urlDraftText}
               suggestions={variableSuggestions}
               onChangeValue={setUrlDraftText}
@@ -2462,7 +2462,7 @@ export function RequestEditor(props: {
             title={isEditingUrl ? 'Close' : 'Edit URL'}
             style={{ width: 28, height: 28 }}
           >
-            {isEditingUrl ? '✕' : '✎'}
+            <span className="editorUrlEditGlyph">{isEditingUrl ? '\u2715' : '\u270E'}</span>
           </button>
         </div>
 
