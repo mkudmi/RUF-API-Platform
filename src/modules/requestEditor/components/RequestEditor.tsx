@@ -2676,7 +2676,6 @@ export function RequestEditor(props: {
                 aria-disabled={!hasDisabledEnvOnlyHeaders}
                 aria-label="Reload from global headers"
                 title={hasDisabledEnvOnlyHeaders ? 'Reload from global headers' : 'No deleted global headers'}
-                style={{ width: 28, height: 28 }}
               >
                 <ReloadIcon size={16} />
               </button>
@@ -2686,7 +2685,6 @@ export function RequestEditor(props: {
                 onClick={() => addHeaderDraftRow()}
                 aria-label="Add header"
                 title="Add header"
-                style={{ width: 28, height: 28 }}
               >
                 <span className="addRowGlyph">+</span>
               </button>
@@ -2894,7 +2892,6 @@ export function RequestEditor(props: {
             }}
             aria-label="Add query param"
             title="Add query param"
-            style={{ width: 28, height: 28 }}
           >
             <span className="addRowGlyph">+</span>
           </button>
@@ -3202,6 +3199,15 @@ export function RequestEditor(props: {
           >
             {bodyCopied ? 'OK' : <CopyIcon />}
           </button>
+          <ConfirmIconButton
+            className="iconBtn"
+            onConfirm={() => setBodyText('')}
+            ariaLabel="Clear body"
+            confirmAriaLabel="Confirm clear body"
+            title="Clear body"
+            confirmTitle="Confirm clear body"
+            icon={<CloseIcon size={18} />}
+          />
         </summary>
         <VariableAutocompleteField
           as="textarea"
@@ -3292,7 +3298,6 @@ export function RequestEditor(props: {
               aria-disabled={false}
               aria-label="Add file"
               title={isMultipartForm ? 'Add file' : 'Add file (multiple files are only sent for multipart/form-data)'}
-              style={{ width: 28, height: 28 }}
               onPointerDown={e => e.stopPropagation()}
               onClick={e => {
                 e.preventDefault()
