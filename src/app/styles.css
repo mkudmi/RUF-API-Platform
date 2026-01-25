@@ -343,6 +343,7 @@ button:hover { background: rgba(255,255,255,.10); }
   align-items: center;
   line-height: 1;
 }
+.chooseFileBtnLabel { display: inline-block; transform: translateY(1px); }
 .chooseFileBtn:hover { background: rgba(255,255,255,.14); }
 
 .modal {

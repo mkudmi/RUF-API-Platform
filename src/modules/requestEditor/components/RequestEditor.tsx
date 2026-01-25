@@ -18,6 +18,11 @@ import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveVa
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 
+function normalizeBodyFormat(raw: unknown): BodyFormat {
+  if (raw === 'auto' || raw === 'json' || raw === 'xml' || raw === 'yaml' || raw === 'text') return raw
+  return 'auto'
+}
+
 function labelForBodyFormat(format: BodyFormat) {
   switch (format) {
     case 'json': return 'JSON'
@@ -37,13 +42,19 @@ function contentTypeForBodyFormat(format: Exclude<BodyFormat, 'auto'>) {
   }
 }
 
-function inferBodyFormatFromContentType(contentType: string): Exclude<BodyFormat, 'auto'> {
+function inferBodyFormatFromContentType(contentType: string): BeautifyBodyFormat {
   const ct = (contentType || '').toLowerCase()
   if (ct.includes('json')) return 'json'
   if (ct.includes('yaml') || ct.includes('yml')) return 'yaml'
   if (ct.includes('xml')) return 'xml'
   if (ct.includes('text/plain')) return 'text'
   return 'text'
+}
+
+function shouldDefaultOpenFileTab(method: HttpMethod, contentType: string | undefined): boolean {
+  if (method === 'GET' || method === 'HEAD') return false
+  const ct = (contentType || '').toLowerCase()
+  return ct.includes('multipart/form-data') || ct.includes('application/octet-stream')
 }
 
 
@@ -1094,6 +1105,7 @@ export function RequestEditor(props: {
   applyDraft?: { token: string, draft: RequestDraft } | null
 }) {
   const bodyFileInputRef = useRef<HTMLInputElement | null>(null)
+  const activeFileRowIdRef = useRef<string | null>(null)
   const urlInputRef = useRef<HTMLInputElement | null>(null)
   const urlEditStartRef = useRef('')
   const ignoreNextUrlBlurCommitRef = useRef(false)
@@ -1113,8 +1125,9 @@ export function RequestEditor(props: {
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
-  const [bodyFile, setBodyFile] = useState<File | null>(null)
-  const [fileFieldName, setFileFieldName] = useState('file')
+  const [fileRows, setFileRows] = useState<Array<{ id: string, fieldName: string, file: File | null }>>(() => (
+    [{ id: uid('frow'), fieldName: '', file: null }]
+  ))
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
   const [urlCopied, setUrlCopied] = useState(false)
@@ -1456,6 +1469,7 @@ export function RequestEditor(props: {
   const [bodyText, setBodyText] = useState('')
   const [bodyCopied, setBodyCopied] = useState(false)
   const [isBodyOpen, setIsBodyOpen] = useState(!!props.request.body)
+  const [isFileOpen, setIsFileOpen] = useState(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('auto')
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const bodyFormatMenuWrapRef = useRef<HTMLDivElement | null>(null)
@@ -1535,12 +1549,18 @@ export function RequestEditor(props: {
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
     setIsBodyOpen(!!props.request.body)
-    setBodyFormat(draft?.bodyFormat ?? 'auto')
+    const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
+    setBodyFormat(nextBodyFormat)
+    setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
-    setBodyFile(null)
-    setFileFieldName(draft?.fileFieldName || 'file')
+    setFileRows(() => {
+      const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
+      const names = (rawList ?? []).filter(x => typeof x === 'string')
+      const seed = names.length ? names : ['']
+      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null }))
+    })
     setShowBaseUrlPicker(false)
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
@@ -1616,12 +1636,18 @@ export function RequestEditor(props: {
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
     setIsBodyOpen(!!props.request.body)
-    setBodyFormat(draft?.bodyFormat ?? 'auto')
+    const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
+    setBodyFormat(nextBodyFormat)
+    setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
     setUrlDraftText('')
-    setBodyFile(null)
-    setFileFieldName(draft?.fileFieldName || 'file')
+    setFileRows(() => {
+      const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
+      const names = (rawList ?? []).filter(x => typeof x === 'string')
+      const seed = names.length ? names : ['']
+      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null }))
+    })
     setShowBaseUrlPicker(false)
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
@@ -1638,8 +1664,11 @@ export function RequestEditor(props: {
       disabledHeaderNames: nextDisabledHeaderNames,
       inactiveHeaderNames: nextInactiveHeaderNames,
       bodyText: nextBodyText,
-      bodyFormat: draft?.bodyFormat ?? 'auto',
-      fileFieldName: draft?.fileFieldName || 'file',
+      bodyFormat: normalizeBodyFormat(draft?.bodyFormat),
+      fileFieldName: (draft?.fileFieldName || 'file').trim() || 'file',
+      fileFieldNames: Array.isArray(draft?.fileFieldNames)
+        ? draft!.fileFieldNames!.filter(x => typeof x === 'string')
+        : undefined,
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
     })
@@ -1662,7 +1691,8 @@ export function RequestEditor(props: {
         inactiveHeaderNames,
         bodyText,
         bodyFormat,
-        fileFieldName,
+        fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
+        fileFieldNames: fileRows.map(r => r.fieldName),
         baseUrlKey,
         urlTemplateOverride,
       })
@@ -1677,7 +1707,7 @@ export function RequestEditor(props: {
     bodyFormat,
     disabledHeaderNames,
     inactiveHeaderNames,
-    fileFieldName,
+    fileRows,
     headerOverrides,
     pathParams,
     postSqlScript,
@@ -1751,13 +1781,15 @@ export function RequestEditor(props: {
     return bodyFormat === 'auto' ? fromHeadersOrSpec : contentTypeForBodyFormat(bodyFormat)
   }, [bodyFormat, effectiveHeaders, inactiveHeaderNames, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
-  const supportsFile = props.request.method !== 'GET' && props.request.method !== 'HEAD' && (
+  const methodAllowsBody = props.request.method !== 'GET' && props.request.method !== 'HEAD'
+  const supportsFileSend = methodAllowsBody && (
     isMultipartForm || effectiveContentType.toLowerCase().includes('application/octet-stream')
   )
 
-  const resolvedBodyFormatForBeautify = useMemo((): Exclude<BodyFormat, 'auto'> => {
-    if (bodyFormat !== 'auto') return bodyFormat
-    return inferBodyFormatFromContentType(effectiveContentType)
+  const resolvedBodyFormatForBeautify = useMemo((): BeautifyBodyFormat => {
+    if (bodyFormat === 'auto') return inferBodyFormatFromContentType(effectiveContentType)
+    if (bodyFormat === 'json' || bodyFormat === 'xml' || bodyFormat === 'yaml' || bodyFormat === 'text') return bodyFormat
+    return 'text'
   }, [bodyFormat, effectiveContentType])
 
   function templateForBodyFormat(format: BodyFormat): string {
@@ -1904,10 +1936,11 @@ export function RequestEditor(props: {
         return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
       })()
 
+      const hasAnyFileInput = supportsFileSend && fileRows.some(r => !!r.file)
       const hasAnyBodyInput =
         !!bodyText.trim() ||
-        !!(supportsFile && bodyFile) ||
-        !!(supportsFile && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
+        hasAnyFileInput ||
+        !!(methodAllowsBody && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
       const effectiveHeadersForSend = (() => {
         if (!hasAnyBodyInput) return baseHeadersForSend
         if (bodyFormat === 'auto') return baseHeadersForSend
@@ -1978,13 +2011,14 @@ export function RequestEditor(props: {
           postSqlScript,
           bodyText,
           bodyFormat,
-          fileFieldName,
+          fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
+          fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
           baseUrlKey,
           urlTemplateOverride,
         },
       })
 
-      const formFields = supportsFile && effectiveContentType.toLowerCase().includes('multipart/form-data')
+      const formFields = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
         ? parseFormFieldsFromBodyText(bodyText)
         : undefined
 
@@ -2044,6 +2078,13 @@ export function RequestEditor(props: {
         }
       }
 
+      const filesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
+        ? fileRows
+          .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
+          .filter((x): x is { fieldName: string, file: File } => !!x.file)
+        : undefined
+      const firstFileForOctetStream = fileRows.find(r => r.file)?.file ?? null
+
       let result = await runRequest({
         request: props.request,
         baseUrl,
@@ -2053,8 +2094,9 @@ export function RequestEditor(props: {
         queryParams: effectiveQueryParamsForSend,
         headers: effectiveHeadersForSend,
         bodyText,
-        file: supportsFile ? bodyFile : undefined,
-        fileFieldName: supportsFile ? fileFieldName : undefined,
+        files: filesForMultipart,
+        file: (supportsFileSend && effectiveContentType.toLowerCase().includes('application/octet-stream')) ? firstFileForOctetStream : undefined,
+        fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
         formFields,
       })
 
@@ -2188,12 +2230,100 @@ export function RequestEditor(props: {
     const ta = bodyTextareaRef.current
     const raw = ta?.value ?? bodyText
     try {
-      const nextValue = beautifyBody(raw, resolvedBodyFormatForBeautify as BeautifyBodyFormat)
+      const nextValue = beautifyBody(raw, resolvedBodyFormatForBeautify)
       if (ta) applyBodyTextareaReplacement(0, ta.value.length, nextValue, nextValue.length, nextValue.length)
       else setBodyText(nextValue)
     } catch {
       // keep silent: invalid input should not change button state
     }
+  }
+
+  function renderFilePicker() {
+    const canDeleteRow = fileRows.length > 1
+    const canPickFile = methodAllowsBody
+
+    return (
+      <div className="section">
+        <input
+          ref={bodyFileInputRef}
+          type="file"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const next = e.target.files?.[0] ?? null
+            const targetRowId = activeFileRowIdRef.current ?? fileRows[0]?.id ?? null
+            const el = e.target as HTMLInputElement
+
+            activeFileRowIdRef.current = null
+            el.value = ''
+
+            if (!targetRowId) return
+            if (!next) return
+
+            setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next } : r)))
+          }}
+        />
+
+        {fileRows.map(row => (
+          <div key={row.id} className="formRow">
+            <input
+              className="mono"
+              value={row.fieldName}
+              onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: e.target.value } : r)))}
+              placeholder="Key"
+              aria-label="File field key"
+            />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="chooseFileBtn"
+                title={row.file ? row.file.name : 'Choose file'}
+                disabled={!canPickFile}
+                aria-disabled={!canPickFile}
+                style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  if (!canPickFile) return
+                  activeFileRowIdRef.current = row.id
+                  bodyFileInputRef.current?.click()
+                }}
+              >
+                <span className="chooseFileBtnLabel">{row.file ? row.file.name : 'Choose file'}</span>
+              </button>
+
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <ConfirmIconButton
+                  className="rowDeleteBtn"
+                  disabled={!row.file && !canDeleteRow}
+                  onConfirm={() => {
+                    if (canDeleteRow) {
+                      setFileRows(prev => prev.filter(r => r.id !== row.id))
+                      return
+                    }
+                    setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, file: null } : r)))
+                  }}
+                  ariaLabel={canDeleteRow ? 'Remove file row' : 'Remove file'}
+                  confirmAriaLabel={canDeleteRow ? 'Confirm remove file row' : 'Confirm remove file'}
+                  title={
+                    canDeleteRow
+                      ? 'Remove file row'
+                      : row.file
+                        ? 'Remove file'
+                        : 'No file to remove'
+                  }
+                  confirmTitle={canDeleteRow ? 'Confirm remove file row' : 'Confirm remove file'}
+                  icon={<CloseIcon size={18} />}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {!methodAllowsBody ? (
+          <div className="small" style={{ opacity: 0.75 }}>
+            Files are not sent for <span className="mono">GET</span>/<span className="mono">HEAD</span>.
+          </div>
+        ) : null}
+      </div>
+    )
   }
 
   function applyBodyTabIndent(isUnindent: boolean) {
@@ -3057,55 +3187,21 @@ export function RequestEditor(props: {
           >
             <StarIcon size={16} />
           </button>
-            <button
-              type="button"
-              className="iconBtn"
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                void copyBodyText()
-              }}
-              aria-label="Copy body"
-              title="Copy body"
-              style={{ width: 32, height: 32 }}
-            >
-              {bodyCopied ? 'OK' : <CopyIcon />}
-            </button>
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              void copyBodyText()
+            }}
+            aria-label="Copy body"
+            title="Copy body"
+            style={{ width: 32, height: 32 }}
+          >
+            {bodyCopied ? 'OK' : <CopyIcon />}
+          </button>
         </summary>
-        {supportsFile && (
-          <div className="section" style={{ marginBottom: 10 }}>
-            <div className="formRow">
-              <div className="formLabel mono">file</div>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input
-                  ref={bodyFileInputRef}
-                  type="file"
-                  style={{ display: 'none' }}
-                  onChange={e => setBodyFile(e.target.files?.[0] ?? null)}
-                />
-                <button
-                  type="button"
-                  className="chooseFileBtn"
-                  onClick={() => bodyFileInputRef.current?.click()}
-                >
-                  Choose file
-                </button>
-                {bodyFile ? <span className="small mono">{bodyFile.name}</span> : null}
-              </div>
-            </div>
-            {isMultipartForm && (
-              <div className="formRow">
-                <div className="formLabel mono">field</div>
-                <input
-                  className="mono"
-                  value={fileFieldName}
-                  onChange={e => setFileFieldName(e.target.value)}
-                  placeholder="file"
-                />
-              </div>
-            )}
-          </div>
-        )}
         <VariableAutocompleteField
           as="textarea"
           ref={bodyTextareaRef as any}
@@ -3179,6 +3275,37 @@ export function RequestEditor(props: {
           rows={18}
         />
       </details>
+
+      {(
+        <details
+          className="accordion"
+          open={isFileOpen}
+          onToggle={e => setIsFileOpen(e.currentTarget.open)}
+        >
+          <summary>
+            <span>File</span>
+            <span style={{ marginLeft: 'auto' }} />
+            <button
+              type="button"
+              className="iconBtn addRowBtn"
+              aria-disabled={false}
+              aria-label="Add file"
+              title={isMultipartForm ? 'Add file' : 'Add file (multiple files are only sent for multipart/form-data)'}
+              style={{ width: 28, height: 28 }}
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                setIsFileOpen(true)
+                setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null }])
+              }}
+            >
+              <span className="addRowGlyph">+</span>
+            </button>
+          </summary>
+          {renderFilePicker()}
+        </details>
+      )}
 
       {bodyFormatMenuOpen ? (
         <div

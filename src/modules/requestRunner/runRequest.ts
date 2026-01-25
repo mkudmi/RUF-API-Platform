@@ -173,6 +173,7 @@ export async function runRequest(args: {
   bodyText?: string
   file?: File | null
   fileFieldName?: string
+  files?: Array<{ fieldName: string, file: File }>
   formFields?: Record<string, string>
 }): Promise<RunResult> {
   const start = performance.now()
@@ -225,11 +226,20 @@ export async function runRequest(args: {
     const desiredCt = (getHeader(init.headers as any, 'Content-Type') || args.request.body?.contentType || '').trim()
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
+    const files = (args.files ?? []).filter(x => x?.file instanceof File)
 
-    if (ct.includes('multipart/form-data') && (file || (args.formFields && Object.keys(args.formFields).length))) {
+    const multipartFiles = files.length
+      ? files
+      : file
+        ? [{ fieldName: args.fileFieldName?.trim() || 'file', file }]
+        : []
+
+    if (ct.includes('multipart/form-data') && (multipartFiles.length || (args.formFields && Object.keys(args.formFields).length))) {
       const form = new FormData()
       for (const [k, v] of Object.entries(args.formFields ?? {})) form.set(k, applyVariables(v, vars))
-      if (file) form.set(args.fileFieldName?.trim() || 'file', file)
+      for (const { fieldName, file } of multipartFiles) {
+        form.append(fieldName?.trim() || 'file', file)
+      }
 
       const headers = { ...(init.headers as any) } as Record<string, string>
       deleteHeader(headers, 'Content-Type')

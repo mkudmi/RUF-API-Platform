@@ -19,6 +19,7 @@ export type RequestDraft = {
   bodyText?: string
   bodyFormat?: 'auto' | 'json' | 'xml' | 'yaml' | 'text'
   fileFieldName?: string
+  fileFieldNames?: string[]
   baseUrlKey?: string
   urlTemplateOverride?: string
 }
