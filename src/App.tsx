@@ -115,14 +115,47 @@ export default function App() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
-  const SIDEBAR_BASE_PX = 420
+  const SIDEBAR_BASE_PCT = 0.22
   const SIDEBAR_MIN_PX = 190
   const SIDEBAR_MAX_PX = 720
-  const PANEL_RIGHT_BASE_PX = 800
+  const PANEL_EDITOR_BASE_PCT = 0.6
+  const PANEL_EDITOR_NARROW_PCT = 0.7
+  const RESIZER_GUTTER_PX = 8
+  const LAYOUT_MAIN_MIN_PX = 520
+
+  function getViewportWidthPx() {
+    return document.documentElement?.clientWidth || window.innerWidth || 0
+  }
+
+  function getDefaultSidebarWidthPx() {
+    const w = getViewportWidthPx()
+    const base = w > 0 ? Math.round(w * SIDEBAR_BASE_PCT) : 420
+    const maxByViewport = Math.min(
+      SIDEBAR_MAX_PX,
+      Math.max(SIDEBAR_MIN_PX, w - RESIZER_GUTTER_PX - LAYOUT_MAIN_MIN_PX),
+    )
+    return clamp(base, SIDEBAR_MIN_PX, maxByViewport)
+  }
+
+  function getPanelPaneConstraints(panelWidthPx: number) {
+    const usable = Math.max(0, panelWidthPx - RESIZER_GUTTER_PX)
+    if (usable <= 0) return { min: 0, max: 0, usable: 0 }
+    const minTarget = Math.min(320, Math.max(80, Math.floor(usable / 3)))
+    const min = Math.min(minTarget, Math.floor(usable / 2))
+    const max = usable - min
+    return { min, max, usable }
+  }
+
+  function getDefaultEditorWidthPx(panelWidthPx: number) {
+    const { min, max, usable } = getPanelPaneConstraints(panelWidthPx)
+    const desiredPct = getViewportWidthPx() < 900 ? PANEL_EDITOR_NARROW_PCT : PANEL_EDITOR_BASE_PCT
+    const base = Math.round(usable * desiredPct)
+    return clamp(base, min, max)
+  }
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const raw = localStorage.getItem('ruf_sidebar_width_v1')
-    const n = raw ? Number(raw) : SIDEBAR_BASE_PX
-    const base = Number.isFinite(n) && n > 0 ? n : SIDEBAR_BASE_PX
+    const n = raw ? Number(raw) : getDefaultSidebarWidthPx()
+    const base = Number.isFinite(n) && n > 0 ? n : getDefaultSidebarWidthPx()
     return clamp(base, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
   })
   const [editorWidth, setEditorWidth] = useState(() => {
@@ -133,6 +166,7 @@ export default function App() {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const sidebarWidthRef = useRef(sidebarWidth)
   const editorWidthRef = useRef(editorWidth)
+  const viewportWidthRef = useRef(0)
   const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers' | 'history'>>(() => {
     const parsed = safeParseJson<any>(localStorage.getItem(RESPONSE_TAB_BY_REQUEST_KEY))
     if (!parsed || typeof parsed !== 'object') return {}
@@ -190,6 +224,37 @@ export default function App() {
   useEffect(() => {
     editorWidthRef.current = editorWidth
   }, [editorWidth])
+
+  useEffect(() => {
+    function onResize() {
+      const viewportWidthPx = getViewportWidthPx()
+      const prevViewportWidthPx = viewportWidthRef.current || viewportWidthPx
+      const isShrinking = viewportWidthPx < prevViewportWidthPx
+      const sidebarMaxByViewport = Math.min(
+        SIDEBAR_MAX_PX,
+        Math.max(SIDEBAR_MIN_PX, viewportWidthPx - RESIZER_GUTTER_PX - LAYOUT_MAIN_MIN_PX),
+      )
+      const nextSidebar = clamp(sidebarWidthRef.current, SIDEBAR_MIN_PX, sidebarMaxByViewport)
+      if (nextSidebar !== sidebarWidthRef.current) setSidebarWidth(nextSidebar)
+      viewportWidthRef.current = viewportWidthPx
+
+      const el = panelRef.current
+      if (!el) return
+      if (!editorWidthRef.current) return
+      const panelWidthPx = el.getBoundingClientRect().width
+      const { min, max, usable } = getPanelPaneConstraints(panelWidthPx)
+      const desiredPct = viewportWidthPx < 900 ? PANEL_EDITOR_NARROW_PCT : PANEL_EDITOR_BASE_PCT
+      const desiredEditor = Math.round(usable * desiredPct)
+      const baseEditor = isShrinking ? Math.max(editorWidthRef.current, desiredEditor) : editorWidthRef.current
+      const nextEditor = clamp(baseEditor, min, max)
+      if (nextEditor !== editorWidthRef.current) setEditorWidth(nextEditor)
+    }
+
+    const onResizeRaf = () => requestAnimationFrame(onResize)
+    window.addEventListener('resize', onResizeRaf)
+    onResize()
+    return () => window.removeEventListener('resize', onResizeRaf)
+  }, [])
 
   const activeRequestId = useMemo(() => active?.req.id, [active])
   const activeResponseTab = useMemo(() => {
@@ -1102,10 +1167,7 @@ export default function App() {
     if (!el) return
     const w = el.getBoundingClientRect().width
     if (w <= 0) return
-    const min = 320
-    const max = Math.max(min, w - 320)
-    const next = clamp(Math.round(w - 8 - PANEL_RIGHT_BASE_PX), min, max)
-    setEditorWidth(next)
+    setEditorWidth(getDefaultEditorWidthPx(w))
   }, [editorWidth])
 
   function onSidebarResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -1115,7 +1177,12 @@ export default function App() {
     ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
     function onMove(ev: PointerEvent) {
-      const next = clamp(startW + (ev.clientX - startX), SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
+      const viewportWidthPx = getViewportWidthPx()
+      const sidebarMaxByViewport = Math.min(
+        SIDEBAR_MAX_PX,
+        Math.max(SIDEBAR_MIN_PX, viewportWidthPx - RESIZER_GUTTER_PX - LAYOUT_MAIN_MIN_PX),
+      )
+      const next = clamp(startW + (ev.clientX - startX), SIDEBAR_MIN_PX, sidebarMaxByViewport)
       setSidebarWidth(next)
     }
     function onUp() {
@@ -1128,7 +1195,7 @@ export default function App() {
   }
 
   function onSidebarResizerDoubleClick() {
-    const next = clamp(SIDEBAR_BASE_PX, SIDEBAR_MIN_PX, SIDEBAR_MAX_PX)
+    const next = getDefaultSidebarWidthPx()
     setSidebarWidth(next)
     localStorage.setItem('ruf_sidebar_width_v1', String(next))
   }
@@ -1138,13 +1205,12 @@ export default function App() {
     const el = panelRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
+    const { min, max } = getPanelPaneConstraints(rect.width)
     const startX = e.clientX
     const startW = editorWidth || Math.round(rect.width / 2)
     ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
     function onMove(ev: PointerEvent) {
-      const min = 320
-      const max = Math.max(min, rect.width - 320)
       const next = clamp(startW + (ev.clientX - startX), min, max)
       setEditorWidth(next)
     }
@@ -1165,9 +1231,7 @@ export default function App() {
       return
     }
     const rect = el.getBoundingClientRect()
-    const min = 320
-    const max = Math.max(min, rect.width - 320)
-    const next = clamp(Math.round(rect.width - 8 - PANEL_RIGHT_BASE_PX), min, max)
+    const next = getDefaultEditorWidthPx(rect.width)
     setEditorWidth(next)
     localStorage.setItem('ruf_editor_width_v1', String(next))
   }
