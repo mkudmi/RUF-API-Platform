@@ -3,12 +3,11 @@ import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../shared/utils/http'
 import { generateJsonSchema } from '../../shared/utils/jsonSchema'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
-import type { RunResult } from './runRequest'
+import type { RunResult } from '../../features/requestRunner/runRequest'
 import { evaluateJsonSearch, type JsonValue } from './JsonPathSearch'
 import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../shared/icons'
 import { copyText } from '../../shared/utils/clipboard'
-
-const RESPONSE_SEARCH_HISTORY_KEY = 'ruf_response_search_history_v1'
+import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -68,30 +67,6 @@ function buildLineNumbers(lineCount: number) {
   const out: string[] = []
   for (let i = 1; i <= lineCount; i++) out.push(String(i))
   return out.join('\n')
-}
-
-function loadResponseSearchHistory(): string[] {
-  const raw = localStorage.getItem(RESPONSE_SEARCH_HISTORY_KEY)
-  if (!raw) return []
-  const parsed = safeJsonParse(raw)
-  if (!Array.isArray(parsed)) return []
-  return parsed
-    .filter((v): v is string => typeof v === 'string')
-    .map(v => v.trim())
-    .filter(Boolean)
-    .slice(0, 10)
-}
-
-function saveResponseSearchHistory(items: string[]) {
-  localStorage.setItem(RESPONSE_SEARCH_HISTORY_KEY, JSON.stringify(items))
-}
-
-function addResponseSearchHistoryEntry(prev: string[], queryRaw: string, maxItems = 10): string[] {
-  const q = queryRaw.trim()
-  if (!q) return prev
-  const next = [q, ...prev.filter(v => v !== q)].slice(0, maxItems)
-  if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev
-  return next
 }
 
 export function ResponseViewer(props: {
