@@ -24,7 +24,8 @@ import { isAbsoluteUrl } from '../shared/utils/url'
 // переработать историю запросов
 // активный неактивный sql скрипт
 // активный неактивный файл
-// добавить переменные из окружения в выбор через
+// добавить переменные из окружения в выбор через скобки
+// поправить смену baseurl в строке урла
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
