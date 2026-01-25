@@ -96,51 +96,6 @@ export function JsonPathSearch(props: {
           Matches: <span className="mono">{computed.matchesCount}</span>
         </div>
       )}
-
-      <dialog ref={helpDialogRef} className="modal">
-        <div className="modalHeader">
-          <b>Как пользоваться поиском</b>
-          <button
-            className="iconBtn"
-            onClick={() => helpDialogRef.current?.close()}
-            aria-label="Закрыть"
-            title="Закрыть"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="small" style={{ display: 'grid', gap: 10 }}>
-          <div>
-            Поддерживаются два режима:
-          </div>
-
-          <div>
-            <b>1) Простой фильтр</b> (рекомендуется): <span className="mono">поле оператор значение</span>
-            <div className="small" style={{ marginTop: 6, opacity: 0.85 }}>
-              Операторы: <span className="mono">=</span>, <span className="mono">!=</span>, <span className="mono">&gt;</span>, <span className="mono">&gt;=</span>, <span className="mono">&lt;</span>, <span className="mono">&lt;=</span>,
-              <span className="mono"> ~ </span>(содержит, без учёта регистра), <span className="mono">!~</span>.
-            </div>
-            <div className="small" style={{ marginTop: 6, opacity: 0.85 }}>
-              Список значений через запятую: <span className="mono">id = 24, 25</span>.
-              Строки можно брать в кавычки: <span className="mono">email = \"a@b.ru\"</span>.
-            </div>
-          </div>
-
-          <div>
-            <b>2) JSONPath</b>: если запрос начинается с <span className="mono">$</span>, он интерпретируется как JSONPath.
-            <div className="small" style={{ marginTop: 6, opacity: 0.85 }}>
-              Примеры: <span className="mono">$..id</span>, <span className="mono">$.data.items[?(@.name == 'foo')]</span>.
-            </div>
-          </div>
-
-          <div style={{ opacity: 0.85 }}>
-            Результат поиска отображается прямо в <span className="mono">Body</span>:
-            если совпадений нет — пусто; если есть — возвращается объект или массив объектов.
-            Если исходный ответ был массивом, то даже одно совпадение будет показано как массив из 1 элемента.
-          </div>
-        </div>
-      </dialog>
     </div>
   )
 }
