@@ -21,6 +21,9 @@ import { isAbsoluteUrl } from '../shared/utils/url'
 //TODO:
 // импорт soap
 // запаковать все в exe
+// переработать историю запросов
+// активный неактивный sql скрипт
+// активный неактивный файл
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
