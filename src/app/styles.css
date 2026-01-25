@@ -828,6 +828,15 @@ button:hover { background: rgba(255,255,255,.10); }
   justify-content: center;
 }
 
+.confirmActionArmed {
+  background: rgba(255, 210, 80, .18);
+  border-color: rgba(255, 210, 80, .55);
+  color: rgb(255, 230, 140);
+}
+.confirmActionArmed:hover { background: rgba(255, 210, 80, .26); }
+.confirmActionArmed:focus-visible { outline: 2px solid rgba(255, 210, 80, .45); outline-offset: 2px; }
+.confirmActionGlyph { font-size: 18px; line-height: 1; font-weight: 750; transform: translateY(-1px); }
+
 /* Response status colors */
 .status2xx { border-color: rgba(80, 220, 140, .55); color: rgb(120, 255, 185); }
 .status3xx { border-color: rgba(110, 170, 255, .55); color: rgb(160, 200, 255); }

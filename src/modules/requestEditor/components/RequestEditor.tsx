@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../../shared/types/requestHistory'
@@ -162,6 +162,78 @@ function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNa
   return next
 }
 
+function ConfirmIconButton(props: {
+  className: string
+  onConfirm: () => void
+  disabled?: boolean
+  ariaLabel: string
+  confirmAriaLabel?: string
+  title?: string
+  confirmTitle?: string
+  icon: ReactNode
+  timeoutMs?: number
+}) {
+  const timeoutMs = props.timeoutMs ?? 5500
+  const [armed, setArmed] = useState(false)
+  const timerRef = useRef<number | null>(null)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!armed) return
+    if (timerRef.current) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => setArmed(false), timeoutMs)
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+    }
+  }, [armed, timeoutMs])
+
+  useEffect(() => {
+    if (!armed) return
+
+    function onGlobalPointerDown(e: PointerEvent) {
+      const el = btnRef.current
+      if (!el) return
+      const target = e.target as Node | null
+      if (target && el.contains(target)) return
+      setArmed(false)
+    }
+
+    window.addEventListener('pointerdown', onGlobalPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onGlobalPointerDown, true)
+  }, [armed])
+
+  return (
+    <button
+      type="button"
+      className={`${props.className} ${armed ? 'confirmActionArmed' : ''}`.trim()}
+      disabled={props.disabled}
+      aria-disabled={props.disabled}
+      aria-label={armed ? (props.confirmAriaLabel ?? props.ariaLabel) : props.ariaLabel}
+      title={armed ? (props.confirmTitle ?? props.title) : props.title}
+      ref={btnRef}
+      onClick={e => {
+        e.preventDefault()
+        e.stopPropagation()
+        if (props.disabled) return
+        if (!armed) {
+          setArmed(true)
+          return
+        }
+        setArmed(false)
+        props.onConfirm()
+      }}
+    >
+      {armed ? <span className="confirmActionGlyph">!</span> : props.icon}
+    </button>
+  )
+}
+
 function ParamRow(props: { 
   param: RequestParam 
   store: Record<string, string> 
@@ -311,21 +383,16 @@ function ParamRow(props: {
            ) : null} 
       </div> 
       {props.onClear ? ( 
-        <button 
-          type="button" 
-          className="rowDeleteBtn" 
-          onClick={e => { 
-            e.preventDefault() 
-            e.stopPropagation() 
-            props.onClear?.() 
-          }} 
-          disabled={!value} 
-          aria-disabled={!value} 
-          aria-label={`Clear path param ${props.param.name}`} 
-          title={value ? 'Clear' : 'Empty'} 
-        > 
-          <CloseIcon size={18} /> 
-        </button> 
+        <ConfirmIconButton
+          className="rowDeleteBtn"
+          onConfirm={() => props.onClear?.()}
+          disabled={!value}
+          ariaLabel={`Clear path param ${props.param.name}`}
+          confirmAriaLabel={`Confirm clear path param ${props.param.name}`}
+          title={value ? 'Clear' : 'Empty'}
+          confirmTitle="Confirm clear"
+          icon={<CloseIcon size={18} />}
+        />
       ) : null} 
       </div> 
     </div> 
@@ -518,9 +585,15 @@ function HeaderRow(props: {
           <span className="checkBox" aria-hidden="true" />
         </label>
         {props.onDelete ? (
-          <button className="headerDeleteBtn" onClick={props.onDelete} aria-label={`Delete header ${props.name}`} title="Delete">
-            <CloseIcon size={18} />
-          </button>
+          <ConfirmIconButton
+            className="headerDeleteBtn"
+            onConfirm={props.onDelete}
+            ariaLabel={`Delete header ${props.name}`}
+            confirmAriaLabel={`Confirm delete header ${props.name}`}
+            title="Delete"
+            confirmTitle="Confirm delete"
+            icon={<CloseIcon size={18} />}
+          />
         ) : null}
       </div>
     </div>
@@ -693,14 +766,15 @@ function QueryRow(props: {
           <span className="checkBox" aria-hidden="true" />
         </label>
         {props.onDelete ? (
-          <button
+          <ConfirmIconButton
             className="rowDeleteBtn"
-            onClick={props.onDelete}
-            aria-label={`Delete query param ${props.name}`}
+            onConfirm={props.onDelete}
+            ariaLabel={`Delete query param ${props.name}`}
+            confirmAriaLabel={`Confirm delete query param ${props.name}`}
             title="Delete"
-          >
-            <CloseIcon size={18} />
-          </button>
+            confirmTitle="Confirm delete"
+            icon={<CloseIcon size={18} />}
+          />
         ) : null}
       </div>
     </div>
@@ -842,16 +916,16 @@ function QueryDraftRow(props: {
           />
           <span className="checkBox" aria-hidden="true" />
         </label>
-        <button
+        <ConfirmIconButton
           className="rowDeleteBtn"
-          onClick={canDelete ? props.onDelete : undefined}
+          onConfirm={props.onDelete}
           disabled={!canDelete}
-          aria-disabled={!canDelete}
-          aria-label="Delete query param"
+          ariaLabel="Delete query param"
+          confirmAriaLabel="Confirm delete query param"
           title={canDelete ? 'Delete' : 'Cannot delete'}
-        >
-          <CloseIcon size={18} />
-        </button>
+          confirmTitle="Confirm delete"
+          icon={<CloseIcon size={18} />}
+        />
       </div>
     </div>
   )
@@ -992,16 +1066,16 @@ function HeaderDraftRow(props: {
           />
           <span className="checkBox" aria-hidden="true" />
         </label>
-        <button
+        <ConfirmIconButton
           className="headerDeleteBtn"
-          onClick={canDelete ? props.onDelete : undefined}
+          onConfirm={props.onDelete}
           disabled={!canDelete}
-          aria-disabled={!canDelete}
-          aria-label="Delete header"
+          ariaLabel="Delete header"
+          confirmAriaLabel="Confirm delete header"
           title={canDelete ? 'Delete' : 'Cannot delete'}
-        >
-          <CloseIcon size={18} />
-        </button>
+          confirmTitle="Confirm delete"
+          icon={<CloseIcon size={18} />}
+        />
       </div>
     </div>
   )
@@ -2857,12 +2931,8 @@ export function RequestEditor(props: {
                         delete next[rawName]
                         return next
                       })
-                      setDisabledQueryParamNames(prev => {
-                        if (!(rawName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[rawName]
-                        return next
-                      })
+                      setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
+                      setQueryDraftRows(prev => (prev.length ? prev : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
                       return
                     }
 
