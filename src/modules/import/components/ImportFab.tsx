@@ -175,16 +175,16 @@ export function ImportFab(props: {
 
       <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
         <div className="modalHeader">
-          <b>{view === 'name' ? 'Добавить коллекцию' : 'Импорт'}</b>
+          <b>{view === 'name' ? 'Добавить коллекцию' : 'Import'}</b>
           <button className="iconBtn" onClick={closeMenu} aria-label="Close">✕</button>
         </div>
 
         {view === 'menu' && (
           <>
             <div style={{ display: 'grid', gap: 10 }}>
-              <button onClick={chooseFile}>Выбрать файл</button>
-              <button onClick={openJson}>Импорт из json</button>
-              <button onClick={openUrl}>Импорт из url</button>
+              <button onClick={chooseFile}>Choose File</button>
+              <button onClick={openJson}>Import from JSON</button>
+              <button onClick={openUrl}>Import from URL</button>
             </div>
             {menuError && (
               <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>
@@ -196,19 +196,16 @@ export function ImportFab(props: {
 
         {view === 'json' && (
           <>
-            <div className="small" style={{ marginBottom: 8 }}>
-              Вставь OpenAPI JSON/YAML и нажми импорт.
-            </div>
             <textarea
               className="mono modalTextarea"
               value={jsonText}
               onChange={e => setJsonText(e.target.value)}
-              placeholder="Вставь OpenAPI JSON/YAML..."
+              placeholder="Paste OpenAPI JSON/YAML..."
             />
             {jsonError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{jsonError}</div>}
             <div className="modalActions">
-              <button onClick={() => setView('menu')}>Назад</button>
-              <button onClick={importJson}>Импорт</button>
+              <button onClick={() => setView('menu')}>Back</button>
+              <button onClick={importJson}>Import</button>
             </div>
           </>
         )}
@@ -216,7 +213,7 @@ export function ImportFab(props: {
         {view === 'url' && (
           <>
             <div className="small" style={{ marginBottom: 8 }}>
-              Введи URL спеки. Импорт сработает только если сервер отдаёт файл с CORS.
+              Enter the spec URL
             </div>
             <input
               className="mono"
@@ -227,9 +224,9 @@ export function ImportFab(props: {
             />
             {urlError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{urlError}</div>}
             <div className="modalActions">
-              <button onClick={() => setView('menu')}>Назад</button>
+              <button onClick={() => setView('menu')}>Back</button>
               <button onClick={importUrl} disabled={loadingUrl}>
-                {loadingUrl ? 'Загрузка...' : 'Импорт'}
+                {loadingUrl ? 'Loading...' : 'Import'}
               </button>
             </div>
           </>
@@ -243,7 +240,7 @@ export function ImportFab(props: {
             }}
           >
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-              <div className="small">Имя коллекции</div>
+              <div className="small">Collection Name</div>
               <input
                 style={{ width: '100%' }}
                 value={pendingName}
@@ -257,7 +254,7 @@ export function ImportFab(props: {
             {nameError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{nameError}</div>}
 
             <div className="modalActions">
-              <button type="submit">Добавить</button>
+              <button type="submit">Add Collection</button>
             </div>
           </form>
         )}

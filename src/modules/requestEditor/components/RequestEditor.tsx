@@ -2292,24 +2292,30 @@ export function RequestEditor(props: {
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <ConfirmIconButton
                   className="rowDeleteBtn"
-                  disabled={!row.file && !canDeleteRow}
+                  disabled={false}
                   onConfirm={() => {
+                    if (row.file) {
+                      setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null } : r)))
+                      return
+                    }
                     if (canDeleteRow) {
                       setFileRows(prev => prev.filter(r => r.id !== row.id))
                       return
                     }
-                    setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, file: null } : r)))
+                    setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '' } : r)))
                   }}
-                  ariaLabel={canDeleteRow ? 'Remove file row' : 'Remove file'}
-                  confirmAriaLabel={canDeleteRow ? 'Confirm remove file row' : 'Confirm remove file'}
+                  ariaLabel={row.file ? 'Remove file' : canDeleteRow ? 'Remove file row' : 'Clear file row'}
+                  confirmAriaLabel={row.file ? 'Confirm remove file' : canDeleteRow ? 'Confirm remove file row' : 'Confirm clear file row'}
                   title={
-                    canDeleteRow
-                      ? 'Remove file row'
-                      : row.file
-                        ? 'Remove file'
-                        : 'No file to remove'
+                    row.file
+                      ? 'Remove file'
+                      : canDeleteRow
+                        ? 'Remove file row'
+                        : row.fieldName.trim()
+                          ? 'Clear key'
+                          : 'No file to remove'
                   }
-                  confirmTitle={canDeleteRow ? 'Confirm remove file row' : 'Confirm remove file'}
+                  confirmTitle={row.file ? 'Confirm remove file' : canDeleteRow ? 'Confirm remove file row' : 'Confirm clear key'}
                   icon={<CloseIcon size={18} />}
                 />
               </div>
@@ -2317,11 +2323,6 @@ export function RequestEditor(props: {
           </div>
         ))}
 
-        {!methodAllowsBody ? (
-          <div className="small" style={{ opacity: 0.75 }}>
-            Files are not sent for <span className="mono">GET</span>/<span className="mono">HEAD</span>.
-          </div>
-        ) : null}
       </div>
     )
   }
