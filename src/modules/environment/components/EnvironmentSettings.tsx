@@ -337,7 +337,7 @@ export function EnvironmentSettings(props: {
   return (
     <dialog ref={dialogRef} className="modal" onClose={() => props.onClose()}>
       <div className="modalHeader">
-        <b>Окружение: {props.collectionName}</b>
+        <b>Enviroment: {props.collectionName}</b>
         <button className="iconBtn" onClick={close} aria-label="Close" title="Close">
           <CloseIcon size={18} />
         </button>
@@ -687,7 +687,7 @@ export function EnvironmentSettings(props: {
       {error && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{error}</div>}
 
       <div className="modalActions">
-        <button onClick={save}>Сохранить</button>
+        <button onClick={save}>Save</button>
       </div>
     </dialog>
   )
