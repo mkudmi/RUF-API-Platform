@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { ImportFab } from './features/importSpec/ImportFab'
 import { SidebarCreateMenu } from './components/SidebarCreateMenu'
 import { buildImportedCollectionFromText } from './features/importSpec/buildImportedCollection'
@@ -17,12 +17,12 @@ import { uid } from './shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from './shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from './shared/utils/requestHistory'
 import { syncCollectionKeepingIds } from './shared/utils/syncCollection'
+import { summarizeCollectionDiff } from './shared/utils/collectionDiff'
 import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
 //TODO:
 // импорт soap
-// добавить чек-бокс активный или неактивный параметр/хэдер
 // история поиска
 // поправить юай для ноутбуков и fullhd
 // запаковать все в exe
@@ -90,7 +90,14 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
 export default function App() {
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
   const importOpenRef = useRef<(() => void) | null>(null)
+  const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
+  const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => loadAppSettings().validateCertificates)
+  const [reloadFromFileCollectionId, setReloadFromFileCollectionId] = useState<string | null>(null)
+  const [reloadFromFileError, setReloadFromFileError] = useState<string | null>(null)
+  const [reloadFromFilePending, setReloadFromFilePending] = useState<Collection | null>(null)
+  const [reloadFromFileSummary, setReloadFromFileSummary] = useState<ReturnType<typeof summarizeCollectionDiff> | null>(null)
+  const [reloadFromFileSelectedName, setReloadFromFileSelectedName] = useState('')
 
   const [collections, setCollections] = useState<Collection[]>(() => loadCollections())
   const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
@@ -202,6 +209,10 @@ export default function App() {
     if (!envModalCollectionId) return null
     return collections.find(c => c.id === envModalCollectionId) ?? null
   }, [collections, envModalCollectionId])
+  const reloadFromFileCollection = useMemo(() => {
+    if (!reloadFromFileCollectionId) return null
+    return collections.find(c => c.id === reloadFromFileCollectionId) ?? null
+  }, [collections, reloadFromFileCollectionId])
 
   useEffect(() => {
     if (!active) return
@@ -254,7 +265,7 @@ export default function App() {
         if (!existing) return prev
         const merged = syncCollectionKeepingIds({
           existing,
-          incoming: { ...incoming, sourceUrl: normalizedUrl },
+          incoming: { ...incoming, sourceUrl: normalizedUrl, sourceType: 'url' },
         })
         const next = prev.map(c => (c.id === collectionId ? merged : c))
         saveCollections(next)
@@ -263,6 +274,74 @@ export default function App() {
     } catch (e: any) {
       alert(e?.message || 'Failed to update from URL.')
     }
+  }
+
+  function openReloadFromFile(collectionId: string) {
+    setReloadFromFileCollectionId(collectionId)
+    setReloadFromFileError(null)
+    setReloadFromFilePending(null)
+    setReloadFromFileSummary(null)
+    setReloadFromFileSelectedName('')
+    reloadFromFileDialogRef.current?.showModal()
+  }
+
+  function closeReloadFromFile() {
+    reloadFromFileDialogRef.current?.close()
+    setReloadFromFileCollectionId(null)
+    setReloadFromFileError(null)
+    setReloadFromFilePending(null)
+    setReloadFromFileSummary(null)
+    setReloadFromFileSelectedName('')
+  }
+
+  function chooseReloadFromFile() {
+    setReloadFromFileError(null)
+    reloadFromFileInputRef.current?.click()
+  }
+
+  async function onReloadFromFileSelected(e: ChangeEvent<HTMLInputElement>) {
+    setReloadFromFileError(null)
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const collectionId = reloadFromFileCollectionId
+    if (!collectionId) return
+
+    const existingNow = collections.find(c => c.id === collectionId)
+    if (!existingNow) return
+
+    try {
+      const text = await file.text()
+      const imported = await buildImportedCollectionFromText({ text, name: existingNow.name })
+      const incoming = { ...imported, sourceType: 'file' as const, sourceFileName: file.name }
+      setReloadFromFilePending(incoming)
+      setReloadFromFileSummary(summarizeCollectionDiff(existingNow, incoming))
+      setReloadFromFileSelectedName(file.name)
+    } catch (err: any) {
+      setReloadFromFilePending(null)
+      setReloadFromFileSummary(null)
+      setReloadFromFileSelectedName('')
+      setReloadFromFileError(err?.message || 'Failed to import file.')
+    } finally {
+      e.target.value = ''
+    }
+  }
+
+  function applyReloadFromFile() {
+    const collectionId = reloadFromFileCollectionId
+    const incoming = reloadFromFilePending
+    if (!collectionId || !incoming) return
+
+    setCollections(prev => {
+      const existing = prev.find(c => c.id === collectionId)
+      if (!existing) return prev
+      const merged = syncCollectionKeepingIds({ existing, incoming })
+      const next = prev.map(c => (c.id === collectionId ? merged : c))
+      saveCollections(next)
+      return next
+    })
+
+    closeReloadFromFile()
   }
 
   function pick(req: RequestItem, col: Collection) {
@@ -1132,6 +1211,7 @@ export default function App() {
             onPickRequest={pick}
             onOpenEnv={setEnvModalCollectionId}
             onUpdateCollectionFromUrl={updateCollectionFromUrl}
+            onReloadCollectionFromFile={openReloadFromFile}
             onAddRequest={addRequestToCollection}
             onAddFolder={addFolderToCollection}
             onAddRequestToFolder={addRequestToFolder}
@@ -1324,6 +1404,72 @@ export default function App() {
         <div className="modalActions">
           <button onClick={cancelDeleteCollection}>Отмена</button>
           <button className="deleteBtn" onClick={confirmDeleteCollection}>Удалить</button>
+        </div>
+      </dialog>
+
+      <dialog
+        ref={reloadFromFileDialogRef}
+        className="modal modalSmall"
+        onClose={() => {
+          setReloadFromFileCollectionId(null)
+          setReloadFromFileError(null)
+          setReloadFromFilePending(null)
+          setReloadFromFileSummary(null)
+          setReloadFromFileSelectedName('')
+        }}
+      >
+        <div className="modalHeader">
+          <b>Reload From File</b>
+          <button className="iconBtn" onClick={closeReloadFromFile} aria-label="Close">✕</button>
+        </div>
+
+        <input
+          ref={reloadFromFileInputRef}
+          type="file"
+          accept=".json,.yaml,.yml"
+          style={{ display: 'none' }}
+          onChange={onReloadFromFileSelected}
+        />
+
+        <div className="small">
+          {reloadFromFileCollection ? `Collection: ${reloadFromFileCollection.name}` : 'Collection not found.'}
+        </div>
+
+        {(reloadFromFileCollection?.sourceFileName || reloadFromFileSelectedName) ? (
+          <div className="small" style={{ marginTop: 8, opacity: 0.8 }}>
+            {reloadFromFileCollection?.sourceFileName ? (
+              <div>
+                Current file: <span className="mono">{reloadFromFileCollection.sourceFileName}</span>
+              </div>
+            ) : null}
+            {reloadFromFileSelectedName ? (
+              <div>
+                Selected file: <span className="mono">{reloadFromFileSelectedName}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="modalActions" style={{ justifyContent: 'flex-start' }}>
+          <button onClick={chooseReloadFromFile}>Choose File</button>
+        </div>
+
+        {reloadFromFileSummary ? (
+          <div className="small">
+            Folders: +{reloadFromFileSummary.addedFolders} / -{reloadFromFileSummary.removedFolders},{' '}
+            Requests: +{reloadFromFileSummary.addedRequests} / -{reloadFromFileSummary.removedRequests}
+          </div>
+        ) : null}
+
+        {reloadFromFileError ? (
+          <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>
+            {reloadFromFileError}
+          </div>
+        ) : null}
+
+        <div className="modalActions">
+          <button onClick={closeReloadFromFile}>Cancel</button>
+          <button onClick={applyReloadFromFile} disabled={!reloadFromFilePending}>Update</button>
         </div>
       </dialog>
 

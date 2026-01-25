@@ -8,6 +8,8 @@ export type Collection = {
   requests?: RequestItem[]
   folders: Folder[]
   sourceUrl?: string
+  sourceType?: 'url' | 'file'
+  sourceFileName?: string
 }
 
 export type Folder = {

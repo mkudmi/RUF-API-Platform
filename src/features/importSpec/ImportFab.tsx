@@ -90,7 +90,7 @@ export function ImportFab(props: {
     try {
       const text = await file.text()
       const col = await importFromText(text)
-      openNameStep(col)
+      openNameStep({ ...col, sourceType: 'file', sourceFileName: file.name })
     } catch (err: any) {
       setMenuError(err?.message || 'Не удалось импортировать файл.')
     } finally {
@@ -145,7 +145,7 @@ export function ImportFab(props: {
         return
       }
       const col = await importFromText(text, u.origin)
-      openNameStep({ ...col, sourceUrl: u.toString() })
+      openNameStep({ ...col, sourceUrl: u.toString(), sourceType: 'url' })
     } catch (e: any) {
       setUrlError(e?.message || 'Не удалось загрузить по URL (проверь CORS).')
     } finally {

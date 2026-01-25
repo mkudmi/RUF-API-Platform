@@ -31,6 +31,7 @@ export function WorkspaceTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
+  onReloadCollectionFromFile?: (collectionId: string) => void
   onAddRequest: (collectionId: string) => void
   onAddFolder: (collectionId: string) => void
   onAddRequestToFolder: (collectionId: string, folderId: string) => void
@@ -277,6 +278,7 @@ export function WorkspaceTree(props: {
                   onPickRequest={props.onPickRequest}
                   onOpenEnv={props.onOpenEnv}
                   onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+                  onReloadCollectionFromFile={props.onReloadCollectionFromFile}
                   onAddRequest={props.onAddRequest}
                   onAddFolder={props.onAddFolder}
                   onAddRequestToFolder={props.onAddRequestToFolder}
@@ -307,6 +309,7 @@ export function WorkspaceTree(props: {
           onPickRequest={props.onPickRequest}
           onOpenEnv={props.onOpenEnv}
           onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+          onReloadCollectionFromFile={props.onReloadCollectionFromFile}
           onAddRequest={props.onAddRequest}
           onAddFolder={props.onAddFolder}
           onAddRequestToFolder={props.onAddRequestToFolder}

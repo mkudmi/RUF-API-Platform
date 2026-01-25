@@ -51,6 +51,7 @@ export function CollectionsTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
+  onReloadCollectionFromFile?: (collectionId: string) => void
   onAddRequest: (collectionId: string) => void
   onAddFolder: (collectionId: string) => void
   onAddRequestToFolder: (collectionId: string, folderId: string) => void
@@ -1003,6 +1004,20 @@ export function CollectionsTree(props: {
                               title={col.sourceUrl}
                             >
                               Update from URL
+                            </button>
+                          ) : null}
+                          {col.sourceType === 'file' && props.onReloadCollectionFromFile ? (
+                            <button
+                              type="button"
+                              className="treeMenuItem"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuCollectionId(null)
+                                props.onReloadCollectionFromFile?.(col.id)
+                              }}
+                              title={col.sourceFileName}
+                            >
+                              Reload From File
                             </button>
                           ) : null}
                           <div className="treeMenuDivider" role="separator" />
