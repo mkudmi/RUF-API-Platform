@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Collection, RequestItem } from '../../shared/types/collection'
+import type { Collection, RequestItem } from '../types'
 import type { Environment } from '../../shared/types/environment'
 import type { Workspace } from '../../shared/types/workspace'
-import { readDraggedCollection } from './treeDragDrop'
+import { readDraggedCollection } from '../utils/treeDragDrop'
 import { CollectionsTree } from './CollectionsTree'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'

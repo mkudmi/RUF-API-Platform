@@ -1,31 +1,5 @@
-import type { Collection, Folder, RequestItem } from '../types/collection'
-
-type FolderPathKey = string
-
-function makeFolderPathKey(parts: string[]): FolderPathKey {
-  return parts.join('\u0000')
-}
-
-function getChildFolders(folder: Folder): Folder[] {
-  return Array.isArray(folder.folders) ? folder.folders : []
-}
-
-function walkFolders(args: {
-  folders: Folder[]
-  pathParts: string[]
-  onFolder: (folder: Folder, pathParts: string[], pathKey: FolderPathKey) => void
-}) {
-  for (const folder of args.folders) {
-    const nextParts = [...args.pathParts, folder.name]
-    const key = makeFolderPathKey(nextParts)
-    args.onFolder(folder, nextParts, key)
-    walkFolders({ folders: getChildFolders(folder), pathParts: nextParts, onFolder: args.onFolder })
-  }
-}
-
-function requestMatchKey(folderPathKey: FolderPathKey, req: RequestItem): string {
-  return `${folderPathKey}\u0001${req.method}\u0001${req.path}`
-}
+import type { Collection, Folder, RequestItem } from '../types'
+import { getChildFolders, makeFolderPathKey, requestMatchKey, rootFolderPathKey, walkFolders, type FolderPathKey } from './collectionTraversal'
 
 export function syncCollectionKeepingIds(args: {
   existing: Collection
@@ -49,7 +23,7 @@ export function syncCollectionKeepingIds(args: {
     else existingRequestIdsByKey.set(key, [req.id])
   }
 
-  const rootKey = makeFolderPathKey([])
+  const rootKey = rootFolderPathKey()
   for (const req of args.existing.requests ?? []) pushRequestKey(rootKey, req)
   walkFolders({
     folders: args.existing.folders,

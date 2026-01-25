@@ -1,4 +1,4 @@
-import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
+import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../types'
 import { uid } from '../../shared/utils/id'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -151,7 +151,7 @@ export function buildCollectionFromV3(spec: any, name = 'Imported API', sourceOr
         params: collectParams(op, pathItem),
         body: buildBody(op),
         headers: {},
-      }
+}
 
       if (req.body?.contentType) {
         req.headers = { ...req.headers, 'Content-Type': req.body.contentType }

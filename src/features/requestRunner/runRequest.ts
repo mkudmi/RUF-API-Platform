@@ -1,4 +1,4 @@
-import type { RequestItem } from '../../shared/types/collection'
+import type { RequestItem } from '../../CollectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'

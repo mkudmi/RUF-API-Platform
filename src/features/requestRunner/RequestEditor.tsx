@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
-import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
+import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../CollectionTree'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
 import { CloseIcon, CopyIcon, ReloadIcon, StarIcon } from '../../shared/icons'

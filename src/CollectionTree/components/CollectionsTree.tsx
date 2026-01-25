@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Collection, Folder, RequestItem } from '../../shared/types/collection'
+import type { Collection, Folder, RequestItem } from '../types'
 import type { Environment } from '../../shared/types/environment'
-import { readDraggedFolder, readDraggedRequest, setDraggedCollection, setDraggedFolder, setDraggedRequest } from './treeDragDrop'
+import { readDraggedFolder, readDraggedRequest, setDraggedCollection, setDraggedFolder, setDraggedRequest } from '../utils/treeDragDrop'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -100,7 +100,7 @@ export function CollectionsTree(props: {
           panel.classList.remove('treeMenuPanelFlipX')
           flipX = false
         }
-      }
+}
 
       const flipY = rect.bottom > vh - margin && rect.height < vh - margin * 2
 

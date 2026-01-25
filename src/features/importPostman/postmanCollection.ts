@@ -1,4 +1,4 @@
-import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../../shared/types/collection'
+import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../../CollectionTree'
 import { uid } from '../../shared/utils/id'
 import { isAbsoluteUrl } from '../../shared/utils/url'
 

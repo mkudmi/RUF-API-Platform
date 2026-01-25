@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import type { Collection } from '../../shared/types/collection'
+import type { Collection } from '../../CollectionTree'
 import { buildImportedCollectionFromText } from './buildImportedCollection'
 import { fetchWithProxyFallback } from '../../shared/utils/proxyFetch'
 import { loadAppSettings } from '../../shared/utils/appSettings'

@@ -1,7 +1,7 @@
 import { loadOpenApiFromText, parseJsonOrYaml } from './openapiLoader'
-import { buildCollectionFromV3 } from '../collections/buildCollection'
+import { buildCollectionFromV3 } from '../../CollectionTree'
 import { buildCollectionFromPostman, isPostmanCollection } from '../importPostman/postmanCollection'
-import type { Collection } from '../../shared/types/collection'
+import type { Collection } from '../../CollectionTree'
 
 function inferCollectionName(spec: any) {
   const title = spec?.info?.title
@@ -23,4 +23,3 @@ export async function buildImportedCollectionFromText(args: {
   const name = (args.name || inferCollectionName(specV3)).trim() || 'Imported API'
   return buildCollectionFromV3(specV3, name, args.sourceOrigin)
 }
-
