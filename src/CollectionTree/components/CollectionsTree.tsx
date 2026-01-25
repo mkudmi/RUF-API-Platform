@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Collection, Folder, RequestItem } from '../types'
 import type { Environment } from '../../shared/types/environment'
+import { copyText } from '../../shared/utils/clipboard'
 import { readDraggedFolder, readDraggedRequest, setDraggedCollection, setDraggedFolder, setDraggedRequest } from '../utils/treeDragDrop'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
@@ -25,22 +26,6 @@ function loadTreeOpenState(): TreeOpenState {
 
 function saveTreeOpenState(state: TreeOpenState) {
   localStorage.setItem(TREE_OPEN_STATE_KEY, JSON.stringify(state))
-}
-
-async function copyText(text: string) {
-  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
 }
 
 export function CollectionsTree(props: {

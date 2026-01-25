@@ -51,4 +51,3 @@ export function beautifyBody(raw: string, format: BeautifyBodyFormat): string {
     }
   }
 }
-

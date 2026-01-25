@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { JSONPath } from 'jsonpath-plus'
 import { CloseIcon, CopyIcon } from '../../shared/icons'
+import { copyText } from '../../shared/utils/clipboard'
 
 export type JsonValue = null | boolean | number | string | object | unknown[]
 
@@ -9,22 +10,6 @@ type SimpleFilter = { fieldPath: string, op: FilterOp, expected: unknown }
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e)
-}
-
-async function copyText(text: string) {
-  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
 }
 
 function isJsonPathQuery(query: string) {

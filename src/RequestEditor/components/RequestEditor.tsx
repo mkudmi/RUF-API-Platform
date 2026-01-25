@@ -3,22 +3,20 @@ import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../Co
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../shared/types/requestHistory'
 import { CloseIcon, CopyIcon, ReloadIcon, StarIcon } from '../../shared/icons'
+import { copyText } from '../../shared/utils/clipboard'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { uid } from '../../shared/utils/id'
-import { runRequest, type RunResult } from './runRequest'
-import { beautifyBody, type BeautifyBodyFormat } from './bodyBeautify'
-import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../environment/dbConnection'
+import { runRequest, type RunResult } from '../../features/requestRunner/runRequest'
+import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
+import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../../features/environment/dbConnection'
 import { SqlScriptsTab } from './SqlScriptsTab'
 import { AuthorizationTab } from './AuthorizationTab'
 import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../shared/utils/variables'
 import { VariableAutocompleteField } from '../../components/VariableAutocompleteField'
-
-const REQUEST_DRAFTS_KEY = 'ruf_request_drafts_v1'
-const VALUE_HISTORY_KEY = 'ruf_value_history_v1'
+import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
+import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
-type ValueHistoryKind = 'header' | 'query' | 'path'
-type ValueHistoryStore = Record<ValueHistoryKind, Record<string, string[]>>
 
 function labelForBodyFormat(format: BodyFormat) {
   switch (format) {
@@ -48,111 +46,6 @@ function inferBodyFormatFromContentType(contentType: string): Exclude<BodyFormat
   return 'text'
 }
 
-
-function safeParseJson<T>(raw: string | null): T | null {
-  try {
-    if (!raw) return null
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
-function loadValueHistory(): ValueHistoryStore {
-  const parsed = safeParseJson<any>(localStorage.getItem(VALUE_HISTORY_KEY))
-  const empty: ValueHistoryStore = { header: {}, query: {}, path: {} }
-  if (!parsed || typeof parsed !== 'object') return empty
-  const obj = parsed as Partial<ValueHistoryStore>
-  return {
-    header: obj.header && typeof obj.header === 'object' ? obj.header : {},
-    query: obj.query && typeof obj.query === 'object' ? obj.query : {},
-    path: obj.path && typeof obj.path === 'object' ? obj.path : {},
-  }
-}
-
-function saveValueHistory(store: ValueHistoryStore) {
-  localStorage.setItem(VALUE_HISTORY_KEY, JSON.stringify(store))
-}
-
-function addValueHistoryEntry(
-  prev: ValueHistoryStore,
-  kind: ValueHistoryKind,
-  keyRaw: string,
-  valueRaw: string,
-  maxItems = 10,
-): ValueHistoryStore {
-  const key = keyRaw.trim()
-  const value = valueRaw.trim()
-  if (!key || !value) return prev
-
-  const prevByKind = prev[kind] ?? {}
-  const prevList = prevByKind[key] ?? []
-  const nextList = [value, ...prevList.filter(v => v !== value)].slice(0, maxItems)
-  if (prevList.length === nextList.length && prevList.every((v, i) => v === nextList[i])) return prev
-
-  return {
-    ...prev,
-    [kind]: {
-      ...prevByKind,
-      [key]: nextList,
-    },
-  }
-}
-
-function removeValueHistoryEntry(
-  prev: ValueHistoryStore,
-  kind: ValueHistoryKind,
-  keyRaw: string,
-  valueRaw: string,
-): ValueHistoryStore {
-  const key = keyRaw.trim()
-  const value = valueRaw.trim()
-  if (!key || !value) return prev
-
-  const prevByKind = prev[kind] ?? {}
-  const prevList = prevByKind[key] ?? []
-  if (!prevList.length) return prev
-
-  const nextList = prevList.filter(v => v !== value)
-  if (nextList.length === prevList.length) return prev
-
-  const nextByKind: Record<string, string[]> = { ...prevByKind }
-  if (nextList.length) nextByKind[key] = nextList
-  else delete nextByKind[key]
-
-  return { ...prev, [kind]: nextByKind }
-}
-
-function loadDraft(requestId: string): RequestDraft | null {
-  const parsed = safeParseJson<any>(localStorage.getItem(REQUEST_DRAFTS_KEY))
-  if (!parsed || typeof parsed !== 'object') return null
-  const draft = (parsed as any)[requestId]
-  if (!draft || typeof draft !== 'object') return null
-  return draft as RequestDraft
-}
-
-function saveDraft(requestId: string, draft: RequestDraft) {
-  const parsed = safeParseJson<any>(localStorage.getItem(REQUEST_DRAFTS_KEY))
-  const next = parsed && typeof parsed === 'object' ? parsed : {}
-  next[requestId] = draft
-  localStorage.setItem(REQUEST_DRAFTS_KEY, JSON.stringify(next))
-}
-
-async function copyText(text: string) {
-  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
-}
 
 function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
   let out = url
@@ -1513,7 +1406,7 @@ export function RequestEditor(props: {
   }
 
   useEffect(() => {
-    const draft = loadDraft(props.request.id)
+    const draft = loadRequestDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
     const nextInactiveQueryParamNames =
@@ -1659,7 +1552,7 @@ export function RequestEditor(props: {
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
 
-    saveDraft(props.request.id, {
+    saveRequestDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
       inactiveQueryParamNames: nextInactiveQueryParamNames,
@@ -1682,7 +1575,7 @@ export function RequestEditor(props: {
     if (!props.request.id) return
     if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
     draftSaveTimerRef.current = window.setTimeout(() => {
-      saveDraft(props.request.id, {
+      saveRequestDraft(props.request.id, {
         pathParams,
         queryParams,
         inactiveQueryParamNames,

@@ -1,23 +1,8 @@
 import { useState } from 'react'
 import type { Environment } from '../../shared/types/environment'
 import { CloseIcon, CopyIcon } from '../../shared/icons'
-import { hasDbConfigInEnv } from '../environment/dbConnection'
-
-async function copyText(text: string) {
-  if (globalThis.isSecureContext && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text)
-    return
-  }
-
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.left = '-9999px'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
-}
+import { copyText } from '../../shared/utils/clipboard'
+import { hasDbConfigInEnv } from '../../features/environment/dbConnection'
 
 export function SqlScriptsTab(props: {
   environment?: Environment
@@ -128,4 +113,3 @@ export function SqlScriptsTab(props: {
     </div>
   )
 }
-
