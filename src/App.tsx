@@ -23,7 +23,6 @@ import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
 
 //TODO:
 // импорт soap
-// история поиска
 // поправить юай для ноутбуков и fullhd
 // запаковать все в exe
 

@@ -7,6 +7,8 @@ import type { RunResult } from './runRequest'
 import { evaluateJsonSearch, type JsonValue } from './JsonPathSearch'
 import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../shared/icons'
 
+const RESPONSE_SEARCH_HISTORY_KEY = 'ruf_response_search_history_v1'
+
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
   close: () => Promise<void>
@@ -83,6 +85,30 @@ function buildLineNumbers(lineCount: number) {
   return out.join('\n')
 }
 
+function loadResponseSearchHistory(): string[] {
+  const raw = localStorage.getItem(RESPONSE_SEARCH_HISTORY_KEY)
+  if (!raw) return []
+  const parsed = safeJsonParse(raw)
+  if (!Array.isArray(parsed)) return []
+  return parsed
+    .filter((v): v is string => typeof v === 'string')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .slice(0, 10)
+}
+
+function saveResponseSearchHistory(items: string[]) {
+  localStorage.setItem(RESPONSE_SEARCH_HISTORY_KEY, JSON.stringify(items))
+}
+
+function addResponseSearchHistoryEntry(prev: string[], queryRaw: string, maxItems = 10): string[] {
+  const q = queryRaw.trim()
+  if (!q) return prev
+  const next = [q, ...prev.filter(v => v !== q)].slice(0, maxItems)
+  if (prev.length === next.length && prev.every((v, i) => v === next[i])) return prev
+  return next
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
@@ -105,6 +131,10 @@ export function ResponseViewer(props: {
   const [responseSearchCopied, setResponseSearchCopied] = useState(false)
   const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
+  const responseSearchHistoryPanelRef = useRef<HTMLDivElement | null>(null)
+  const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>(() => loadResponseSearchHistory())
+  const [responseSearchHistoryOpen, setResponseSearchHistoryOpen] = useState(false)
+  const [responseSearchHistoryAnchor, setResponseSearchHistoryAnchor] = useState<{ left: number, top: number, width: number, placement: 'above' | 'below' } | null>(null)
   const sizePopoverAnchorRef = useRef<HTMLSpanElement | null>(null)
   const sizePopoverCloseTimerRef = useRef<number | null>(null)
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
@@ -139,6 +169,9 @@ export function ResponseViewer(props: {
   const copyPayload = tab === 'body' ? bodyView.text : headersText
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
+  const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
+  const responseSearchMatchesCount = !bodyView.error && bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? bodyView.matchesCount : null
+  const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
 
   const bodyLineCount = useMemo(() => countLines(bodyView.text), [bodyView.text])
   const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
@@ -160,6 +193,63 @@ export function ResponseViewer(props: {
     await copyText(q)
     setResponseSearchCopied(true)
     setTimeout(() => setResponseSearchCopied(false), 800)
+  }
+
+  function recordResponseSearchHistory(query: string) {
+    setResponseSearchHistory(prev => {
+      const next = addResponseSearchHistoryEntry(prev, query, 10)
+      if (next === prev) return prev
+      saveResponseSearchHistory(next)
+      return next
+    })
+  }
+
+  function deleteResponseSearchHistoryItem(queryRaw: string) {
+    const q = queryRaw.trim()
+    if (!q) return
+    setResponseSearchHistory(prev => {
+      const next = prev.filter(v => v !== q)
+      if (next.length === prev.length) return prev
+      saveResponseSearchHistory(next)
+      return next
+    })
+  }
+
+  function clearResponseSearchHistory() {
+    setResponseSearchHistory([])
+    saveResponseSearchHistory([])
+  }
+
+  function closeResponseSearchHistoryMenu() {
+    setResponseSearchHistoryOpen(false)
+    setResponseSearchHistoryAnchor(null)
+  }
+
+  function toggleResponseSearchHistoryMenu(anchorEl: HTMLElement) {
+    if (responseSearchHistoryOpen) {
+      closeResponseSearchHistoryMenu()
+      return
+    }
+
+    const rect = anchorEl.getBoundingClientRect()
+    const margin = 8
+    const assumedMaxHeight = 240
+
+    let width = rect.width
+    if (width < 220) width = 220
+    if (width > 520) width = 520
+
+    let left = rect.left
+    const aboveBottom = rect.top - 6
+    const canPlaceAbove = aboveBottom - assumedMaxHeight >= margin
+    const placement: 'above' | 'below' = canPlaceAbove ? 'above' : 'below'
+    const top = placement === 'above' ? aboveBottom : (rect.bottom + 6)
+
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width)
+    if (left < margin) left = margin
+
+    setResponseSearchHistoryOpen(true)
+    setResponseSearchHistoryAnchor({ left, top, width, placement })
   }
 
   const clearSchemaCloseTimer = useCallback(() => {
@@ -273,6 +363,7 @@ export function ResponseViewer(props: {
   useEffect(() => {
     if (tab === 'body') return
     setResponseSearchOpen(false)
+    closeResponseSearchHistoryMenu()
   }, [tab])
 
   useEffect(() => {
@@ -280,6 +371,37 @@ export function ResponseViewer(props: {
     const t = window.setTimeout(() => responseSearchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(t)
   }, [responseSearchOpen, tab])
+
+  useEffect(() => {
+    if (!responseSearchOpen) closeResponseSearchHistoryMenu()
+  }, [responseSearchOpen])
+
+  useEffect(() => {
+    if (!responseSearchHistoryOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (responseSearchHistoryPanelRef.current && responseSearchHistoryPanelRef.current.contains(t)) return
+      if (t.closest?.('[data-response-search-history-btn]')) return
+      closeResponseSearchHistoryMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeResponseSearchHistoryMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [responseSearchHistoryOpen])
+
+  useEffect(() => {
+    if (!isJson) closeResponseSearchHistoryMenu()
+  }, [isJson])
 
   const closeSizePopover = useCallback(() => {
     if (sizePopoverCloseTimerRef.current !== null) {
@@ -511,14 +633,112 @@ export function ResponseViewer(props: {
         <div className="responseFooterWrap">
           <div className={`responseSearchWrap ${tab === 'body' && responseSearchOpen ? 'responseSearchWrapOpen' : ''}`}>
             <div className="responseSearchInner">
-              <input
-                ref={responseSearchInputRef}
-                className="mono"
-                value={bodyQuery}
-                onChange={e => setBodyQuery(e.target.value)}
-                disabled={!isJson}
-                placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
-              />
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-response-search-history-anchor>
+                <input
+                  ref={responseSearchInputRef}
+                  className="mono valueHistoryInput"
+                  value={bodyQuery}
+                  onChange={e => setBodyQuery(e.target.value)}
+                  onBlur={() => recordResponseSearchHistory(bodyQuery)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') recordResponseSearchHistory(bodyQuery)
+                    if (e.key === 'Escape') closeResponseSearchHistoryMenu()
+                  }}
+                  disabled={!isJson}
+                  style={{ width: '100%' }}
+                  placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
+                />
+
+                <button
+                  type="button"
+                  className="valueHistoryBtn"
+                  data-response-search-history-btn
+                  aria-label="Search history"
+                  title="Search history"
+                  disabled={!isJson}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const anchorEl = (e.currentTarget.closest('[data-response-search-history-anchor]') as HTMLElement | null) ?? e.currentTarget
+                    toggleResponseSearchHistoryMenu(anchorEl)
+                  }}
+                >
+                  ▾
+                </button>
+
+                {responseSearchHistoryOpen && responseSearchHistoryAnchor ? (
+                  <div
+                    className="selectMenuPanel valueHistoryPanel"
+                    ref={responseSearchHistoryPanelRef}
+                    role="menu"
+                    style={{
+                      position: 'fixed',
+                      left: responseSearchHistoryAnchor.left,
+                      top: responseSearchHistoryAnchor.top,
+                      width: responseSearchHistoryAnchor.width,
+                      transform: responseSearchHistoryAnchor.placement === 'above' ? 'translateY(-100%)' : undefined,
+                      zIndex: 220,
+                    }}
+                    onPointerDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                  >
+                    {responseSearchHistory.length ? (
+                      responseSearchHistory.map(v => (
+                        <div key={v} className="valueHistoryItemRow">
+                          <button
+                            type="button"
+                            className="selectMenuItem valueHistoryPickBtn"
+                            role="menuitem"
+                            onClick={() => {
+                              setBodyQuery(v)
+                              recordResponseSearchHistory(v)
+                              closeResponseSearchHistoryMenu()
+                              setTimeout(() => responseSearchInputRef.current?.focus(), 0)
+                            }}
+                          >
+                            <div className="mono valueHistoryText">{v}</div>
+                          </button>
+                          <button
+                            type="button"
+                            className="valueHistoryDeleteBtn"
+                            aria-label="Remove from history"
+                            onClick={evt => {
+                              evt.preventDefault()
+                              evt.stopPropagation()
+                              deleteResponseSearchHistoryItem(v)
+                            }}
+                          >
+                            <CloseIcon size={14} />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="valueHistoryEmpty small">No history</div>
+                    )}
+
+                    <div className="valueHistoryFooterRow">
+                      <button
+                        type="button"
+                        className="valueHistoryClearBtn"
+                        disabled={!responseSearchHistory.length}
+                        onClick={evt => {
+                          evt.preventDefault()
+                          evt.stopPropagation()
+                          clearResponseSearchHistory()
+                        }}
+                      >
+                        Clear History
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="iconBtn"
@@ -550,89 +770,99 @@ export function ResponseViewer(props: {
                 <CloseIcon />
               </button>
             </div>
-            {bodyView.error ? (
-              <div className="small responseSearchError">{bodyView.error}</div>
-            ) : bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? (
-              <div className="small responseSearchMeta">Matches: <span className="mono">{bodyView.matchesCount}</span></div>
-            ) : null}
           </div>
 
           <div className="treeMenuDivider responseFooterDivider" role="separator" />
 
           <div className="responseFooter">
-            <button
-              type="button"
-              className="iconBtn"
-              onClick={() => setResponseSearchOpen(v => !v)}
-              disabled={tab !== 'body'}
-              title="Search"
-              aria-label="Search"
-            >
-              <SearchIcon />
-            </button>
-
-            <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
-              <button
-                type="button"
-                className="iconBtn"
-                aria-haspopup="menu"
-                aria-expanded={schemaMenuOpen}
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (!canGenerateSchema) return
-                  clearSchemaCloseTimer()
-                  setSchemaCopyFeedback(false)
-                  setSchemaMenuOpen(v => !v)
-                }}
-                disabled={!canGenerateSchema}
-                title="Generate JSON Schema"
-                aria-label="Generate JSON Schema"
-              >
-                <SchemaIcon />
-              </button>
-
-              {schemaMenuOpen ? (
-                <div
-                  className="methodMenuPanel"
-                  role="menu"
-                  style={{ left: 'auto', right: 0, top: 'auto', bottom: 34, minWidth: 170 }}
-                  onPointerDown={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="methodMenuItem mono"
-                    role="menuitem"
-                    onClick={copySchemaToClipboard}
-                    disabled={schemaCopyFeedback}
-                  >
-                    {schemaCopyFeedback ? 'Copied!' : 'Copy'}
-                  </button>
-                  <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
-                    Save
-                  </button>
-                </div>
+            <div className="responseFooterMeta small">
+              {responseSearchErrorText ? (
+                <span className="responseFooterError">{responseSearchErrorText}</span>
+              ) : responseSearchHasMatchesMeta ? (
+                <>
+                  Matches: <span className="mono">{responseSearchMatchesCount}</span>
+                </>
               ) : null}
             </div>
 
-            <button
-              type="button"
-              className="iconBtn"
-              onClick={onCopy}
-              disabled={!canCopy}
-              title={tab === 'body' ? 'Copy body' : 'Copy headers'}
-              aria-label={tab === 'body' ? 'Copy body' : 'Copy headers'}
-            >
-              {copied ? 'OK' : <CopyIcon />}
-            </button>
+            <div className="responseFooterActions">
+              <button
+                type="button"
+                className="iconBtn"
+                onClick={() => {
+                  if (responseSearchOpen) recordResponseSearchHistory(bodyQuery)
+                  setResponseSearchOpen(v => !v)
+                }}
+                disabled={tab !== 'body'}
+                title="Search"
+                aria-label="Search"
+              >
+                <SearchIcon />
+              </button>
+
+              <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
+                <button
+                  type="button"
+                  className="iconBtn"
+                  aria-haspopup="menu"
+                  aria-expanded={schemaMenuOpen}
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    if (!canGenerateSchema) return
+                    clearSchemaCloseTimer()
+                    setSchemaCopyFeedback(false)
+                    setSchemaMenuOpen(v => !v)
+                  }}
+                  disabled={!canGenerateSchema}
+                  title="Generate JSON Schema"
+                  aria-label="Generate JSON Schema"
+                >
+                  <SchemaIcon />
+                </button>
+
+                {schemaMenuOpen ? (
+                  <div
+                    className="methodMenuPanel"
+                    role="menu"
+                    style={{ left: 'auto', right: 0, top: 'auto', bottom: 34, minWidth: 170 }}
+                    onPointerDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="methodMenuItem mono"
+                      role="menuitem"
+                      onClick={copySchemaToClipboard}
+                      disabled={schemaCopyFeedback}
+                    >
+                      {schemaCopyFeedback ? 'Copied!' : 'Copy'}
+                    </button>
+                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
+                      Save
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                className="iconBtn"
+                onClick={onCopy}
+                disabled={!canCopy}
+                title={tab === 'body' ? 'Copy body' : 'Copy headers'}
+                aria-label={tab === 'body' ? 'Copy body' : 'Copy headers'}
+              >
+                {copied ? 'OK' : <CopyIcon />}
+              </button>
+            </div>
           </div>
 
           <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
@@ -679,18 +909,51 @@ export function ResponseViewer(props: {
               </button>
             </div>
 
-            <div className="small" style={{ display: 'grid', gap: 10 }}>
-              <div>
-                Поддерживаются два режима:
-              </div>
-              <div>
-                <b>JSONPath</b> — запрос начинается с <span className="mono">$</span>, например: <span className="mono">$..id</span>
-              </div>
-              <div>
-                <b>Фильтр</b> — выражение вида <span className="mono">field op value</span>, например: <span className="mono">id = 5</span> или <span className="mono">name ~ Максим</span>
-              </div>
-              <div style={{ opacity: 0.8 }}>
-                Операторы: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span>. Списки: <span className="mono">id = 1, 2, 3</span>
+            <div className="small" style={{ display: 'grid', gap: 12 }}>
+              <div className="treeMenuDivider" role="separator" style={{ margin: '2px 0 6px' }} />
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: 14, alignItems: 'start' }}>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div><b>JSONPath</b></div>
+                  <div>
+                    Запрос начинается с <span className="mono">$</span> и выполняется над JSON-ответом.
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Примеры: <span className="mono">$..id</span>, <span className="mono">$.data.items[*].name</span>, <span className="mono">$[0]</span>
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Документация:{' '}
+                    <a
+                      href="https://github.com/JSONPath-Plus/JSONPath"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ textDecoration: 'underline dotted rgba(255,255,255,.28)', textUnderlineOffset: 2 }}
+                    >
+                      JSONPath-Plus / JSONPath
+                    </a>
+                  </div>
+                </div>
+
+                <div className="treeMenuDivider" role="separator" style={{ width: 1, height: '100%', margin: 0, alignSelf: 'stretch' }} />
+
+                <div style={{ display: 'grid', gap: 12 }}>
+                  <div><b>Фильтр</b></div>
+                  <div>
+                    Формат: <span className="mono">field op value</span>. Ищет совпадения по всем объектам внутри JSON (рекурсивно).
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Примеры: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Максим"</span>
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Операторы: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span> (для <span className="mono">~</span> поиск подстроки, без учета регистра).
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Списки: <span className="mono">id = 1, 2, 3</span>. Строки можно брать в кавычки: <span className="mono">"text"</span> или <span className="mono">'text'</span>.
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Пути в поле: <span className="mono">user.name = "Bob"</span> (через точку).
+                  </div>
+                </div>
               </div>
             </div>
           </dialog>
