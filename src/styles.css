@@ -449,7 +449,6 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .small { font-size: 15px; opacity: .8; }
-.emptyHint { margin-top: 10px; }
 
 .codeWithGutter {
   display: flex;
@@ -806,8 +805,6 @@ button:hover { background: rgba(255,255,255,.10); }
 .reqStar { color: #ff9a9a; margin-left: 4px; }
 .keyReqStar { position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; transform: translateY(2px); margin-left: 0; pointer-events: none; }
 .editor .formRow input.keyInput { padding-right: 24px; }
-.headerAdd { display: grid; grid-template-columns: 220px 1fr auto; gap: 10px; }
-.headerAdd button { width: 64px; }
 .editor .formRow input { height: 36px; padding: 8px 10px; }
 .editor .formRow input.valueHistoryInput, .editor .formRow textarea.valueHistoryInput { padding-right: 35px; }
 .editor .headerDeleteBtn, .editor .rowDeleteBtn { height: 36px; }
@@ -903,8 +900,6 @@ button:hover { background: rgba(255,255,255,.10); }
 .responseSearchInner input.valueHistoryInput { padding-right: 60px; box-sizing: border-box; }
 .responseSearchInner input:focus { outline: none; }
 .responseSearchInner input:focus-visible { outline: none; box-shadow: none; border-color: rgba(255,255,255,.22); }
-.responseSearchError { color: #ff9a9a; margin-top: 6px; }
-.responseSearchMeta { opacity: .85; margin-top: 6px; }
 
 /* Tabs */
 .tabs {

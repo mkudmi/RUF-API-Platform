@@ -1,6 +1,6 @@
 type JsonSchemaType = 'null' | 'boolean' | 'number' | 'integer' | 'string' | 'array' | 'object'
 
-export type JsonSchema = {
+type JsonSchema = {
   $schema?: string
   title?: string
   type?: JsonSchemaType
@@ -112,4 +112,3 @@ export function generateJsonSchema(value: unknown, title = 'requestResponseSchem
     ...schemaFor(value),
   }
 }
-

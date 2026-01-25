@@ -19,15 +19,12 @@ import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHis
 import { syncCollectionKeepingIds, summarizeCollectionDiff } from './CollectionTree'
 import { loadAppSettings, saveAppSettings } from './shared/utils/appSettings'
 import { fetchWithProxyFallback } from './shared/utils/proxyFetch'
+import { isAbsoluteUrl } from './shared/utils/url'
 
 //TODO:
 // импорт soap
 // поправить юай для ноутбуков и fullhd
 // запаковать все в exe
-
-function isAbsoluteUrl(url: string) {
-  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
-}
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))

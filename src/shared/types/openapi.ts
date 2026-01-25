@@ -1,1 +1,0 @@
-export type OpenAPIV3Like = any

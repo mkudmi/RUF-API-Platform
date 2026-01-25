@@ -1,11 +1,8 @@
 import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../types'
 import { uid } from '../../shared/utils/id'
+import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
-
-function isAbsoluteUrl(url: string) {
-  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
-}
 
 function resolveServerUrl(server: any): string | undefined {
   const url = server?.url
@@ -34,12 +31,6 @@ function pickSuggestedBaseUrl(spec: any, sourceOrigin?: string): string | undefi
   const rel = (resolved.startsWith('/') ? resolved : `/${resolved}`).replace(/\/+$/, '')
   if (sourceOrigin) return `${sourceOrigin.replace(/\/+$/, '')}${rel}`.replace(/\/+$/, '')
   return rel
-}
-
-function joinUrlParts(a: string, b: string) {
-  const left = a.endsWith('/') ? a.slice(0, -1) : a
-  const right = b.startsWith('/') ? b : `/${b}`
-  return `${left}${right}`
 }
 
 function opDisplayName(method: string, path: string, op: any): string {

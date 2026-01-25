@@ -49,7 +49,7 @@ const BUILTIN_VARIABLES: BuiltinVar[] = [
 
 // Add environment variables you want to appear in the `{{...}}` dropdown here.
 // The dropdown will only show names that are explicitly listed.
-export const SUGGESTED_ENVIRONMENT_VARIABLES: Array<{ name: string, description?: string }> = []
+const SUGGESTED_ENVIRONMENT_VARIABLES: Array<{ name: string, description?: string }> = []
 
 const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(BUILTIN_VARIABLES.map(v => [v.name, v]))
 

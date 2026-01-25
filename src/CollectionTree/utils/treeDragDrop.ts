@@ -1,10 +1,10 @@
-export const RUF_MIME_FOLDER = 'application/x-ruf-folder'
-export const RUF_MIME_REQUEST = 'application/x-ruf-request'
-export const RUF_MIME_COLLECTION = 'application/x-ruf-collection'
+const RUF_MIME_FOLDER = 'application/x-ruf-folder'
+const RUF_MIME_REQUEST = 'application/x-ruf-request'
+const RUF_MIME_COLLECTION = 'application/x-ruf-collection'
 
-export type DraggedFolder = { collectionId: string, folderId: string }
-export type DraggedRequest = { collectionId: string, requestId: string }
-export type DraggedCollection = { collectionId: string }
+type DraggedFolder = { collectionId: string, folderId: string }
+type DraggedRequest = { collectionId: string, requestId: string }
+type DraggedCollection = { collectionId: string }
 
 export function setDraggedFolder(dt: DataTransfer, payload: DraggedFolder) {
   dt.effectAllowed = 'move'

@@ -1,8 +1,8 @@
-export type AppSettings = {
+type AppSettings = {
   validateCertificates: boolean
 }
 
-export const DEFAULT_APP_SETTINGS: AppSettings = {
+const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
 }
 
@@ -31,4 +31,3 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
 export function saveAppSettings(settings: AppSettings, storage: Storage = localStorage) {
   storage.setItem(APP_SETTINGS_KEY, JSON.stringify(settings))
 }
-

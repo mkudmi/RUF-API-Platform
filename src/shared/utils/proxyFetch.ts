@@ -8,7 +8,7 @@ function isCrossOrigin(absoluteUrl: string): boolean {
   }
 }
 
-export function buildProxyUrl(targetAbsoluteUrl: string, opts?: { insecureTls?: boolean }): string {
+function buildProxyUrl(targetAbsoluteUrl: string, opts?: { insecureTls?: boolean }): string {
   const qs = new URLSearchParams()
   qs.set('url', targetAbsoluteUrl)
   if (opts?.insecureTls) qs.set('insecure', '1')
