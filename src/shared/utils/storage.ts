@@ -1,4 +1,4 @@
-import type { Collection } from '../../CollectionTree'
+import type { Collection } from '../../modules/collectionTree'
 import type { Environment } from '../types/environment'
 
 const COLLECTIONS_KEY = 'ruf_collections_v1'

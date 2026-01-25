@@ -1,4 +1,4 @@
-import type { HttpMethod } from '../../CollectionTree'
+import type { HttpMethod } from '../../modules/collectionTree'
 
 export type RequestDraft = {
   pathParams?: Record<string, string>
