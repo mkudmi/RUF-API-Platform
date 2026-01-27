@@ -711,11 +711,13 @@ button:hover { background: rgba(255,255,255,.10); }
 
 /* Editor */
 .editor { display: grid; gap: 10px; }
-.editorHeader { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.editorTitle { display: flex; gap: 10px; align-items: center; min-width: 0; overflow: visible; }
-.editorRequestName { font-weight: 600; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.editorHeader { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.editorTitle { display: flex; gap: 10px; align-items: center; min-width: 0; flex: 1 1 auto; overflow: visible; }
+.editorRequestName { font-weight: 600; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+.editorHeader > button { margin-left: auto; flex: 0 0 auto; }
 .methodMenuWrap { position: relative; display: inline-flex; align-items: center; }
-.methodBadgeBtn { cursor: pointer; font-size: 14px; padding: 8px 10px; line-height: 1; }
+.methodMenuWrap { flex: 0 0 auto; }
+.methodBadgeBtn { cursor: pointer; font-size: 14px; padding: 8px 10px; line-height: 1; flex: 0 0 auto; white-space: nowrap; }
 .methodBadgeBtn::after { content: '▾'; display: inline-block; margin-left: 6px; opacity: .85; font-size: 12px; }
 .methodBadgeBtn:disabled { opacity: .7; cursor: default; }
 .methodBadgeBtn:disabled::after { display: none; }
