@@ -50,6 +50,7 @@ import { isAbsoluteUrl } from '../shared/utils/url'
 // активный неактивный файл
 // добавить переменные из окружения в выбор через скобки
 // поправить смену baseurl в строке урла
+// Экспорт в openapi?? и\или postman
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
