@@ -38,7 +38,26 @@ type BuiltinVar = {
   get: () => string
 }
 
+function randomUuid(): string {
+  const anyCrypto: Crypto | undefined = ('crypto' in globalThis) ? globalThis.crypto : undefined
+  if (anyCrypto?.randomUUID) return anyCrypto.randomUUID()
+
+  // RFC 4122 version 4 UUID via getRandomValues fallback
+  const bytes = new Uint8Array(16)
+  if (anyCrypto?.getRandomValues) anyCrypto.getRandomValues(bytes)
+  else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0'))
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
+}
+
 const BUILTIN_VARIABLES: BuiltinVar[] = [
+  { name: 'uuid', description: 'Random UUID (v4)', get: () => randomUuid() },
   { name: 'localdatetimenow', description: 'Local date-time (YYYY-MM-DDTHH:mm:ss)', get: () => formatLocalDateTime(new Date()) },
   { name: 'localdatenow', description: 'Local date (YYYY-MM-DD)', get: () => formatLocalDate(new Date()) },
   { name: 'localtimenow', description: 'Local time (HH:mm:ss)', get: () => formatLocalTime(new Date()) },
