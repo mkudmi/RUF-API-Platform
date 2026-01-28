@@ -109,6 +109,13 @@ export function ResponseViewer(props: {
 
   const bodyView = useMemo(() => {
     if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null }
+
+    if (props.result.file?.suppressBody) {
+      const name = props.result.file.fileName || 'download'
+      const sizeText = props.result.file.size ? ` (${formatBytes(props.result.file.size)})` : ''
+      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null }
+    }
+
     if (!isJson) return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null }
 
     const q = bodyQuery.trim()
@@ -136,6 +143,20 @@ export function ResponseViewer(props: {
   const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
   const responseSearchMatchesCount = !bodyView.error && bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? bodyView.matchesCount : null
   const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
+
+  const onDownloadFile = useCallback(() => {
+    const f = result?.file
+    if (!f) return
+    const url = URL.createObjectURL(f.blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = f.fileName || 'download'
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }, [result])
 
   const bodyLineCount = useMemo(() => countLines(bodyView.text), [bodyView.text])
   const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
@@ -580,6 +601,17 @@ export function ResponseViewer(props: {
                 {bodyView.text}
               </pre>
             </div>
+
+            {result?.file ? (
+              <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button type="button" onClick={onDownloadFile}>
+                  Download file
+                </button>
+                <div className="small" style={{ opacity: 0.75 }}>
+                  <span className="mono">{result.file.fileName}</span>{result.file.size ? ` · ${formatBytes(result.file.size)}` : ''}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : (

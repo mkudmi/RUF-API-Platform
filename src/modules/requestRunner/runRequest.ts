@@ -17,6 +17,15 @@ export type RunResult = {
   requestHeaders: Record<string, string>
   responseHeaders: Record<string, string>
   bodyText: string
+  file?: RunResultFile
+}
+
+export type RunResultFile = {
+  fileName: string
+  contentType: string
+  size: number
+  blob: Blob
+  suppressBody: boolean
 }
 
 function byteLengthUtf8(text: string): number {
@@ -154,6 +163,93 @@ function getHeader(headers: Record<string, string>, name: string): string | unde
     if (k.toLowerCase() === needle) return v
   }
   return undefined
+}
+
+function sanitizeDownloadFileName(name: string): string {
+  const trimmed = (name || '').trim()
+  if (!trimmed) return 'download'
+
+  let withoutControl = ''
+  for (let i = 0; i < trimmed.length; i++) {
+    const code = trimmed.charCodeAt(i)
+    if (code < 32 || code === 127) continue
+    withoutControl += trimmed[i]
+  }
+
+  const withoutSlashes = withoutControl.replaceAll(/[\\/]/g, '_')
+  const collapsed = withoutSlashes.replaceAll(/\s+/g, ' ').trim()
+  return collapsed || 'download'
+}
+
+function parseContentDispositionFileName(contentDisposition: string | undefined): string | null {
+  const raw = (contentDisposition || '').trim()
+  if (!raw) return null
+
+  // RFC 5987: filename*=UTF-8''...
+  const filenameStarMatch = /(?:^|;)\s*filename\*\s*=\s*([^;]+)/i.exec(raw)
+  if (filenameStarMatch) {
+    const v = filenameStarMatch[1].trim().replaceAll(/^"(.*)"$/g, '$1')
+    const parts = v.split("''")
+    if (parts.length >= 2) {
+      const encoded = parts.slice(1).join("''")
+      try {
+        return decodeURIComponent(encoded)
+      } catch {
+        return encoded
+      }
+    }
+    return v
+  }
+
+  const filenameMatch = /(?:^|;)\s*filename\s*=\s*([^;]+)/i.exec(raw)
+  if (filenameMatch) return filenameMatch[1].trim().replaceAll(/^"(.*)"$/g, '$1')
+  return null
+}
+
+function isTextLikeContentType(contentType: string): boolean {
+  const ct = (contentType || '').trim().toLowerCase()
+  if (!ct) return true
+  if (ct.startsWith('text/')) return true
+  if (ct.includes('json')) return true
+  if (ct.includes('xml')) return true
+  if (ct.includes('yaml') || ct.includes('yml')) return true
+  if (ct.includes('csv')) return true
+  if (ct.includes('html')) return true
+  if (ct.includes('javascript')) return true
+  if (ct.includes('x-www-form-urlencoded')) return true
+  return false
+}
+
+function inferFileExtensionFromContentType(contentType: string): string | null {
+  const ct = (contentType || '').trim().toLowerCase()
+  if (!ct) return null
+  if (ct.includes('pdf')) return '.pdf'
+  if (ct.includes('zip')) return '.zip'
+  if (ct.includes('gzip')) return '.gz'
+  if (ct.includes('json')) return '.json'
+  if (ct.includes('csv')) return '.csv'
+  if (ct.includes('png')) return '.png'
+  if (ct.includes('jpeg') || ct.includes('jpg')) return '.jpg'
+  if (ct.includes('gif')) return '.gif'
+  if (ct.includes('webp')) return '.webp'
+  if (ct.includes('octet-stream')) return '.bin'
+  return null
+}
+
+function inferFileNameFromUrl(url: string, contentType: string): string {
+  try {
+    const base = (typeof location !== 'undefined' && location?.href) ? location.href : 'http://localhost/'
+    const u = new URL(url, base)
+    const parts = u.pathname.split('/').filter(Boolean)
+    const last = parts[parts.length - 1] || ''
+    const decoded = last ? decodeURIComponent(last) : ''
+    if (decoded && decoded !== '/' && decoded !== '.') return decoded
+  } catch {
+    // ignore
+  }
+
+  const ext = inferFileExtensionFromContentType(contentType)
+  return ext ? `download${ext}` : 'download'
 }
 
 function setHeader(headers: Record<string, string>, name: string, value: string) {
@@ -303,9 +399,51 @@ export async function runRequest(args: {
   const headersObj: Record<string,string> = {}
   res.headers.forEach((v,k)=>headersObj[k]=v)
 
-  const bodyText = await res.text()
   const responseHeadersBytes = estimateHeadersBytes(headersObj)
-  const responseBodyBytes = byteLengthUtf8(bodyText)
+
+  const contentType = getHeader(headersObj, 'Content-Type') || ''
+  const contentDisposition = getHeader(headersObj, 'Content-Disposition') || ''
+  const fileNameFromDisposition = parseContentDispositionFileName(contentDisposition)
+  const isAttachment = /\battachment\b/i.test(contentDisposition) || !!fileNameFromDisposition
+  const isTextLike = isTextLikeContentType(contentType)
+  const shouldTreatAsFile = isAttachment || (!isTextLike && !!contentType)
+
+  let bodyText = ''
+  let file: RunResultFile | undefined
+  let responseBodyBytes = 0
+
+  if (shouldTreatAsFile) {
+    const inferred = inferFileNameFromUrl(url, contentType)
+    const fileName = sanitizeDownloadFileName(fileNameFromDisposition || inferred)
+
+    if (isTextLike) {
+      bodyText = await res.text()
+      const blob = new Blob([bodyText], { type: contentType || 'text/plain' })
+      file = {
+        fileName,
+        contentType: contentType || blob.type || 'application/octet-stream',
+        size: blob.size,
+        blob,
+        suppressBody: false,
+      }
+      responseBodyBytes = byteLengthUtf8(bodyText)
+    } else {
+      const blob = await res.blob()
+      file = {
+        fileName,
+        contentType: blob.type || contentType || 'application/octet-stream',
+        size: blob.size,
+        blob,
+        suppressBody: true,
+      }
+      bodyText = ''
+      responseBodyBytes = blob.size
+    }
+  } else {
+    bodyText = await res.text()
+    responseBodyBytes = byteLengthUtf8(bodyText)
+  }
+
   const responseBytes = responseHeadersBytes + responseBodyBytes
 
   return {
@@ -322,5 +460,6 @@ export async function runRequest(args: {
     requestHeaders: requestHeadersObj,
     responseHeaders: headersObj,
     bodyText,
+    file,
   }
 }
