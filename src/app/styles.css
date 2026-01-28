@@ -508,6 +508,18 @@ button:hover { background: rgba(255,255,255,.10); }
   padding-left: 12px;
   border-left: 1px solid rgba(255,255,255,.10);
 }
+.treeWorkspaceFolderInner {
+  border: none;
+  background: transparent;
+  margin-top: 1px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(90,120,255,.18);
+}
+.treeWorkspaceFolderInner > .treeSummary {
+  padding: 1px 8px;
+  border-radius: var(--radius);
+}
+.treeWorkspaceFolderInner > .treeSummary:hover { background: rgba(255,255,255,.05); }
 .treeGroupInner > .treeSummary {
   padding: 1px 8px;
   border-radius: var(--radius);
@@ -528,8 +540,10 @@ button:hover { background: rgba(255,255,255,.10); }
   overflow: visible;
 }
 .treeSummary::-webkit-details-marker { display: none; }
-.treeSummaryFolder { cursor: default; }
-.treeSummaryWorkspaceFolder { cursor: default; padding: 1px 8px; border-radius: var(--radius); }
+.treeSummaryFolder { cursor: pointer; }
+.treeSummaryWorkspaceFolder { cursor: pointer; padding: 1px 8px; border-radius: var(--radius); }
+.treeWorkspaceFolder[open] > .treeSummaryWorkspaceFolder { margin-bottom: 5px; }
+.treeWorkspaceFolderInner[open] > .treeSummaryWorkspaceFolder { margin-bottom: 5px; }
 .treeWorkspaceFolder { background: rgba(90,120,255,.06); border-color: rgba(90,120,255,.18); }
 .treeChevron {
   width: 16px;
@@ -581,7 +595,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeFolderNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; flex: 1 1 auto; }
 .treeItemNameWrap { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; min-width: 0; flex: 1; }
 .treeFolderCount { flex: 0 0 auto; }
-.treeCollectionCount { flex: 0 0 auto; margin-left: auto; }
+.treeCollectionCount { flex: 0 0 auto; }
 .treeNameEditing { cursor: text; outline: none; }
 .treeNameEditing:focus { outline: none; }
 .treeCollectionNameWrap > .treeRenameIcon:not(.treeRenameIconConfirm) { display: none; }

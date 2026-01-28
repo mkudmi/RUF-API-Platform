@@ -824,6 +824,7 @@ export function CollectionsTree(props: {
                         >
                           {draftName}
                         </b>
+                        <span className="small treeCollectionCount">{reqCount}</span>
                         <button
                           className="treeRenameIcon treeRenameIconConfirm"
                           onPointerDown={e => {
@@ -855,6 +856,7 @@ export function CollectionsTree(props: {
                         >
                           {col.name}
                         </b>
+                        <span className="small treeCollectionCount">{reqCount}</span>
                         <button
                           className="treeRenameIcon"
                           onPointerDown={e => {
@@ -873,7 +875,6 @@ export function CollectionsTree(props: {
                         </button>
                       </span>
                     )}
-                    <span className="small treeCollectionCount">{reqCount}</span>
                   </div>
                   <div className="treeSummaryRight">
                     {isEditing ? (

@@ -14,16 +14,30 @@ export function loadWorkspace(): Workspace {
     const foldersValue = isRecord(parsed) ? parsed.folders : null
     const foldersRaw: unknown[] = Array.isArray(foldersValue) ? foldersValue : []
 
+    function parseFolder(v: unknown): WorkspaceFolder | null {
+      if (!isRecord(v)) return null
+      const id = typeof v.id === 'string' ? v.id : ''
+      const name = typeof v.name === 'string' ? v.name : ''
+      const collectionIdsRaw = Array.isArray(v.collectionIds) ? v.collectionIds : []
+      const collectionIds = collectionIdsRaw.filter((x): x is string => typeof x === 'string' && !!x.trim())
+      if (!id || !name) return null
+
+      const foldersRaw = Array.isArray(v.folders) ? v.folders : []
+      const folders: WorkspaceFolder[] = []
+      for (const child of foldersRaw) {
+        const parsed = parseFolder(child)
+        if (parsed) folders.push(parsed)
+      }
+
+      return folders.length ? { id, name, collectionIds, folders } : { id, name, collectionIds }
+    }
+
     const folders: WorkspaceFolder[] = []
     for (const f of foldersRaw) {
-      if (!isRecord(f)) continue
-      const id = typeof f.id === 'string' ? f.id : ''
-      const name = typeof f.name === 'string' ? f.name : ''
-      const collectionIdsRaw = Array.isArray(f.collectionIds) ? f.collectionIds : []
-      const collectionIds = collectionIdsRaw.filter((x): x is string => typeof x === 'string' && !!x.trim())
-      if (!id || !name) continue
-      folders.push({ id, name, collectionIds })
+      const parsed = parseFolder(f)
+      if (parsed) folders.push(parsed)
     }
+
     return { folders }
   } catch {
     return { folders: [] }

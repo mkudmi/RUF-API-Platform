@@ -8,7 +8,7 @@ import { EnvironmentSettings } from '../modules/environment'
 import type { Environment } from '../shared/types/environment'
 import { DEFAULT_ENVIRONMENT } from '../shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from '../shared/utils/storage'
-import type { Workspace } from '../shared/types/workspace'
+import type { Workspace, WorkspaceFolder } from '../shared/types/workspace'
 import { loadWorkspace, saveWorkspace } from '../shared/utils/workspaceStorage'
 import type { RunResult } from '../modules/requestRunner/runRequest'
 import { uid } from '../shared/utils/id'
@@ -23,7 +23,6 @@ import { isAbsoluteUrl } from '../shared/utils/url'
 // Иморт из инсомнии
 // Добавить переменную random UUID
 // Кнопка reload в body запроса которая перезагружает тело из файла
-// В папках подпапки
 // Если в ответе приходит файл, сделать кнопку для сохранения файла
 // Из body убрать красное подчеркивание
 // Двойное нажатие на нижнюю границу редактора body чтобы развернуть по границу текста в поле ввода, вся нижняя граница с возможностью ресайза
@@ -1042,10 +1041,25 @@ export default function App() {
     })
 
     setWorkspace(prev => {
-      const next: Workspace = {
-        ...prev,
-        folders: prev.folders.map(f => ({ ...f, collectionIds: f.collectionIds.filter(id => id !== collectionId) })),
+      function removeCollectionFromWorkspaceFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          const filtered = f.collectionIds.filter(id => id !== collectionId)
+          const childRes = f.folders?.length ? removeCollectionFromWorkspaceFolders(f.folders) : null
+          const nextFoldersInner = childRes ? childRes.folders : f.folders
+          if (childRes?.changed) changed = true
+          const didChangeHere = filtered.length !== f.collectionIds.length
+          if (didChangeHere) changed = true
+          if (!didChangeHere && !childRes?.changed) return f
+          return nextFoldersInner?.length
+            ? { ...f, collectionIds: filtered, folders: nextFoldersInner }
+            : { ...f, collectionIds: filtered, folders: undefined }
+        })
+        return { folders: nextFolders, changed }
       }
+
+      const res = removeCollectionFromWorkspaceFolders(prev.folders)
+      const next: Workspace = { ...prev, folders: res.folders }
       saveWorkspace(next)
       return next
     })
@@ -1092,13 +1106,20 @@ export default function App() {
     }
 
     setWorkspace(prev => {
-      const existing = new Set(prev.folders.map(f => f.name))
+      const existing = new Set<string>()
+      const visit = (folders: WorkspaceFolder[]) => {
+        for (const f of folders) {
+          existing.add(f.name)
+          if (f.folders?.length) visit(f.folders)
+        }
+      }
+      visit(prev.folders)
       let name = base
       for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
 
       const next: Workspace = {
         ...prev,
-        folders: [{ id: uid('wfolder'), name, collectionIds: [] }, ...prev.folders],
+        folders: [{ id: uid('wfolder'), name, collectionIds: [], folders: [] }, ...prev.folders],
       }
       saveWorkspace(next)
       return next
@@ -1107,15 +1128,77 @@ export default function App() {
     closeCreateWorkspaceFolder()
   }
 
+  function addWorkspaceFolderToFolder(parentFolderId: string) {
+    const base = 'New Folder'
+    const newId = uid('wfolder')
+
+    setWorkspace(prev => {
+      const existing = new Set<string>()
+      const visit = (folders: WorkspaceFolder[]) => {
+        for (const f of folders) {
+          existing.add(f.name)
+          if (f.folders?.length) visit(f.folders)
+        }
+      }
+      visit(prev.folders)
+
+      let name = base
+      for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
+      const newFolder: WorkspaceFolder = { id: newId, name, collectionIds: [], folders: [] }
+
+      function addToFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], added: boolean } {
+        let added = false
+        const nextFolders = folders.map(f => {
+          if (f.id === parentFolderId) {
+            added = true
+            const nested = f.folders ?? []
+            return { ...f, folders: [newFolder, ...nested] }
+          }
+          const nested = f.folders ?? []
+          if (!nested.length) return f
+          const child = addToFolders(nested)
+          if (!child.added) return f
+          added = true
+          return { ...f, folders: child.folders }
+        })
+        return { folders: nextFolders, added }
+      }
+
+      const res = addToFolders(prev.folders)
+      if (!res.added) return prev
+      const next: Workspace = { ...prev, folders: res.folders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
   function moveCollectionToWorkspaceFolder(collectionId: string, workspaceFolderId: string | null) {
     setWorkspace(prev => {
-      const nextFolders = prev.folders.map(f => {
-        const filtered = f.collectionIds.filter(id => id !== collectionId)
-        const shouldAddHere = workspaceFolderId && f.id === workspaceFolderId
-        const collectionIds = shouldAddHere ? [...filtered, collectionId] : filtered
-        return filtered.length === f.collectionIds.length && !shouldAddHere ? f : { ...f, collectionIds }
-      })
-      const next: Workspace = { ...prev, folders: nextFolders }
+      function moveInFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          const filtered = f.collectionIds.filter(id => id !== collectionId)
+          const shouldAddHere = workspaceFolderId && f.id === workspaceFolderId
+          const collectionIds = shouldAddHere
+            ? (filtered.includes(collectionId) ? filtered : [...filtered, collectionId])
+            : filtered
+
+          const childRes = f.folders?.length ? moveInFolders(f.folders) : null
+          const nextChildFolders = childRes ? childRes.folders : f.folders
+
+          const didChangeHere = collectionIds.length !== f.collectionIds.length || collectionIds.some((v, i) => v !== f.collectionIds[i])
+          if (didChangeHere || childRes?.changed) changed = true
+          if (!didChangeHere && !childRes?.changed) return f
+          return nextChildFolders?.length
+            ? { ...f, collectionIds, folders: nextChildFolders }
+            : { ...f, collectionIds, folders: undefined }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      const res = moveInFolders(prev.folders)
+      if (!res.changed) return prev
+      const next: Workspace = { ...prev, folders: res.folders }
       saveWorkspace(next)
       return next
     })
@@ -1125,10 +1208,25 @@ export default function App() {
     const nextName = name.trim()
     if (!nextName) return
     setWorkspace(prev => {
-      const next: Workspace = {
-        ...prev,
-        folders: prev.folders.map(f => (f.id === workspaceFolderId ? { ...f, name: nextName } : f)),
+      function renameInFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(f => {
+          const didRename = f.id === workspaceFolderId && f.name !== nextName
+          const childRes = f.folders?.length ? renameInFolders(f.folders) : null
+          const nextChildFolders = childRes ? childRes.folders : f.folders
+          if (didRename || childRes?.changed) changed = true
+          if (!didRename && !childRes?.changed) return f
+          const renamed = didRename ? { ...f, name: nextName } : f
+          return nextChildFolders?.length
+            ? { ...renamed, folders: nextChildFolders }
+            : { ...renamed, folders: undefined }
+        })
+        return { folders: nextFolders, changed }
       }
+
+      const res = renameInFolders(prev.folders)
+      if (!res.changed) return prev
+      const next: Workspace = { ...prev, folders: res.folders }
       saveWorkspace(next)
       return next
     })
@@ -1136,7 +1234,31 @@ export default function App() {
 
   function deleteWorkspaceFolder(workspaceFolderId: string) {
     setWorkspace(prev => {
-      const next: Workspace = { ...prev, folders: prev.folders.filter(f => f.id !== workspaceFolderId) }
+      function removeFolder(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], removed: boolean } {
+        let removed = false
+        const nextFolders: WorkspaceFolder[] = []
+        for (const f of folders) {
+          if (f.id === workspaceFolderId) {
+            removed = true
+            continue
+          }
+          const nested = f.folders ?? []
+          if (nested.length) {
+            const child = removeFolder(nested)
+            if (child.removed) {
+              removed = true
+              nextFolders.push(child.folders.length ? { ...f, folders: child.folders } : { ...f, folders: undefined })
+              continue
+            }
+          }
+          nextFolders.push(f)
+        }
+        return { folders: nextFolders, removed }
+      }
+
+      const res = removeFolder(prev.folders)
+      if (!res.removed) return prev
+      const next: Workspace = { ...prev, folders: res.folders }
       saveWorkspace(next)
       return next
     })
@@ -1307,6 +1429,7 @@ export default function App() {
             onDeleteRequest={deleteRequest}
             onDeleteCollection={requestDeleteCollection}
             onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
+            onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
             onRenameWorkspaceFolder={renameWorkspaceFolder}
             onDeleteWorkspaceFolder={deleteWorkspaceFolder}
           />
