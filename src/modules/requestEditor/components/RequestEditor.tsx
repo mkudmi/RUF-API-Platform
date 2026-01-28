@@ -2352,7 +2352,8 @@ export function RequestEditor(props: {
         responseHeadersBytes: 0,
         responseBodyBytes: 0,
         responseBytes: 0,
-        headers: {},
+        requestHeaders: {},
+        responseHeaders: {},
         bodyText: message,
       })
 

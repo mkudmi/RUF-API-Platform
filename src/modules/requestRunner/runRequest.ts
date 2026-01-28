@@ -14,7 +14,8 @@ export type RunResult = {
   responseHeadersBytes: number
   responseBodyBytes: number
   responseBytes: number
-  headers: Record<string, string>
+  requestHeaders: Record<string, string>
+  responseHeaders: Record<string, string>
   bodyText: string
 }
 
@@ -37,6 +38,17 @@ function estimateHeadersBytes(headers: HeadersInit | undefined): number {
   let total = 0
   for (const [k, v] of Object.entries(headers)) total += byteLengthUtf8(`${k}: ${v}\r\n`)
   return total
+}
+
+function headersInitToObject(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) return {}
+  if (Array.isArray(headers)) return Object.fromEntries(headers)
+  if (headers instanceof Headers) {
+    const out: Record<string, string> = {}
+    headers.forEach((v, k) => { out[k] = v })
+    return out
+  }
+  return { ...headers }
 }
 
 function estimateBodyBytes(body: BodyInit | null | undefined): number {
@@ -261,6 +273,7 @@ export async function runRequest(args: {
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
   const finalUrl = maybeProxyUrl(url, { insecureTls: !validateCertificates })
+  const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)
   const requestBodyBytes = estimateBodyBytes(init.body)
   const requestBytes = requestHeadersBytes + requestBodyBytes
@@ -280,7 +293,8 @@ export async function runRequest(args: {
       responseHeadersBytes: 0,
       responseBodyBytes: 0,
       responseBytes: 0,
-      headers: {},
+      requestHeaders: requestHeadersObj,
+      responseHeaders: {},
       bodyText: e?.message || String(e),
     }
   }
@@ -305,7 +319,8 @@ export async function runRequest(args: {
     responseHeadersBytes,
     responseBodyBytes,
     responseBytes,
-    headers: headersObj,
+    requestHeaders: requestHeadersObj,
+    responseHeaders: headersObj,
     bodyText,
   }
 }

@@ -124,9 +124,13 @@ export function ResponseViewer(props: {
 
   const result = props.result
   const tab = props.tab
-  const headersText = result ? JSON.stringify(result.headers, null, 2) : ''
+  const requestHeadersText = result ? JSON.stringify(result.requestHeaders ?? {}, null, 2) : ''
+  const responseHeadersText = result ? JSON.stringify(result.responseHeaders ?? {}, null, 2) : ''
+  const headersCopyPayload = result
+    ? JSON.stringify({ requestHeaders: result.requestHeaders ?? {}, responseHeaders: result.responseHeaders ?? {} }, null, 2)
+    : ''
   const historyItems = props.historyItems ?? []
-  const copyPayload = tab === 'body' ? bodyView.text : headersText
+  const copyPayload = tab === 'body' ? bodyView.text : headersCopyPayload
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
   const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
@@ -137,9 +141,13 @@ export function ResponseViewer(props: {
   const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
   const bodyGutterWidthCh = Math.max(2, String(bodyLineCount).length) + 1
 
-  const headersLineCount = useMemo(() => countLines(headersText), [headersText])
-  const headersLineNumbers = useMemo(() => buildLineNumbers(headersLineCount), [headersLineCount])
-  const headersGutterWidthCh = Math.max(2, String(headersLineCount).length) + 1
+  const requestHeadersLineCount = useMemo(() => countLines(requestHeadersText), [requestHeadersText])
+  const requestHeadersLineNumbers = useMemo(() => buildLineNumbers(requestHeadersLineCount), [requestHeadersLineCount])
+  const requestHeadersGutterWidthCh = Math.max(2, String(requestHeadersLineCount).length) + 1
+
+  const responseHeadersLineCount = useMemo(() => countLines(responseHeadersText), [responseHeadersText])
+  const responseHeadersLineNumbers = useMemo(() => buildLineNumbers(responseHeadersLineCount), [responseHeadersLineCount])
+  const responseHeadersGutterWidthCh = Math.max(2, String(responseHeadersLineCount).length) + 1
 
   async function onCopy() {
     await copyText(copyPayload)
@@ -577,12 +585,27 @@ export function ResponseViewer(props: {
       ) : (
         <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
           <div style={{ overflow: 'auto', height: '100%' }}>
+            <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>
+              Request Headers
+            </div>
             <div className="codeWithGutter" style={{ fontSize: 12 }}>
-              <pre className="mono codeGutter" style={{ width: `${headersGutterWidthCh}ch` }} aria-hidden="true">
-                {headersLineNumbers}
+              <pre className="mono codeGutter" style={{ width: `${requestHeadersGutterWidthCh}ch` }} aria-hidden="true">
+                {requestHeadersLineNumbers}
               </pre>
               <pre className="mono codePre">
-                {headersText}
+                {requestHeadersText}
+              </pre>
+            </div>
+
+            <div className="small" style={{ opacity: 0.85, marginTop: 12, marginBottom: 6 }}>
+              Response Headers
+            </div>
+            <div className="codeWithGutter" style={{ fontSize: 12 }}>
+              <pre className="mono codeGutter" style={{ width: `${responseHeadersGutterWidthCh}ch` }} aria-hidden="true">
+                {responseHeadersLineNumbers}
+              </pre>
+              <pre className="mono codePre">
+                {responseHeadersText}
               </pre>
             </div>
           </div>
