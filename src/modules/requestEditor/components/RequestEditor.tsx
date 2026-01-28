@@ -1834,6 +1834,14 @@ export function RequestEditor(props: {
     return JSON.stringify(b, null, 2)
   }
 
+  const hasExampleBody = props.request.body?.example !== undefined
+
+  function reloadExampleBodyText() {
+    const next = requestDefaultBodyText()
+    setBodyText(next)
+    bodyTextareaRef.current?.focus()
+  }
+
   useEffect(() => {
     const draft = loadRequestDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
@@ -3807,6 +3815,19 @@ export function RequestEditor(props: {
               {labelForBodyFormat(bodyFormat)}
             </button>
           </div>
+          <button
+            type="button"
+            className="bodyBeautifyBtn mono"
+            onClick={e => {
+              e.preventDefault()
+              e.stopPropagation()
+              reloadExampleBodyText()
+            }}
+            aria-label="Reload example body"
+            title={hasExampleBody ? 'Reload example body' : 'Clear body'}
+          >
+            <ReloadIcon size={16} />
+          </button>
           <button
             type="button"
             className="bodyBeautifyBtn mono"
