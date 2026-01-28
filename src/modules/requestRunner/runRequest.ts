@@ -353,9 +353,11 @@ export async function runRequest(args: {
       deleteHeader(headers, 'Content-Type')
       init.headers = headers as any
       init.body = form
-    } else if (file && ct.includes('application/octet-stream')) {
+    } else if (file) {
       const headers = { ...(init.headers as any) } as Record<string, string>
       if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
+      else if (file.type) setHeader(headers, 'Content-Type', file.type)
+      else setHeader(headers, 'Content-Type', 'application/octet-stream')
       init.headers = headers as any
       init.body = file
     } else {

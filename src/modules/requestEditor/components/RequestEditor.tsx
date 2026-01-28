@@ -2289,9 +2289,7 @@ export function RequestEditor(props: {
   }, [bodyFormat, effectiveHeaders, inactiveHeaderNames, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
   const methodAllowsBody = props.request.method !== 'GET' && props.request.method !== 'HEAD'
-  const supportsFileSend = methodAllowsBody && (
-    isMultipartForm || effectiveContentType.toLowerCase().includes('application/octet-stream')
-  )
+  const supportsFileSend = methodAllowsBody
 
   const resolvedBodyFormatForBeautify = useMemo((): BeautifyBodyFormat => {
     if (bodyFormat === 'auto') return inferBodyFormatFromContentType(effectiveContentType)
@@ -2503,9 +2501,7 @@ export function RequestEditor(props: {
         .filter((x): x is { fieldName: string, file: File } => !!x.file)
       : undefined
     const firstFileForOctetStream = fileRows.find(r => r.file)?.file ?? null
-    const fileForOctetStream = (supportsFileSend && effectiveContentType.toLowerCase().includes('application/octet-stream'))
-      ? firstFileForOctetStream
-      : undefined
+    const fileForOctetStream = supportsFileSend ? firstFileForOctetStream : undefined
 
     const fileFieldName = (fileRows[0]?.fieldName || 'file').trim() || 'file'
 
@@ -2773,7 +2769,6 @@ export function RequestEditor(props: {
 
   function renderFilePicker() {
     const canDeleteRow = fileRows.length > 1
-    const canPickFile = methodAllowsBody
 
     return (
       <div className="section">
@@ -2810,11 +2805,8 @@ export function RequestEditor(props: {
                 type="button"
                 className="chooseFileBtn"
                 title={row.file ? row.file.name : 'Choose file'}
-                disabled={!canPickFile}
-                aria-disabled={!canPickFile}
                 style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={() => {
-                  if (!canPickFile) return
                   activeFileRowIdRef.current = row.id
                   bodyFileInputRef.current?.click()
                 }}
