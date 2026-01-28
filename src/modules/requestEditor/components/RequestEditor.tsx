@@ -263,12 +263,74 @@ function ConfirmIconButton(props: {
   )
 }
 
+function normalizeEnumOptions(enumValues: Array<string | number | boolean> | undefined): string[] {
+  if (!Array.isArray(enumValues) || enumValues.length === 0) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const v of enumValues) {
+    const s = String(v ?? '').trim()
+    if (!s) continue
+    if (seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
+function EnumMenuPanel(props: {
+  values: string[]
+  currentValue: string
+  anchor: { left: number, top: number, width: number }
+  panelRef: RefObject<HTMLDivElement | null>
+  onPick: (value: string) => void
+}) {
+  return (
+    <div
+      className="selectMenuPanel enumMenuPanel"
+      ref={props.panelRef}
+      role="listbox"
+      style={{ position: 'fixed', left: props.anchor.left, top: props.anchor.top, width: props.anchor.width, zIndex: 210 }}
+      onPointerDown={e => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+      onClick={e => {
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+    >
+      {props.values.length ? (
+        props.values.map(v => (
+          <button
+            key={v}
+            type="button"
+            className={`selectMenuItem ${v === props.currentValue ? 'selectMenuItemActive' : ''}`}
+            role="option"
+            aria-selected={v === props.currentValue}
+            onClick={() => props.onPick(v)}
+          >
+            <div className="mono">{v}</div>
+          </button>
+        ))
+      ) : (
+        <div className="enumMenuEmpty small">No values</div>
+      )}
+    </div>
+  )
+}
+
 function ParamRow(props: { 
   param: RequestParam 
   store: Record<string, string> 
   setStore: Dispatch<SetStateAction<Record<string, string>>> 
   onClear?: () => void 
   variableSuggestions: VariableSuggestion[] 
+  enumMenuOpenId?: string | null
+  enumMenuId?: string
+  enumMenuAnchor?: { left: number, top: number, width: number } | null
+  onToggleEnumMenu?: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseEnumMenu?: () => void
+  enumMenuPanelRef?: RefObject<HTMLDivElement | null>
   historyItems?: string[] 
   onRecordHistory?: (value: string) => void 
   onPickHistory?: (value: string) => void 
@@ -286,6 +348,15 @@ function ParamRow(props: {
     typeof props.param.example === 'string' || typeof props.param.example === 'number'
       ? String(props.param.example)
       : props.param.schemaType || ''
+
+  const enumOptions = normalizeEnumOptions(props.param.enumValues)
+  const hasEnumMenu =
+    enumOptions.length > 1 &&
+    !!props.enumMenuId &&
+    props.enumMenuOpenId !== undefined &&
+    !!props.enumMenuPanelRef &&
+    !!props.onToggleEnumMenu &&
+    !!props.onCloseEnumMenu
 
   return (
     <div className="formRow">
@@ -306,6 +377,7 @@ function ParamRow(props: {
       <div 
         style={{ position: 'relative', flex: 1, minWidth: 0 }} 
         data-value-history-anchor 
+        data-enum-anchor
         data-commit-kind="path" 
         data-commit-key={props.param.name} 
       > 
@@ -317,6 +389,14 @@ function ParamRow(props: {
           onBlur={
             props.onRecordHistory
               ? e => props.onRecordHistory!((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? value)
+              : undefined
+          }
+          onClick={
+            hasEnumMenu
+              ? e => {
+                const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
+                props.onToggleEnumMenu?.(props.enumMenuId!, anchorEl)
+              }
               : undefined
           }
           onChangeValue={nextValue => {
@@ -410,6 +490,19 @@ function ParamRow(props: {
             ) : null}
           </> 
            ) : null} 
+
+        {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor && props.enumMenuPanelRef ? (
+          <EnumMenuPanel
+            values={enumOptions}
+            currentValue={value}
+            anchor={props.enumMenuAnchor}
+            panelRef={props.enumMenuPanelRef}
+            onPick={picked => {
+              props.setStore(prev => ({ ...prev, [props.param.name]: picked }))
+              props.onCloseEnumMenu?.()
+            }}
+          />
+        ) : null}
       </div> 
       {props.onClear ? ( 
         <ConfirmIconButton
@@ -523,8 +616,17 @@ function HeaderRow(props: {
   onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
   onCloseHistoryMenu: () => void
   historyMenuPanelRef: RefObject<HTMLDivElement | null>
+  enumValues?: Array<string | number | boolean>
+  enumMenuId?: string
+  enumMenuOpenId: string | null
+  enumMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleEnumMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseEnumMenu: () => void
+  enumMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
+  const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
+  const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
 
   useEffect(() => {
     setDraftName(props.name)
@@ -561,6 +663,7 @@ function HeaderRow(props: {
         <div
           style={{ position: 'relative', flex: 1, minWidth: 0 }}
           data-value-history-anchor
+          data-enum-anchor
           data-commit-kind="header"
           data-commit-key={props.name}
         >
@@ -570,6 +673,14 @@ function HeaderRow(props: {
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
             onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            onClick={
+              hasEnumMenu
+                ? e => {
+                  const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
+                  props.onToggleEnumMenu(props.enumMenuId!, anchorEl)
+                }
+                : undefined
+            }
             placeholder="Value"
           />
           <button
@@ -648,6 +759,18 @@ function HeaderRow(props: {
               </div>
             </div>
           ) : null}
+          {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor ? (
+            <EnumMenuPanel
+              values={enumOptions}
+              currentValue={props.value}
+              anchor={props.enumMenuAnchor}
+              panelRef={props.enumMenuPanelRef}
+              onPick={picked => {
+                props.onChangeValue(picked)
+                props.onCloseEnumMenu()
+              }}
+            />
+          ) : null}
         </div>
         <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
           <input
@@ -682,6 +805,7 @@ function QueryRow(props: {
   isSpec?: boolean
   value: string
   hint?: string
+  enumValues?: Array<string | number | boolean>
   required?: boolean
   isActive: boolean
   onToggleActive: (isActive: boolean) => void
@@ -700,8 +824,16 @@ function QueryRow(props: {
   onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
   onCloseHistoryMenu: () => void
   historyMenuPanelRef: RefObject<HTMLDivElement | null>
+  enumMenuId?: string
+  enumMenuOpenId: string | null
+  enumMenuAnchor: { left: number, top: number, width: number } | null
+  onToggleEnumMenu: (menuId: string, anchorEl: HTMLElement) => void
+  onCloseEnumMenu: () => void
+  enumMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
+  const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
+  const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
 
   useEffect(() => {
     setDraftName(props.name)
@@ -740,6 +872,7 @@ function QueryRow(props: {
         <div
           style={{ position: 'relative', flex: 1, minWidth: 0 }}
           data-value-history-anchor
+          data-enum-anchor
           data-commit-kind="query"
           data-commit-key={props.name}
           data-commit-raw={props.rawName ?? props.name}
@@ -751,6 +884,14 @@ function QueryRow(props: {
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
             onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            onClick={
+              hasEnumMenu
+                ? e => {
+                  const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
+                  props.onToggleEnumMenu(props.enumMenuId!, anchorEl)
+                }
+                : undefined
+            }
             placeholder={props.hint || 'Value'}
           />
           <button
@@ -828,6 +969,18 @@ function QueryRow(props: {
                 </button>
               </div>
             </div>
+          ) : null}
+          {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor ? (
+            <EnumMenuPanel
+              values={enumOptions}
+              currentValue={props.value}
+              anchor={props.enumMenuAnchor}
+              panelRef={props.enumMenuPanelRef}
+              onPick={picked => {
+                props.onChangeValue(picked)
+                props.onCloseEnumMenu()
+              }}
+            />
           ) : null}
         </div>
         <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
@@ -1196,6 +1349,7 @@ export function RequestEditor(props: {
   const ignoreNextUrlBlurCommitRef = useRef(false)
   const methodMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const valueHistoryMenuPanelRef = useRef<HTMLDivElement | null>(null)
+  const enumMenuPanelRef = useRef<HTMLDivElement | null>(null)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -1212,6 +1366,8 @@ export function RequestEditor(props: {
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
+  const [enumMenuOpenId, setEnumMenuOpenId] = useState<string | null>(null)
+  const [enumMenuAnchor, setEnumMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
   const [fileRows, setFileRows] = useState<Array<{ id: string, fieldName: string, file: File | null }>>(() => (
     [{ id: uid('frow'), fieldName: '', file: null }]
   ))
@@ -1291,11 +1447,18 @@ export function RequestEditor(props: {
     setValueHistoryMenuAnchor(null)
   }
 
+  function closeEnumMenu() {
+    setEnumMenuOpenId(null)
+    setEnumMenuAnchor(null)
+  }
+
   function toggleValueHistoryMenu(menuId: string, anchorEl: HTMLElement) {
     if (valueHistoryMenuOpenId === menuId) {
       closeValueHistoryMenu()
       return
     }
+
+    closeEnumMenu()
 
     const rect = anchorEl.getBoundingClientRect()
     const margin = 8
@@ -1317,6 +1480,36 @@ export function RequestEditor(props: {
 
     setValueHistoryMenuOpenId(menuId)
     setValueHistoryMenuAnchor({ left, top, width })
+  }
+
+  function toggleEnumMenu(menuId: string, anchorEl: HTMLElement) {
+    if (enumMenuOpenId === menuId) {
+      closeEnumMenu()
+      return
+    }
+
+    closeValueHistoryMenu()
+
+    const rect = anchorEl.getBoundingClientRect()
+    const margin = 8
+    const assumedMaxHeight = 240
+
+    let width = rect.width
+    if (width < 220) width = 220
+    if (width > 520) width = 520
+
+    let left = rect.left
+    let top = rect.bottom + 6
+
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width)
+    if (left < margin) left = margin
+
+    if (top + assumedMaxHeight > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - 6 - assumedMaxHeight)
+    }
+
+    setEnumMenuOpenId(menuId)
+    setEnumMenuAnchor({ left, top, width })
   }
 
   function commitFocusedValueFieldToState() {
@@ -1395,6 +1588,29 @@ export function RequestEditor(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [valueHistoryMenuOpenId])
+
+  useEffect(() => {
+    if (!enumMenuOpenId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (enumMenuPanelRef.current && enumMenuPanelRef.current.contains(t)) return
+      if (t.closest?.('[data-enum-anchor]')) return
+      closeEnumMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeEnumMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [enumMenuOpenId])
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
 
@@ -3117,6 +3333,13 @@ export function RequestEditor(props: {
                   onToggleHistoryMenu={toggleValueHistoryMenu}
                   onCloseHistoryMenu={closeValueHistoryMenu}
                   historyMenuPanelRef={valueHistoryMenuPanelRef}
+                  enumValues={isSpec ? h.enumValues : undefined}
+                  enumMenuId={isSpec ? `enum:header:${h.name}` : undefined}
+                  enumMenuOpenId={enumMenuOpenId}
+                  enumMenuAnchor={enumMenuAnchor}
+                  onToggleEnumMenu={toggleEnumMenu}
+                  onCloseEnumMenu={closeEnumMenu}
+                  enumMenuPanelRef={enumMenuPanelRef}
                   onChangeValue={nextValue => {
                     setHeaderValueForRequest(h.name, nextValue)
                   }}
@@ -3310,6 +3533,12 @@ export function RequestEditor(props: {
                   }) 
                 }} 
                 variableSuggestions={variableSuggestions} 
+                enumMenuId={`enum:path:${p.name}`}
+                enumMenuOpenId={enumMenuOpenId}
+                enumMenuAnchor={enumMenuAnchor}
+                onToggleEnumMenu={toggleEnumMenu}
+                onCloseEnumMenu={closeEnumMenu}
+                enumMenuPanelRef={enumMenuPanelRef}
                 historyItems={valueHistory.path[p.name] ?? []} 
                 onRecordHistory={next => recordValueHistory('path', p.name, next)} 
                 onPickHistory={next => { 
@@ -3350,6 +3579,7 @@ export function RequestEditor(props: {
                 isSpec={isSpec}
                 value={value}
                 hint={isSpec ? hint : undefined}
+                enumValues={isSpec ? p.enumValues : undefined}
                 required={isSpec ? p.required : false}
                 isActive={isActive}
                 onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
@@ -3374,6 +3604,12 @@ export function RequestEditor(props: {
                 onToggleHistoryMenu={toggleValueHistoryMenu}
                 onCloseHistoryMenu={closeValueHistoryMenu}
                 historyMenuPanelRef={valueHistoryMenuPanelRef}
+                enumMenuId={isSpec ? `enum:query:${rawName}` : undefined}
+                enumMenuOpenId={enumMenuOpenId}
+                enumMenuAnchor={enumMenuAnchor}
+                onToggleEnumMenu={toggleEnumMenu}
+                onCloseEnumMenu={closeEnumMenu}
+                enumMenuPanelRef={enumMenuPanelRef}
                 onChangeValue={nextValue => {
                   setQueryParams(prev => {
                     const next = { ...prev }

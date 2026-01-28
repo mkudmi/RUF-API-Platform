@@ -47,11 +47,17 @@ function collectParams(op: any, pathItem?: any): RequestParam[] {
     if (!p || (p.in !== 'path' && p.in !== 'query' && p.in !== 'header')) continue
     if (typeof p.name !== 'string' || !p.name.trim()) continue
     const key = `${p.in}:${p.name}`
+    const enumRaw = p.schema?.enum ?? p.enum
+    const enumValues =
+      Array.isArray(enumRaw) && enumRaw.length
+        ? enumRaw.filter((v: any) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+        : undefined
     byKey.set(key, {
       name: p.name,
       in: p.in,
       required: !!p.required,
       schemaType: p.schema?.type || p.type,
+      enumValues,
       example: p.example ?? p.schema?.example,
     })
   }

@@ -24,6 +24,7 @@ export type RequestParam = {
   in: 'path'|'query'|'header'
   required?: boolean
   schemaType?: string
+  enumValues?: Array<string | number | boolean>
   example?: any
 }
 

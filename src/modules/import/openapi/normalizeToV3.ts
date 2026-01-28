@@ -106,6 +106,11 @@ function swagger2ParamToV3Param(p: any) {
       ? p.schema
       : { type: p.type || 'string' }
 
+  // Swagger 2 non-body params often put `enum` on the parameter itself.
+  if (!Array.isArray(schema.enum) && Array.isArray(p.enum) && p.enum.length) {
+    schema.enum = p.enum
+  }
+
   return {
     name: p.name,
     in: p.in,

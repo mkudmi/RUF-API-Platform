@@ -257,6 +257,8 @@ input, textarea, select, button {
 .varMenuItem { display: grid; gap: 2px; }
 .varMenuDesc { opacity: .75; font-size: 12px; }
 .varMenuEmpty { padding: 8px 10px; opacity: .75; }
+.enumMenuPanel { max-height: 240px; overflow: auto; }
+.enumMenuEmpty { padding: 8px 10px; opacity: .75; }
 .selectMenuItem {
   width: 100%;
   text-align: left;
