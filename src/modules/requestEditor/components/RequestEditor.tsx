@@ -7,6 +7,7 @@ import { copyText } from '../../../shared/utils/clipboard'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../../shared/utils/url'
 import { uid } from '../../../shared/utils/id'
 import { runRequest, type RunResult } from '../../requestRunner/runRequest'
+import { buildCurlCommand } from '../../requestRunner/buildCurl'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../../environment'
 import { SqlScriptsTab } from './SqlScriptsTab'
@@ -1216,7 +1217,9 @@ export function RequestEditor(props: {
   ))
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
-  const [urlCopied, setUrlCopied] = useState(false)
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false)
+  const copyMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const [copyOk, setCopyOk] = useState(false)
   const [urlTemplateOverride, setUrlTemplateOverride] = useState('')
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
@@ -2163,110 +2166,146 @@ export function RequestEditor(props: {
     }
   }
 
+  function buildSendSnapshot() {
+    const headerDraftRowsToCommit = headerDraftRows.filter(r => r.name.trim() && r.value !== '')
+    const hasDraftHeadersToCommit = headerDraftRowsToCommit.length > 0
+
+    const nextHeaderOverridesForSend = hasDraftHeadersToCommit
+      ? (() => {
+        const next = { ...headerOverrides }
+        for (const row of headerDraftRowsToCommit) {
+          const key = row.name.trim()
+          if (!key) continue
+          next[key] = row.value
+        }
+        return next
+      })()
+      : headerOverrides
+
+    const nextDisabledHeaderNamesForSend = hasDraftHeadersToCommit
+      ? (() => {
+        let changed = false
+        const next = { ...disabledHeaderNames }
+        for (const row of headerDraftRowsToCommit) {
+          const key = row.name.trim()
+          if (!key) continue
+          if (key in next) {
+            delete next[key]
+            changed = true
+          }
+        }
+        return changed ? next : disabledHeaderNames
+      })()
+      : disabledHeaderNames
+
+    const nextInactiveHeaderNamesForSend = hasDraftHeadersToCommit
+      ? (() => {
+        let next = inactiveHeaderNames
+        for (const row of headerDraftRowsToCommit) {
+          const key = row.name.trim()
+          if (!key) continue
+          next = setFlagForHeaderName(next, key, row.isActive)
+        }
+        return next
+      })()
+      : inactiveHeaderNames
+
+    const baseHeadersForSend = (() => {
+      const merged = { ...envHeaders, ...requestBaseHeaders, ...nextHeaderOverridesForSend }
+      for (const key of Object.keys(nextDisabledHeaderNamesForSend)) delete merged[key]
+      return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
+    })()
+
+    const hasAnyFileInput = supportsFileSend && fileRows.some(r => !!r.file)
+    const hasAnyBodyInput =
+      !!bodyText.trim() ||
+      hasAnyFileInput ||
+      !!(methodAllowsBody && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
+    const effectiveHeadersForSend = (() => {
+      if (!hasAnyBodyInput) return baseHeadersForSend
+      if (bodyFormat === 'auto') return baseHeadersForSend
+      const next = { ...baseHeadersForSend }
+      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
+      return next
+    })()
+
+    const queryDraftRowsToCommit = queryDraftRows.filter(r => r.name.trim() && r.value !== '')
+    const hasDraftQueryToCommit = queryDraftRowsToCommit.length > 0
+    const effectiveQueryParamsForCommit = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
+    const nextInactiveQueryParamNamesForSend = hasDraftQueryToCommit
+      ? (() => {
+        let next = inactiveQueryParamNames
+        for (const row of queryDraftRowsToCommit) {
+          const key = row.name.trim()
+          if (!key) continue
+          next = setFlagForKey(next, key, row.isActive)
+        }
+        return next
+      })()
+      : inactiveQueryParamNames
+    const effectiveQueryParamsForSend = (() => {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(effectiveQueryParamsForCommit)) {
+        if (nextInactiveQueryParamNamesForSend[k]) continue
+        out[k] = v
+      }
+      return out
+    })()
+    const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
+      ? (() => {
+        let changed = false
+        const next = { ...disabledQueryParamNames }
+        for (const row of queryDraftRows) {
+          const key = row.name.trim()
+          if (!key) continue
+          if (row.value === '') continue
+          if (!querySpecNames.has(key)) continue
+          if (key in next) {
+            delete next[key]
+            changed = true
+          }
+        }
+        return changed ? next : disabledQueryParamNames
+      })()
+      : disabledQueryParamNames
+
+    const formFields = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
+      ? parseFormFieldsFromBodyText(bodyText)
+      : undefined
+
+    const filesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
+      ? fileRows
+        .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
+        .filter((x): x is { fieldName: string, file: File } => !!x.file)
+      : undefined
+    const firstFileForOctetStream = fileRows.find(r => r.file)?.file ?? null
+    const fileForOctetStream = (supportsFileSend && effectiveContentType.toLowerCase().includes('application/octet-stream'))
+      ? firstFileForOctetStream
+      : undefined
+
+    const fileFieldName = (fileRows[0]?.fieldName || 'file').trim() || 'file'
+
+    return {
+      nextHeaderOverridesForSend,
+      nextDisabledHeaderNamesForSend,
+      nextInactiveHeaderNamesForSend,
+      effectiveHeadersForSend,
+      effectiveQueryParamsForCommit,
+      nextInactiveQueryParamNamesForSend,
+      effectiveQueryParamsForSend,
+      effectiveDisabledQueryParamNamesForSend,
+      formFields,
+      filesForMultipart,
+      fileForOctetStream,
+      fileFieldName,
+    }
+  }
+
   async function send() {
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
-      const headerDraftRowsToCommit = headerDraftRows.filter(r => r.name.trim() && r.value !== '')
-      const hasDraftHeadersToCommit = headerDraftRowsToCommit.length > 0
-
-      const nextHeaderOverridesForSend = hasDraftHeadersToCommit
-        ? (() => {
-          const next = { ...headerOverrides }
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next[key] = row.value
-          }
-          return next
-        })()
-        : headerOverrides
-
-      const nextDisabledHeaderNamesForSend = hasDraftHeadersToCommit
-        ? (() => {
-          let changed = false
-          const next = { ...disabledHeaderNames }
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            if (key in next) {
-              delete next[key]
-              changed = true
-            }
-          }
-          return changed ? next : disabledHeaderNames
-        })()
-        : disabledHeaderNames
-
-      const nextInactiveHeaderNamesForSend = hasDraftHeadersToCommit
-        ? (() => {
-          let next = inactiveHeaderNames
-          for (const row of headerDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next = setFlagForHeaderName(next, key, row.isActive)
-          }
-          return next
-        })()
-        : inactiveHeaderNames
-
-      const baseHeadersForSend = (() => {
-        const merged = { ...envHeaders, ...requestBaseHeaders, ...nextHeaderOverridesForSend }
-        for (const key of Object.keys(nextDisabledHeaderNamesForSend)) delete merged[key]
-        return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
-      })()
-
-      const hasAnyFileInput = supportsFileSend && fileRows.some(r => !!r.file)
-      const hasAnyBodyInput =
-        !!bodyText.trim() ||
-        hasAnyFileInput ||
-        !!(methodAllowsBody && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
-      const effectiveHeadersForSend = (() => {
-        if (!hasAnyBodyInput) return baseHeadersForSend
-        if (bodyFormat === 'auto') return baseHeadersForSend
-        const next = { ...baseHeadersForSend }
-        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
-        return next
-      })()
-      const queryDraftRowsToCommit = queryDraftRows.filter(r => r.name.trim() && r.value !== '')
-      const hasDraftQueryToCommit = queryDraftRowsToCommit.length > 0
-      const effectiveQueryParamsForCommit = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
-      const nextInactiveQueryParamNamesForSend = hasDraftQueryToCommit
-        ? (() => {
-          let next = inactiveQueryParamNames
-          for (const row of queryDraftRowsToCommit) {
-            const key = row.name.trim()
-            if (!key) continue
-            next = setFlagForKey(next, key, row.isActive)
-          }
-          return next
-        })()
-        : inactiveQueryParamNames
-      const effectiveQueryParamsForSend = (() => {
-        const out: Record<string, string> = {}
-        for (const [k, v] of Object.entries(effectiveQueryParamsForCommit)) {
-          if (nextInactiveQueryParamNamesForSend[k]) continue
-          out[k] = v
-        }
-        return out
-      })()
-      const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
-        ? (() => {
-          let changed = false
-          const next = { ...disabledQueryParamNames }
-          for (const row of queryDraftRows) {
-            const key = row.name.trim()
-            if (!key) continue
-            if (row.value === '') continue
-            if (!querySpecNames.has(key)) continue
-            if (key in next) {
-              delete next[key]
-              changed = true
-            }
-          }
-          return changed ? next : disabledQueryParamNames
-        })()
-        : disabledQueryParamNames
+      const snapshot = buildSendSnapshot()
 
       // Intentionally avoid mutating editor state on send.
       // In-flight updates (parent re-render) could cause visible checkbox flicker and mismatch
@@ -2279,28 +2318,24 @@ export function RequestEditor(props: {
         url: displayUrl,
         draft: {
           pathParams,
-          queryParams: effectiveQueryParamsForCommit,
-          inactiveQueryParamNames: nextInactiveQueryParamNamesForSend,
+          queryParams: snapshot.effectiveQueryParamsForCommit,
+          inactiveQueryParamNames: snapshot.nextInactiveQueryParamNamesForSend,
           queryParamKeyOverrides,
-          disabledQueryParamNames: effectiveDisabledQueryParamNamesForSend,
-          headers: effectiveHeadersForSend,
-          headerOverrides: nextHeaderOverridesForSend,
-          disabledHeaderNames: nextDisabledHeaderNamesForSend,
-          inactiveHeaderNames: nextInactiveHeaderNamesForSend,
+          disabledQueryParamNames: snapshot.effectiveDisabledQueryParamNamesForSend,
+          headers: snapshot.effectiveHeadersForSend,
+          headerOverrides: snapshot.nextHeaderOverridesForSend,
+          disabledHeaderNames: snapshot.nextDisabledHeaderNamesForSend,
+          inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
           preSqlScript,
           postSqlScript,
           bodyText,
           bodyFormat,
-          fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
+          fileFieldName: snapshot.fileFieldName,
           fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
           baseUrlKey,
           urlTemplateOverride,
         },
       })
-
-      const formFields = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-        ? parseFormFieldsFromBodyText(bodyText)
-        : undefined
 
       const preSql = preSqlScript.trim()
       const postSql = postSqlScript.trim()
@@ -2358,26 +2393,19 @@ export function RequestEditor(props: {
         }
       }
 
-      const filesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-        ? fileRows
-          .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
-          .filter((x): x is { fieldName: string, file: File } => !!x.file)
-        : undefined
-      const firstFileForOctetStream = fileRows.find(r => r.file)?.file ?? null
-
       let result = await runRequest({
         request: props.request,
         baseUrl,
         urlTemplateOverride,
         variables,
         pathParams,
-        queryParams: effectiveQueryParamsForSend,
-        headers: effectiveHeadersForSend,
+        queryParams: snapshot.effectiveQueryParamsForSend,
+        headers: snapshot.effectiveHeadersForSend,
         bodyText,
-        files: filesForMultipart,
-        file: (supportsFileSend && effectiveContentType.toLowerCase().includes('application/octet-stream')) ? firstFileForOctetStream : undefined,
-        fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
-        formFields,
+        files: snapshot.filesForMultipart,
+        file: snapshot.fileForOctetStream,
+        fileFieldName: snapshot.fileFieldName,
+        formFields: snapshot.formFields,
       })
 
       if (shouldRunSql && postSql && props.environment) {
@@ -2666,8 +2694,29 @@ export function RequestEditor(props: {
 
   async function copyUrlText() {
     await copyText(displayUrl)
-    setUrlCopied(true)
-    setTimeout(() => setUrlCopied(false), 900)
+    setCopyOk(true)
+    setTimeout(() => setCopyOk(false), 900)
+  }
+
+  async function copyCurlText() {
+    const snapshot = buildSendSnapshot()
+    const curl = buildCurlCommand({
+      request: props.request,
+      baseUrl,
+      urlTemplateOverride,
+      variables,
+      pathParams,
+      queryParams: snapshot.effectiveQueryParamsForSend,
+      headers: snapshot.effectiveHeadersForSend,
+      bodyText,
+      files: snapshot.filesForMultipart,
+      file: snapshot.fileForOctetStream,
+      fileFieldName: snapshot.fileFieldName,
+      formFields: snapshot.formFields,
+    })
+    await copyText(curl)
+    setCopyOk(true)
+    setTimeout(() => setCopyOk(false), 900)
   }
 
   function startUrlEdit() {
@@ -2700,7 +2749,30 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     setMethodMenuOpen(false)
+    setCopyMenuOpen(false)
   }, [props.request.id])
+
+  useEffect(() => {
+    if (!copyMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as Node | null
+      const wrap = copyMenuWrapRef.current
+      if (t && wrap && wrap.contains(t)) return
+      setCopyMenuOpen(false)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setCopyMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [copyMenuOpen])
 
   useEffect(() => {
     if (!methodMenuOpen) return
@@ -2809,20 +2881,61 @@ export function RequestEditor(props: {
           }}
           style={{ cursor: 'pointer' }}
         >
-          <button
-            type="button"
-            className="iconBtn"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              void copyUrlText()
-            }}
-            aria-label="Copy URL"
-            title="Copy URL"
-            style={{ width: 28, height: 28 }}
-          >
-            {urlCopied ? 'OK' : <CopyIcon />}
-          </button>
+          <div ref={copyMenuOpen ? copyMenuWrapRef : null} className="methodMenuWrap">
+            <button
+              type="button"
+              className="iconBtn"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => {
+                e.preventDefault()
+                e.stopPropagation()
+                setCopyMenuOpen(v => !v)
+              }}
+              aria-label="Copy"
+              title="Copy"
+              style={{ width: 28, height: 28 }}
+            >
+              {copyOk ? 'OK' : <CopyIcon />}
+            </button>
+
+            {copyMenuOpen ? (
+              <div
+                className="methodMenuPanel"
+                role="menu"
+                onPointerDown={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+              >
+                <button
+                  type="button"
+                  className="methodMenuItem mono"
+                  role="menuitem"
+                  onClick={() => {
+                    setCopyMenuOpen(false)
+                    void copyUrlText()
+                  }}
+                >
+                  Copy URL
+                </button>
+                <button
+                  type="button"
+                  className="methodMenuItem mono"
+                  role="menuitem"
+                  onClick={() => {
+                    setCopyMenuOpen(false)
+                    void copyCurlText()
+                  }}
+                >
+                  Copy cURL
+                </button>
+              </div>
+            ) : null}
+          </div>
 
           {isEditingUrl ? (
             <VariableAutocompleteField
