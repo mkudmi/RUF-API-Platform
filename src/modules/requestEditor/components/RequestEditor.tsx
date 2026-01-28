@@ -100,6 +100,23 @@ function defaultQueryParamsFromSpec(_params: RequestParam[]) {
   return {}
 }
 
+type DraftRow = { id: string, name: string, value: string, isActive: boolean }
+
+function normalizeDraftRows(raw: unknown, prefix: 'qrow' | 'hrow'): DraftRow[] {
+  if (!Array.isArray(raw)) return []
+  const out: DraftRow[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as { id?: unknown, name?: unknown, value?: unknown, isActive?: unknown }
+    const name = typeof row.name === 'string' ? row.name : ''
+    const value = typeof row.value === 'string' ? row.value : ''
+    const isActive = typeof row.isActive === 'boolean' ? row.isActive : true
+    const id = typeof row.id === 'string' && row.id ? row.id : uid(prefix)
+    out.push({ id, name, value, isActive })
+  }
+  return out
+}
+
 function setFlagForKey(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
   const key = keyRaw.trim()
   if (!key) return prev
@@ -410,14 +427,61 @@ function ParamRow(props: {
   ) 
 } 
 
-function normalizeHeaderParams(requestHeaders: RequestParam[], headersStore: Record<string, string>) {
+function findKeyIndexCaseInsensitive(list: string[], needle: string): number {
+  const n = needle.toLowerCase()
+  for (let i = 0; i < list.length; i++) {
+    if ((list[i] ?? '').toLowerCase() === n) return i
+  }
+  return -1
+}
+
+function replaceKeyInOrder(prev: string[], fromKey: string, toKey: string): string[] {
+  const from = fromKey.trim()
+  const to = toKey.trim()
+  if (!from || !to || from === to) return prev
+  const fromIdx = prev.indexOf(from)
+  if (fromIdx < 0) {
+    return prev.includes(to) ? prev : [...prev, to]
+  }
+  const withoutTo = prev.filter(k => k !== to)
+  const next = [...withoutTo]
+  const idx = next.indexOf(from)
+  next[idx] = to
+  return next
+}
+
+function replaceKeyInOrderCaseInsensitive(prev: string[], fromKey: string, toKey: string): string[] {
+  const from = fromKey.trim()
+  const to = toKey.trim()
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return prev
+  const fromIdx = findKeyIndexCaseInsensitive(prev, from)
+  if (fromIdx < 0) {
+    return findKeyIndexCaseInsensitive(prev, to) >= 0 ? prev : [...prev, to]
+  }
+  const next = prev.filter(k => (k ?? '').toLowerCase() !== to.toLowerCase())
+  const idx = findKeyIndexCaseInsensitive(next, from)
+  next[idx] = to
+  return next
+}
+
+function normalizeHeaderParams(
+  requestHeaders: RequestParam[],
+  headersStore: Record<string, string>,
+  keyOrder: string[],
+) {
   const spec = requestHeaders.filter(Boolean)
   const out: RequestParam[] = [...spec]
   for (const k of Object.keys(headersStore)) {
     if (spec.some(x => x.name === k)) continue
     out.push({ name: k, in: 'header', required: false })
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name))
+  // Preserve a stable, explicit order for all rows (old at top, new at bottom).
+  const decorated = out.map((p, i) => {
+    const idx = findKeyIndexCaseInsensitive(keyOrder, p.name)
+    return { p, sortKey: (idx >= 0 ? idx : (1_000_000 + i)) }
+  })
+  decorated.sort((a, b) => a.sortKey - b.sortKey)
+  return decorated.map(x => x.p)
 }
 
 function renameStoreKey(
@@ -802,6 +866,7 @@ function QueryDraftRow(props: {
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
   canDelete?: boolean
+  onCommit?: () => void
   variableSuggestions: VariableSuggestion[]
   historyItems: string[]
   onRecordHistory: (value: string) => void
@@ -822,6 +887,12 @@ function QueryDraftRow(props: {
         className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
         value={props.name}
         onChange={e => props.onChangeName(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            props.onCommit?.()
+          }
+        }}
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -836,7 +907,10 @@ function QueryDraftRow(props: {
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
-            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            onBlur={e => {
+              props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)
+              props.onCommit?.()
+            }}
             placeholder="Value"
           />
           <button
@@ -952,6 +1026,7 @@ function HeaderDraftRow(props: {
   onChangeValue: (nextValue: string) => void
   onDelete: () => void
   canDelete?: boolean
+  onCommit?: () => void
   variableSuggestions: VariableSuggestion[]
   historyItems: string[]
   onRecordHistory: (value: string) => void
@@ -972,6 +1047,12 @@ function HeaderDraftRow(props: {
         className="mono"
         value={props.name}
         onChange={e => props.onChangeName(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            props.onCommit?.()
+          }
+        }}
         placeholder="Key"
       />
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -986,7 +1067,10 @@ function HeaderDraftRow(props: {
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
-            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
+            onBlur={e => {
+              props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)
+              props.onCommit?.()
+            }}
             placeholder="Value"
           />
           <button
@@ -1115,6 +1199,7 @@ export function RequestEditor(props: {
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
   const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
+  const [queryKeyOrder, setQueryKeyOrder] = useState<string[]>([])
   const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
   const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
   const [inactiveQueryParamNames, setInactiveQueryParamNames] = useState<Record<string, true>>({})
@@ -1122,6 +1207,7 @@ export function RequestEditor(props: {
   const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
   const [inactiveHeaderNames, setInactiveHeaderNames] = useState<Record<string, true>>({})
   const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
+  const [headerKeyOrder, setHeaderKeyOrder] = useState<string[]>([])
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
@@ -1136,6 +1222,42 @@ export function RequestEditor(props: {
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
   const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
+
+  function commitQueryDraftRowById(rowId: string) {
+    const row = queryDraftRows.find(r => r.id === rowId)
+    if (!row) return
+    const key = row.name.trim()
+    if (!key || row.value === '') return
+    if (querySpecNames.has(key)) return
+    if (hasOwn(queryParams, key)) return
+
+    setQueryKeyOrder(prev => (prev.includes(key) ? prev : [...prev, key]))
+    setQueryParams(prev => ({ ...prev, [key]: row.value }))
+    setInactiveQueryParamNames(prev => setFlagForKey(prev, key, row.isActive))
+    setDisabledQueryParamNames(prev => {
+      if (!hasOwn(prev, key)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setQueryDraftRows(prev => prev.filter(r => r.id !== rowId))
+  }
+
+  function commitHeaderDraftRowById(rowId: string) {
+    const row = headerDraftRows.find(r => r.id === rowId)
+    if (!row) return
+    const key = row.name.trim()
+    if (!key || row.value === '') return
+
+    const lower = key.toLowerCase()
+    const hasCommitted = Object.keys(committedHeaders).some(k => k.toLowerCase() === lower)
+    if (hasCommitted) return
+
+    setHeaderKeyOrder(prev => (findKeyIndexCaseInsensitive(prev, key) >= 0 ? prev : [...prev, key]))
+    setHeaderValueForRequest(key, row.value)
+    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, key, row.isActive))
+    setHeaderDraftRows(prev => prev.filter(r => r.id !== rowId))
+  }
 
   function recordValueHistory(kind: ValueHistoryKind, key: string, value: string) {
     setValueHistory(prev => {
@@ -1497,6 +1619,9 @@ export function RequestEditor(props: {
     const draft = loadRequestDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextQueryDraftRows = normalizeDraftRows(draft?.queryDraftRows, 'qrow')
+    const nextDisabledQueryParamNames =
+      draft?.disabledQueryParamNames && typeof draft.disabledQueryParamNames === 'object' ? draft.disabledQueryParamNames : {}
     const nextInactiveQueryParamNames =
       draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
 
@@ -1520,6 +1645,7 @@ export function RequestEditor(props: {
 
     const nextInactiveHeaderNames =
       draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? draft.inactiveHeaderNames : {}
+    const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
 
     const headersForSeedCheck = (() => {
       const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
@@ -1527,24 +1653,70 @@ export function RequestEditor(props: {
       return next
     })()
 
+    const nextQueryKeyOrder = (() => {
+      const raw = Array.isArray(draft?.queryKeyOrder) ? draft?.queryKeyOrder : null
+      const stored = (raw ?? []).filter(x => typeof x === 'string')
+      if (stored.length) return stored
+
+      const overrides = (draft?.queryParamKeyOverrides && typeof draft.queryParamKeyOverrides === 'object')
+        ? draft.queryParamKeyOverrides as Record<string, string>
+        : {}
+      const overriddenKeys = new Set(Object.values(overrides).filter(Boolean))
+      const specRaw = props.request.params.filter(p => p.in === 'query').map(p => p.name).filter(Boolean)
+      const disabledSpec = new Set(Object.keys(nextDisabledQueryParamNames).filter(Boolean))
+      const specEffective = specRaw
+        .filter(n => !disabledSpec.has(n))
+        .map(n => (overrides[n] ?? n))
+        .filter(Boolean)
+
+      const specRawSet = new Set(specRaw)
+      const extras = Object.keys(nextQueryParams).filter(k => !specRawSet.has(k) && !overriddenKeys.has(k))
+      return [...specEffective, ...extras]
+    })()
+
+    const nextHeaderKeyOrder = (() => {
+      const raw = Array.isArray(draft?.headerKeyOrder) ? draft?.headerKeyOrder : null
+      const stored = (raw ?? []).filter(x => typeof x === 'string')
+      if (stored.length) return stored
+
+      const spec = props.request.params
+        .filter(p => p.in === 'header')
+        .map(p => p.name)
+        .filter(n => typeof n === 'string' && n && n.toLowerCase() !== 'authorization')
+
+      const combinedKeys = Object.keys(headersForSeedCheck).filter(k => k.toLowerCase() !== 'authorization')
+      const out: string[] = []
+      for (const k of spec) {
+        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
+        out.push(k)
+      }
+      for (const k of combinedKeys) {
+        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
+        out.push(k)
+      }
+      return out
+    })()
+
     const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
     const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
-    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
+    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore && nextQueryDraftRows.length === 0
 
     const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
     const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
-    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
+    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore && nextHeaderDraftRows.length === 0
 
     setPathParams(nextPathParams)
     setQueryParams(nextQueryParams)
-    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : [])
+    setQueryDraftRows(nextQueryDraftRows.length ? nextQueryDraftRows : (shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : []))
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setDisabledQueryParamNames(nextDisabledQueryParamNames)
     setInactiveQueryParamNames(nextInactiveQueryParamNames)
+    setQueryKeyOrder(nextQueryKeyOrder)
     setHeaderOverrides(nextHeaderOverrides)
     setDisabledHeaderNames(nextDisabledHeaderNames)
     setInactiveHeaderNames(nextInactiveHeaderNames)
-    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : [])
+    setHeaderDraftRows(nextHeaderDraftRows.length ? nextHeaderDraftRows : (shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : []))
+    setHeaderKeyOrder(nextHeaderKeyOrder)
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
@@ -1578,6 +1750,9 @@ export function RequestEditor(props: {
 
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
+    const nextQueryDraftRows = normalizeDraftRows(draft?.queryDraftRows, 'qrow')
+    const nextDisabledQueryParamNames =
+      draft?.disabledQueryParamNames && typeof draft.disabledQueryParamNames === 'object' ? (draft.disabledQueryParamNames as Record<string, true>) : {}
     const nextInactiveQueryParamNames =
       draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
 
@@ -1607,6 +1782,7 @@ export function RequestEditor(props: {
 
     const nextInactiveHeaderNames =
       draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? (draft.inactiveHeaderNames as Record<string, true>) : {}
+    const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
 
     const headersForSeedCheck = (() => {
       const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
@@ -1614,24 +1790,70 @@ export function RequestEditor(props: {
       return next
     })()
 
+    const nextQueryKeyOrder = (() => {
+      const raw = Array.isArray(draft?.queryKeyOrder) ? draft?.queryKeyOrder : null
+      const stored = (raw ?? []).filter(x => typeof x === 'string')
+      if (stored.length) return stored
+
+      const overrides = (draft?.queryParamKeyOverrides && typeof draft.queryParamKeyOverrides === 'object')
+        ? (draft.queryParamKeyOverrides as Record<string, string>)
+        : {}
+      const overriddenKeys = new Set(Object.values(overrides).filter(Boolean))
+      const specRaw = props.request.params.filter(p => p.in === 'query').map(p => p.name).filter(Boolean)
+      const disabledSpec = new Set(Object.keys(nextDisabledQueryParamNames).filter(Boolean))
+      const specEffective = specRaw
+        .filter(n => !disabledSpec.has(n))
+        .map(n => (overrides[n] ?? n))
+        .filter(Boolean)
+
+      const specRawSet = new Set(specRaw)
+      const extras = Object.keys(nextQueryParams).filter(k => !specRawSet.has(k) && !overriddenKeys.has(k))
+      return [...specEffective, ...extras]
+    })()
+
+    const nextHeaderKeyOrder = (() => {
+      const raw = Array.isArray(draft?.headerKeyOrder) ? draft?.headerKeyOrder : null
+      const stored = (raw ?? []).filter(x => typeof x === 'string')
+      if (stored.length) return stored
+
+      const spec = props.request.params
+        .filter(p => p.in === 'header')
+        .map(p => p.name)
+        .filter(n => typeof n === 'string' && n && n.toLowerCase() !== 'authorization')
+
+      const combinedKeys = Object.keys(headersForSeedCheck).filter(k => k.toLowerCase() !== 'authorization')
+      const out: string[] = []
+      for (const k of spec) {
+        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
+        out.push(k)
+      }
+      for (const k of combinedKeys) {
+        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
+        out.push(k)
+      }
+      return out
+    })()
+
     const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
     const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
-    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore
+    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore && nextQueryDraftRows.length === 0
 
     const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
     const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
-    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore
+    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore && nextHeaderDraftRows.length === 0
 
     setPathParams(nextPathParams)
     setQueryParams(nextQueryParams)
-    setQueryDraftRows(shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : [])
+    setQueryDraftRows(nextQueryDraftRows.length ? nextQueryDraftRows : (shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : []))
     setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(draft?.disabledQueryParamNames ?? {})
+    setDisabledQueryParamNames(nextDisabledQueryParamNames)
     setInactiveQueryParamNames(nextInactiveQueryParamNames)
+    setQueryKeyOrder(nextQueryKeyOrder)
     setHeaderOverrides(nextHeaderOverrides)
     setDisabledHeaderNames(nextDisabledHeaderNames)
     setInactiveHeaderNames(nextInactiveHeaderNames)
-    setHeaderDraftRows(shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : [])
+    setHeaderDraftRows(nextHeaderDraftRows.length ? nextHeaderDraftRows : (shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : []))
+    setHeaderKeyOrder(nextHeaderKeyOrder)
     setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
     const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
     setBodyText(nextBodyText)
@@ -1655,12 +1877,16 @@ export function RequestEditor(props: {
     saveRequestDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
       queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
+      queryDraftRows: nextQueryDraftRows,
+      queryKeyOrder: nextQueryKeyOrder,
       inactiveQueryParamNames: nextInactiveQueryParamNames,
       queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
-      disabledQueryParamNames: draft?.disabledQueryParamNames ?? {},
+      disabledQueryParamNames: nextDisabledQueryParamNames,
       preSqlScript: draft?.preSqlScript ?? '',
       postSqlScript: draft?.postSqlScript ?? '',
       headerOverrides: nextHeaderOverrides,
+      headerDraftRows: nextHeaderDraftRows,
+      headerKeyOrder: nextHeaderKeyOrder,
       disabledHeaderNames: nextDisabledHeaderNames,
       inactiveHeaderNames: nextInactiveHeaderNames,
       bodyText: nextBodyText,
@@ -1681,12 +1907,16 @@ export function RequestEditor(props: {
       saveRequestDraft(props.request.id, {
         pathParams,
         queryParams,
+        queryDraftRows,
+        queryKeyOrder,
         inactiveQueryParamNames,
         queryParamKeyOverrides,
         disabledQueryParamNames,
         preSqlScript,
         postSqlScript,
         headerOverrides,
+        headerDraftRows,
+        headerKeyOrder,
         disabledHeaderNames,
         inactiveHeaderNames,
         bodyText,
@@ -1709,11 +1939,15 @@ export function RequestEditor(props: {
     inactiveHeaderNames,
     fileRows,
     headerOverrides,
+    headerKeyOrder,
+    headerDraftRows,
     pathParams,
     postSqlScript,
     preSqlScript,
     props.request.id,
     queryParams,
+    queryKeyOrder,
+    queryDraftRows,
     inactiveQueryParamNames,
     queryParamKeyOverrides,
     disabledQueryParamNames,
@@ -1743,18 +1977,64 @@ export function RequestEditor(props: {
       if (overriddenKeys.has(k)) continue
       out.push({ name: k, in: 'query', required: false })
     }
-    return out
-  }, [disabledQuerySpecNames, grouped.query, queryParams, queryParamKeyOverrides, querySpecNames])
+    const decorated = out.map((p, i) => {
+      const raw = p.name
+      const isSpec = querySpecNames.has(raw)
+      const key = isSpec ? (queryParamKeyOverrides[raw] ?? raw) : raw
+      const idx = queryKeyOrder.indexOf(key)
+      return { p, sortKey: (idx >= 0 ? idx : (1_000_000 + i)) }
+    })
+    decorated.sort((a, b) => a.sortKey - b.sortKey)
+    return decorated.map(x => x.p)
+  }, [disabledQuerySpecNames, grouped.query, queryKeyOrder, queryParams, queryParamKeyOverrides, querySpecNames])
 
   const headerParams = useMemo(
-    () => normalizeHeaderParams(grouped.header, committedHeaders),
-    [grouped.header, committedHeaders],
+    () => normalizeHeaderParams(grouped.header, committedHeaders, headerKeyOrder),
+    [grouped.header, committedHeaders, headerKeyOrder],
   )
   const headerSpecNames = useMemo(() => new Set(grouped.header.map(h => h.name)), [grouped.header])
   const visibleHeaderParams = useMemo(
     () => headerParams.filter(h => h.name.toLowerCase() !== 'authorization'),
     [headerParams],
   )
+
+  useEffect(() => {
+    const overriddenKeys = new Set(Object.values(queryParamKeyOverrides).filter(Boolean))
+    const specVisible = grouped.query
+      .filter(Boolean)
+      .filter(p => !disabledQuerySpecNames.has(p.name))
+      .map(p => (queryParamKeyOverrides[p.name] ?? p.name))
+      .filter(Boolean)
+    const extras = Object.keys(queryParams).filter(k => !querySpecNames.has(k) && !overriddenKeys.has(k))
+    const visible = [...specVisible, ...extras]
+
+    setQueryKeyOrder(prev => {
+      const keep = new Set(visible)
+      let next = prev.filter(k => keep.has(k))
+      for (const k of visible) {
+        if (!next.includes(k)) next.push(k)
+      }
+      return next
+    })
+  }, [disabledQuerySpecNames, grouped.query, queryParamKeyOverrides, queryParams, querySpecNames])
+
+  useEffect(() => {
+    const specVisible = grouped.header
+      .filter(Boolean)
+      .map(h => h.name)
+      .filter(n => n && n.toLowerCase() !== 'authorization')
+    const extras = Object.keys(committedHeaders).filter(k => k.toLowerCase() !== 'authorization')
+    const visible = [...specVisible, ...extras]
+
+    setHeaderKeyOrder(prev => {
+      const keepNeedles = new Set(visible.map(k => k.toLowerCase()))
+      let next = prev.filter(k => keepNeedles.has((k ?? '').toLowerCase()))
+      for (const k of visible) {
+        if (findKeyIndexCaseInsensitive(next, k) < 0) next = [...next, k]
+      }
+      return next
+    })
+  }, [committedHeaders, grouped.header])
 
   useEffect(() => {
     if (headerDraftRows.length > 0) return
@@ -2775,6 +3055,7 @@ export function RequestEditor(props: {
                           if (wasInactive) next = setFlagForHeaderName(next, nextKey, false)
                           return next
                         })
+                        setHeaderKeyOrder(prev => replaceKeyInOrderCaseInsensitive(prev, h.name, nextKey))
                       }
                   }
                   onDelete={
@@ -2847,6 +3128,7 @@ export function RequestEditor(props: {
                 onToggleActive={isActive => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+                onCommit={() => commitHeaderDraftRowById(row.id)}
                 variableSuggestions={variableSuggestions}
                 historyItems={valueHistory.header[row.name.trim()] ?? []}
                 onRecordHistory={next => recordValueHistory('header', row.name, next)}
@@ -3016,6 +3298,7 @@ export function RequestEditor(props: {
                         return next
                       })
                       setInactiveQueryParamNames(prev => setFlagForKey(prev, trimmed, isActive))
+                      setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
                       return
                     }
 
@@ -3033,6 +3316,7 @@ export function RequestEditor(props: {
 
                     setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
                     setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
+                    setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
                   }
                 }
                 onDelete={() => {
@@ -3116,6 +3400,7 @@ export function RequestEditor(props: {
               onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
               onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
               onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+              onCommit={() => commitQueryDraftRowById(row.id)}
               variableSuggestions={variableSuggestions}
               historyItems={valueHistory.query[row.name.trim()] ?? []}
               onRecordHistory={next => recordValueHistory('query', row.name, next)}
