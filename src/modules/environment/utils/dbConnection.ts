@@ -1,4 +1,5 @@
 import type { Environment } from '../../../shared/types/environment'
+import { isTauri, tauriInvoke } from '../../../shared/utils/tauri'
 
 export type DbType = 'postgres' | 'mysql'
 
@@ -115,6 +116,18 @@ export function mergeDbIntoVariables(variables: Record<string, string>, state: D
 
 export async function runDbConnectionTest(opts: { type: string; connectionString: string }) {
   const started = performance.now()
+
+  if (isTauri()) {
+    const result = await tauriInvoke<{ ok: boolean; message?: string }>('db_test', {
+      args: {
+        type: opts.type,
+        connectionString: opts.connectionString,
+      },
+    })
+    const durationMs = Math.max(0, Math.round(performance.now() - started))
+    return { ok: !!result.ok, message: result.message || (result.ok ? 'OK' : 'Failed'), durationMs }
+  }
+
   const resp = await fetch('/__ruf/db/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -152,6 +165,21 @@ export async function runDbConnectionTest(opts: { type: string; connectionString
 
 export async function runDbSql(opts: { type: string; connectionString: string; sql: string; timeoutMs?: number }) {
   const started = performance.now()
+
+  if (isTauri()) {
+    const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number }>('db_exec', {
+      args: {
+        type: opts.type,
+        connectionString: opts.connectionString,
+        sql: opts.sql,
+        timeoutMs: opts.timeoutMs,
+      },
+    })
+    const durationMs = Math.max(0, Math.round(performance.now() - started))
+    const msg = result.message || (result.ok ? `OK${typeof result.rowsAffected === 'number' ? ` (${result.rowsAffected})` : ''}` : 'Failed')
+    return { ok: !!result.ok, message: msg, durationMs }
+  }
+
   const resp = await fetch('/__ruf/db/exec', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -1,3 +1,6 @@
+import { isTauri } from './tauri'
+import { platformFetch } from './platformFetch'
+
 function isCrossOrigin(absoluteUrl: string): boolean {
   try {
     if (typeof location === 'undefined') return false
@@ -20,11 +23,15 @@ export async function fetchWithProxyFallback(
   init?: RequestInit,
   opts?: { insecureTls?: boolean },
 ): Promise<Response> {
+  if (isTauri()) {
+    return await platformFetch(targetAbsoluteUrl, init, opts)
+  }
+
   try {
-    return await fetch(targetAbsoluteUrl, init)
+    return await platformFetch(targetAbsoluteUrl, init, opts)
   } catch (e) {
     if (!isCrossOrigin(targetAbsoluteUrl)) throw e
-    return await fetch(buildProxyUrl(targetAbsoluteUrl, opts), init)
+    return await platformFetch(buildProxyUrl(targetAbsoluteUrl, opts), init, opts)
   }
 }
 

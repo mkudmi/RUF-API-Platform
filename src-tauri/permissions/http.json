@@ -1,0 +1,12 @@
+{
+  "permission": [
+    {
+      "identifier": "http-raw",
+      "description": "Allows making HTTP requests from the Rust backend (CORS-free).",
+      "commands": {
+        "allow": ["http_request"]
+      }
+    }
+  ]
+}
+

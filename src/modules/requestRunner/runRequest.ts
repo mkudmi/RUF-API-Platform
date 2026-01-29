@@ -2,6 +2,8 @@ import type { RequestItem } from '../collectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'
+import { isTauri } from '../../shared/utils/tauri'
+import { platformFetch } from '../../shared/utils/platformFetch'
 
 export type RunResult = {
   ok: boolean
@@ -80,6 +82,7 @@ function estimateBodyBytes(body: BodyInit | null | undefined): number {
 }
 
 function maybeProxyUrl(url: string, opts: { insecureTls?: boolean }) {
+  if (isTauri()) return url
   const insecureTls = !!opts.insecureTls
   try {
     const u = new URL(url)
@@ -377,7 +380,7 @@ export async function runRequest(args: {
   const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
-    res = await fetch(finalUrl, init)
+    res = await platformFetch(finalUrl, init, { insecureTls: !validateCertificates })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
     return {

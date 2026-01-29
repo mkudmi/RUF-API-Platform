@@ -124,6 +124,10 @@ async function registerProxyRoute(middlewares: any) {
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
   plugins: [
     react(),
     {

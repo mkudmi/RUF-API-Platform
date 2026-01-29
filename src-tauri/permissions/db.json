@@ -1,0 +1,12 @@
+{
+  "permission": [
+    {
+      "identifier": "db-access",
+      "description": "Allows executing built-in DB commands.",
+      "commands": {
+        "allow": ["db_test", "db_exec"]
+      }
+    }
+  ]
+}
+

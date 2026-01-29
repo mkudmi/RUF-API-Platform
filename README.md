@@ -39,6 +39,25 @@ npm run dev
 
 Открой `http://localhost:5173` (порт может отличаться — Vite покажет в консоли).
 
+## Desktop (Tauri)
+
+Требования:
+- Node.js + npm
+- Rust toolchain (plugin-http требует Rust ≥ 1.77.2)
+
+Запуск в dev-режиме:
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+Сборка desktop-приложения:
+
+```bash
+npm run tauri:build
+```
+
 ## Использование
 
 1. Нажми `+` (внизу справа) → импортируй OpenAPI:
@@ -57,6 +76,8 @@ npm run dev
 - `npm run build` — TypeScript build + production build
 - `npm run preview` — локальный просмотр production build
 - `npm run lint` — ESLint
+- `npm run tauri:dev` — desktop dev (Tauri + Vite)
+- `npm run tauri:build` — сборка desktop (Tauri)
 
 ## Хранение данных
 
@@ -70,4 +91,3 @@ npm run dev
 - React + TypeScript
 - Vite
 - `yaml` для YAML/JSON импорта
-

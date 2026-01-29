@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Default permissions for the main window.","local":true,"windows":["main"],"permissions":["core:default","db-access","http-raw"]}}

@@ -3,6 +3,7 @@ import type { Collection } from '../../collectionTree'
 import { buildImportedCollectionFromText } from '../buildImportedCollection'
 import { fetchWithProxyFallback } from '../../../shared/utils/proxyFetch'
 import { loadAppSettings } from '../../../shared/utils/appSettings'
+import { isTauri } from '../../../shared/utils/tauri'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -108,7 +109,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
       if (!text.trim()) setPasteError('Response is empty.')
       setTimeout(() => pasteTextareaRef.current?.focus(), 0)
     } catch (e: any) {
-      setPasteError(e?.message || 'Failed to load from URL (check CORS).')
+      setPasteError(e?.message || (isTauri() ? 'Не удалось загрузить по URL.' : 'Не удалось загрузить по URL (проверь CORS).'))
       setSourceOrigin(undefined)
     } finally {
       setLoadingUrl(false)
