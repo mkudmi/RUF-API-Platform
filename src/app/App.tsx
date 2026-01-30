@@ -17,6 +17,7 @@ import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHis
 import { loadAppSettings, saveAppSettings } from '../shared/utils/appSettings'
 import { fetchWithProxyFallback } from '../shared/utils/proxyFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
+import { isTauri } from '../shared/utils/tauri'
 
 //TODO:
 // Необзятельные параметры по умолчанию неактивны
@@ -195,6 +196,9 @@ export default function App() {
   })
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
+  const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null)
 
   function openSettings() {
     settingsDialogRef.current?.showModal()
@@ -207,6 +211,62 @@ export default function App() {
   useEffect(() => {
     saveAppSettings({ validateCertificates })
   }, [validateCertificates])
+
+  useEffect(() => {
+    if (!isTauri()) return
+    void (async () => {
+      try {
+        const { getVersion } = await import('@tauri-apps/api/app')
+        setAppVersion(await getVersion())
+      } catch {
+        setAppVersion(null)
+      }
+    })()
+  }, [])
+
+  async function onCheckUpdates() {
+    if (!isTauri()) {
+      setUpdateStatus('Updates are only available in the desktop app.')
+      return
+    }
+
+    setUpdateBusy(true)
+    setUpdateStatus('Checking for updates...')
+    try {
+      const [{ check }, { relaunch }] = await Promise.all([
+        import('@tauri-apps/plugin-updater'),
+        import('@tauri-apps/plugin-process'),
+      ])
+
+      const update = await check()
+      if (!update) {
+        setUpdateStatus('You are up to date.')
+        return
+      }
+
+      setUpdateStatus(`Update ${update.version} available. Downloading...`)
+      await update.downloadAndInstall((event: any) => {
+        if (!event || typeof event !== 'object') return
+        if (event.event === 'Started') {
+          const n = event.data?.contentLength
+          setUpdateStatus(typeof n === 'number' ? `Downloading (${Math.round(n / 1024)} KB)...` : 'Downloading...')
+        } else if (event.event === 'Progress') {
+          const done = event.data?.chunkLength
+          if (typeof done === 'number') setUpdateStatus(`Downloading... +${Math.round(done / 1024)} KB`)
+        } else if (event.event === 'Finished') {
+          setUpdateStatus('Download finished. Installing...')
+        }
+      })
+
+      setUpdateStatus('Update installed. Restarting...')
+      await relaunch()
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : String(e)
+      setUpdateStatus(`Update failed: ${msg}`)
+    } finally {
+      setUpdateBusy(false)
+    }
+  }
 
   function onRequestSendStart(requestId: string) {
     setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
@@ -1691,6 +1751,20 @@ export default function App() {
           <span className="checkBox" aria-hidden="true" />
           <span className="checkText">Validate certificates</span>
         </label>
+
+        <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
+          <div className="small" style={{ opacity: 0.85 }}>
+            Version: <span className="mono">{appVersion ?? '—'}</span>
+          </div>
+          <button onClick={onCheckUpdates} disabled={updateBusy}>
+            {updateBusy ? 'Checking…' : 'Check Updates'}
+          </button>
+          {updateStatus ? (
+            <div className="small" style={{ opacity: 0.85 }}>
+              {updateStatus}
+            </div>
+          ) : null}
+        </div>
 
         <div className="modalActions">
           <button onClick={closeSettings}>Save</button>

@@ -4,6 +4,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "process:default",
+    "updater:default",
     "db-access",
     "http-raw"
   ]

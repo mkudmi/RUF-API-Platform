@@ -18,5 +18,9 @@ thiserror = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "system-proxy"] }
 base64 = "0.22"
 
+[target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]
