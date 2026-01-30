@@ -1381,7 +1381,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebarBrand">
           <div className="sidebarBrandRow">
-            <span className="appTitle">Ruf</span> <span className="small">(web-only)</span>
+            <span className="appTitle">Ruf</span> <span className="small">API Platofrm</span>
             <SidebarCreateMenu
               onImport={() => importOpenRef.current?.()}
               onCreateCollection={openCreateProject}
@@ -1398,7 +1398,6 @@ export default function App() {
               ⚙
             </button>
           </div>
-          <div className="small sidebarTagline">API platform</div>
         </div>
         <div className="sidebarTreeWrap">
           <WorkspaceTree

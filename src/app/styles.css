@@ -65,7 +65,7 @@ a { color: inherit; }
 .sidebarTagline { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebarBrandRow .appTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.sidebarPlusWrap { margin-left: auto; position: relative; flex: 0 0 auto; top: 10px; }
+.sidebarPlusWrap { margin-left: auto; position: relative; flex: 0 0 auto;}
 .sidebarPlusBtn {
   width: 30px;
   height: 30px;
