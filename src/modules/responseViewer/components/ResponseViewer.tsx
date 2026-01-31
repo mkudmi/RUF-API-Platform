@@ -647,7 +647,7 @@ export function ResponseViewer(props: {
         </div>
       ) : tab === 'body' ? (
         <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-          <div style={{ overflow: 'auto', height: '100%' }}>
+          <div style={{ overflow: 'auto', height: '100vh' }}>
             <div className="codeWithGutterRows" style={{ fontSize: 14 }}>
               {bodyLines.map((line, idx) => (
                 <div key={idx} className="codeRow">
