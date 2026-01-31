@@ -1812,7 +1812,16 @@ export default function App() {
               </button>
             )}
             {updateHint ? (
-              <div className="small" style={{ opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div
+                className="small"
+                style={{
+                  opacity: 0.85,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  color: pendingUpdate ? '#6ee7a8' : undefined,
+                }}
+              >
                 {updateHint}
               </div>
             ) : null}

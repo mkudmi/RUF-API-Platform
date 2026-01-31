@@ -509,7 +509,7 @@ export function ResponseViewer(props: {
   }, [closeSizePopover, sizePopoverOpen])
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr auto', height: '100%', overflow: 'hidden' }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr auto', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className={`badge ${statusClass(result.status)}`}>
