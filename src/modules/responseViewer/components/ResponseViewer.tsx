@@ -54,19 +54,14 @@ function formatDateTime24(ts: number) {
   return `${dd}.${mm}.${yyyy} ${hh}:${min}`
 }
 
-function countLines(text: string) {
-  if (!text) return 1
-  let lines = 1
-  for (let i = 0; i < text.length; i++) {
-    if (text.charCodeAt(i) === 10) lines++
-  }
-  return lines
+function sanitizeForLineCounting(text: string) {
+  return (text || '').replaceAll('\r', '')
 }
 
-function buildLineNumbers(lineCount: number) {
-  const out: string[] = []
-  for (let i = 1; i <= lineCount; i++) out.push(String(i))
-  return out.join('\n')
+function splitLines(text: string) {
+  const sanitized = sanitizeForLineCounting(text)
+  const lines = sanitized.split('\n')
+  return lines.length ? lines : ['']
 }
 
 function getHeaderCaseInsensitive(headers: Record<string, string> | null | undefined, name: string) {
@@ -218,16 +213,16 @@ export function ResponseViewer(props: {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }, [result])
 
-  const bodyLineCount = useMemo(() => countLines(bodyView.text), [bodyView.text])
-  const bodyLineNumbers = useMemo(() => buildLineNumbers(bodyLineCount), [bodyLineCount])
+  const bodyLines = useMemo(() => splitLines(bodyView.text), [bodyView.text])
+  const bodyLineCount = bodyLines.length
   const bodyGutterWidthCh = Math.max(2, String(bodyLineCount).length) + 1
 
-  const requestHeadersLineCount = useMemo(() => countLines(requestHeadersText), [requestHeadersText])
-  const requestHeadersLineNumbers = useMemo(() => buildLineNumbers(requestHeadersLineCount), [requestHeadersLineCount])
+  const requestHeadersLines = useMemo(() => splitLines(requestHeadersText), [requestHeadersText])
+  const requestHeadersLineCount = requestHeadersLines.length
   const requestHeadersGutterWidthCh = Math.max(2, String(requestHeadersLineCount).length) + 1
 
-  const responseHeadersLineCount = useMemo(() => countLines(responseHeadersText), [responseHeadersText])
-  const responseHeadersLineNumbers = useMemo(() => buildLineNumbers(responseHeadersLineCount), [responseHeadersLineCount])
+  const responseHeadersLines = useMemo(() => splitLines(responseHeadersText), [responseHeadersText])
+  const responseHeadersLineCount = responseHeadersLines.length
   const responseHeadersGutterWidthCh = Math.max(2, String(responseHeadersLineCount).length) + 1
 
   async function onCopy() {
@@ -653,13 +648,15 @@ export function ResponseViewer(props: {
       ) : tab === 'body' ? (
         <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
           <div style={{ overflow: 'auto', height: '100%' }}>
-            <div className="codeWithGutter" style={{ fontSize: 14 }}>
-              <pre className="mono codeGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
-                {bodyLineNumbers}
-              </pre>
-              <pre className="mono codePre">
-                {bodyView.text}
-              </pre>
+            <div className="codeWithGutterRows" style={{ fontSize: 14 }}>
+              {bodyLines.map((line, idx) => (
+                <div key={idx} className="codeRow">
+                  <div className="mono codeRowGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
+                    {idx + 1}
+                  </div>
+                  <div className="mono codeRowText">{line}</div>
+                </div>
+              ))}
             </div>
 
             {result?.file ? (
@@ -680,25 +677,29 @@ export function ResponseViewer(props: {
             <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>
               Request Headers
             </div>
-            <div className="codeWithGutter" style={{ fontSize: 12 }}>
-              <pre className="mono codeGutter" style={{ width: `${requestHeadersGutterWidthCh}ch` }} aria-hidden="true">
-                {requestHeadersLineNumbers}
-              </pre>
-              <pre className="mono codePre">
-                {requestHeadersText}
-              </pre>
+            <div className="codeWithGutterRows" style={{ fontSize: 12 }}>
+              {requestHeadersLines.map((line, idx) => (
+                <div key={idx} className="codeRow">
+                  <div className="mono codeRowGutter" style={{ width: `${requestHeadersGutterWidthCh}ch` }} aria-hidden="true">
+                    {idx + 1}
+                  </div>
+                  <div className="mono codeRowText">{line}</div>
+                </div>
+              ))}
             </div>
 
             <div className="small" style={{ opacity: 0.85, marginTop: 12, marginBottom: 6 }}>
               Response Headers
             </div>
-            <div className="codeWithGutter" style={{ fontSize: 12 }}>
-              <pre className="mono codeGutter" style={{ width: `${responseHeadersGutterWidthCh}ch` }} aria-hidden="true">
-                {responseHeadersLineNumbers}
-              </pre>
-              <pre className="mono codePre">
-                {responseHeadersText}
-              </pre>
+            <div className="codeWithGutterRows" style={{ fontSize: 12 }}>
+              {responseHeadersLines.map((line, idx) => (
+                <div key={idx} className="codeRow">
+                  <div className="mono codeRowGutter" style={{ width: `${responseHeadersGutterWidthCh}ch` }} aria-hidden="true">
+                    {idx + 1}
+                  </div>
+                  <div className="mono codeRowText">{line}</div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
