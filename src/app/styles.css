@@ -21,6 +21,12 @@
   --font-ui: 'GoshaSans', system-ui, -apple-system, Segoe UI, Roboto, Arial;
 }
 * { box-sizing: border-box; }
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body { margin: 0; background: #0b0c10; color: #e8e8e8; font-family: var(--font-ui); }
 a { color: inherit; }
 
@@ -40,7 +46,8 @@ a { color: inherit; }
 .layout {
   display: grid;
   grid-template-columns: 420px 8px 1fr;
-  height: 100vh;
+  height: 100%;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -221,6 +228,7 @@ a { color: inherit; }
   display: grid;
   grid-template-rows: auto 1fr;
   overflow: hidden;
+  min-width: 0;
 }
 
 .topbar {
@@ -251,7 +259,7 @@ a { color: inherit; }
 }
 .resizer:hover { background: rgba(255,255,255,.10); }
 
-.panel > .resizer { height: 100vh; }
+.panel > .resizer { height: 100%; }
 
 input, textarea, select, button {
   background: rgba(255,255,255,.06);
