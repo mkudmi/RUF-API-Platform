@@ -40,6 +40,7 @@ import { isTauri } from '../shared/utils/tauri'
 // Экспорт в openapi?? и\или postman
 // Кнопка Send превращается в красную Cancel которая останавливает запрос если он в процессе
 // По центру responseViewer счетчик времени запроса от отправки до получения ответа
+// Добавить счетчик скачивания обновления в настройках и попапе, спрашивать перезагрузку после скачивания
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
@@ -1544,7 +1545,7 @@ export default function App() {
             <span className="iconGlyph">&#9881;</span>
           </button>
           <div className="sidebarVersion mono">
-            v {appVersion ?? '—'}
+            v{appVersion ?? '—'}
           </div>
         </div>
       </aside>
