@@ -199,6 +199,10 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const [pendingUpdate, setPendingUpdate] = useState<{ version: string, downloadAndInstall: (cb?: (event: any) => void) => Promise<void> } | null>(null)
+  const [showUpdateToast, setShowUpdateToast] = useState(false)
+  const [updateInstallBusy, setUpdateInstallBusy] = useState(false)
+  const [updateInstallStatus, setUpdateInstallStatus] = useState<string | null>(null)
 
   function openSettings() {
     settingsDialogRef.current?.showModal()
@@ -224,48 +228,76 @@ export default function App() {
     })()
   }, [])
 
-  async function onCheckUpdates() {
+  async function checkForUpdates(opts?: { showNoUpdateMessage?: boolean }) {
     if (!isTauri()) {
-      setUpdateStatus('Updates are only available in the desktop app.')
-      return
+      if (opts?.showNoUpdateMessage) setUpdateStatus('Updates are only available in the desktop app.')
+      return null
     }
 
+    try {
+      const [{ check }] = await Promise.all([import('@tauri-apps/plugin-updater')])
+      const update = await check()
+      if (!update) {
+        if (opts?.showNoUpdateMessage) setUpdateStatus('You are up to date.')
+        return null
+      }
+
+      setPendingUpdate(update as any)
+      setShowUpdateToast(true)
+      if (opts?.showNoUpdateMessage) setUpdateStatus(`Update ${update.version} is available.`)
+      return update as any
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : String(e)
+      if (opts?.showNoUpdateMessage) setUpdateStatus(`Update check failed: ${msg}`)
+      return null
+    }
+  }
+
+  async function onCheckUpdates() {
     setUpdateBusy(true)
     setUpdateStatus('Checking for updates...')
     try {
-      const [{ check }, { relaunch }] = await Promise.all([
-        import('@tauri-apps/plugin-updater'),
-        import('@tauri-apps/plugin-process'),
-      ])
-
-      const update = await check()
-      if (!update) {
-        setUpdateStatus('You are up to date.')
-        return
-      }
-
-      setUpdateStatus(`Update ${update.version} available. Downloading...`)
-      await update.downloadAndInstall((event: any) => {
-        if (!event || typeof event !== 'object') return
-        if (event.event === 'Started') {
-          const n = event.data?.contentLength
-          setUpdateStatus(typeof n === 'number' ? `Downloading (${Math.round(n / 1024)} KB)...` : 'Downloading...')
-        } else if (event.event === 'Progress') {
-          const done = event.data?.chunkLength
-          if (typeof done === 'number') setUpdateStatus(`Downloading... +${Math.round(done / 1024)} KB`)
-        } else if (event.event === 'Finished') {
-          setUpdateStatus('Download finished. Installing...')
-        }
-      })
-
-      setUpdateStatus('Update installed. Restarting...')
-      await relaunch()
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
-      setUpdateStatus(`Update failed: ${msg}`)
+      await checkForUpdates({ showNoUpdateMessage: true })
     } finally {
       setUpdateBusy(false)
     }
+  }
+
+  useEffect(() => {
+    if (!isTauri()) return
+    const t = setTimeout(() => {
+      void checkForUpdates()
+    }, 900)
+    return () => clearTimeout(t)
+  }, [])
+
+  async function onUpdateNow() {
+    if (!isTauri() || !pendingUpdate) return
+
+    setUpdateInstallBusy(true)
+    setUpdateInstallStatus('Downloading update...')
+    try {
+      const [{ relaunch }] = await Promise.all([import('@tauri-apps/plugin-process')])
+
+      await pendingUpdate.downloadAndInstall((event: any) => {
+        if (!event || typeof event !== 'object') return
+        if (event.event === 'Finished') setUpdateInstallStatus('Installing...')
+      })
+
+      setUpdateInstallStatus('Restarting...')
+      await relaunch()
+    } catch (e: any) {
+      const msg = typeof e?.message === 'string' ? e.message : String(e)
+      setUpdateInstallStatus(`Update failed: ${msg}`)
+    } finally {
+      setUpdateInstallBusy(false)
+    }
+  }
+
+  function onUpdateLater() {
+    setShowUpdateToast(false)
+    setPendingUpdate(null)
+    setUpdateInstallStatus(null)
   }
 
   function onRequestSendStart(requestId: string) {
@@ -1498,6 +1530,9 @@ export default function App() {
           >
             <span className="iconGlyph">&#9881;</span>
           </button>
+          <div className="sidebarVersion mono">
+            v {appVersion ?? '—'}
+          </div>
         </div>
       </aside>
       <div
@@ -1752,24 +1787,34 @@ export default function App() {
           <span className="checkText">Validate certificates</span>
         </label>
 
-        <div style={{ marginTop: 14, display: 'grid', gap: 8 }}>
-          <div className="small" style={{ opacity: 0.85 }}>
-            Version: <span className="mono">{appVersion ?? '—'}</span>
+        {updateStatus ? (
+          <div className="small" style={{ marginTop: 10, opacity: 0.85 }}>
+            {updateStatus}
           </div>
+        ) : null}
+
+        <div className="modalActions" style={{ justifyContent: 'space-between' }}>
           <button onClick={onCheckUpdates} disabled={updateBusy}>
             {updateBusy ? 'Checking…' : 'Check Updates'}
           </button>
-          {updateStatus ? (
-            <div className="small" style={{ opacity: 0.85 }}>
-              {updateStatus}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="modalActions">
           <button onClick={closeSettings}>Save</button>
         </div>
       </dialog>
+
+      {showUpdateToast && pendingUpdate ? (
+        <div className="updateToast" role="dialog" aria-label="Update available">
+          <div className="updateToastTitle">New version is available</div>
+          {updateInstallStatus ? (
+            <div className="small" style={{ opacity: 0.85 }}>
+              {updateInstallStatus}
+            </div>
+          ) : null}
+          <div className="updateToastActions">
+            <button onClick={onUpdateNow} disabled={updateInstallBusy}>Update now</button>
+            <button onClick={onUpdateLater} disabled={updateInstallBusy}>Later</button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
