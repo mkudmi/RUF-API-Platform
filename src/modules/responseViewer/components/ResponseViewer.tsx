@@ -704,8 +704,7 @@ export function ResponseViewer(props: {
         </div>
       )}
 
-      {result ? (
-        <div className="responseFooterWrap">
+      <div className="responseFooterWrap">
           <div className={`responseSearchWrap ${tab === 'body' && responseSearchOpen ? 'responseSearchWrapOpen' : ''}`}>
             <div className="responseSearchInner">
               <div style={{ position: 'relative', flex: 1, minWidth: 0 }} data-response-search-history-anchor>
@@ -868,7 +867,7 @@ export function ResponseViewer(props: {
                   if (responseSearchOpen) recordResponseSearchHistory(bodyQuery)
                   setResponseSearchOpen(v => !v)
                 }}
-                disabled={tab !== 'body'}
+                disabled={!result || tab !== 'body'}
                 title="Search"
                 aria-label="Search"
               >
@@ -1032,8 +1031,7 @@ export function ResponseViewer(props: {
               </div>
             </div>
           </dialog>
-        </div>
-      ) : null}
+      </div>
     </div>
   )
 }
