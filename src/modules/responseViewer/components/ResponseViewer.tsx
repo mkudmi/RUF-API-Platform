@@ -504,7 +504,7 @@ export function ResponseViewer(props: {
   }, [closeSizePopover, sizePopoverOpen])
 
   return (
-    <div style={{ display: 'grid', gridTemplateRows: 'auto auto 1fr auto', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className={`badge ${statusClass(result.status)}`}>
@@ -593,7 +593,7 @@ export function ResponseViewer(props: {
       </div>
 
       {tab === 'history' ? (
-        <div className="historyList">
+        <div className="historyList" style={{ flex: 1, minHeight: 0 }}>
           <div className="small" style={{ opacity: 0.8, marginTop: 10 }}>
             Click an item to load its params/body into the request editor.
           </div>
@@ -646,8 +646,8 @@ export function ResponseViewer(props: {
           )}
         </div>
       ) : tab === 'body' ? (
-        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
-          <div style={{ overflow: 'auto', height: '100vh' }}>
+        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0, flex: 1 }}>
+          <div style={{ overflow: 'auto', height: '100%' }}>
             <div className="codeWithGutterRows" style={{ fontSize: 14 }}>
               {bodyLines.map((line, idx) => (
                 <div key={idx} className="codeRow">
@@ -672,7 +672,7 @@ export function ResponseViewer(props: {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0 }}>
+        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0, flex: 1 }}>
           <div style={{ overflow: 'auto', height: '100%' }}>
             <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>
               Request Headers

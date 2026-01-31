@@ -226,8 +226,8 @@ a { color: inherit; }
 .rowInactive { opacity: 0.55; }
 
 .main {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   height: 100%;
   overflow: hidden;
   min-width: 0;
@@ -246,6 +246,7 @@ a { color: inherit; }
   display: grid;
   grid-template-columns: 1fr 8px 1fr;
   grid-template-rows: 1fr;
+  flex: 1;
   height: 100%;
   overflow: hidden;
   align-items: stretch;
