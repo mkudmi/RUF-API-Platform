@@ -190,7 +190,7 @@ function parseUrl(url: any): { path: string, params: RequestParam[] } {
     if (!name) continue
     if (params.some(p => p.in === 'query' && p.name === name)) continue
     const example = typeof q.value === 'string' ? q.value : undefined
-    params.push({ name, in: 'query', required: false, example })
+    params.push({ name, in: 'query', example })
   }
 
   // ensure path params are represented even if they weren't listed in url.variable

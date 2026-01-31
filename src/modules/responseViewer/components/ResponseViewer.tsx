@@ -69,6 +69,59 @@ function buildLineNumbers(lineCount: number) {
   return out.join('\n')
 }
 
+function getHeaderCaseInsensitive(headers: Record<string, string> | null | undefined, name: string) {
+  if (!headers) return undefined
+  const needle = name.toLowerCase()
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === needle) return v
+  }
+  return undefined
+}
+
+function looksLikeXml(contentType: string | undefined, bodyText: string) {
+  const ct = (contentType || '').toLowerCase()
+  if (ct.includes('xml')) return true
+
+  const t = (bodyText || '').trimStart()
+  if (!t.startsWith('<')) return false
+  if (/^<!doctype\s+html\b/i.test(t)) return false
+  if (/^<html\b/i.test(t)) return false
+  return true
+}
+
+function prettyPrintXml(xmlText: string) {
+  const trimmed = (xmlText || '').trim()
+  if (!trimmed) return ''
+
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(trimmed, 'application/xml')
+  if (doc.querySelector('parsererror')) return null
+
+  const serialized = new XMLSerializer().serializeToString(doc)
+  const withLines = serialized.replace(/(>)(<)(\/*)/g, '$1\n$2$3')
+  const lines = withLines.split('\n')
+
+  let pad = 0
+  const indent = (n: number) => '  '.repeat(Math.max(0, n))
+
+  const out: string[] = []
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
+    if (!line) continue
+
+    const isXmlDecl = line.startsWith('<?xml')
+    const isClosing = /^<\/[^>]+>/.test(line)
+    const isSelfClosing = /^<[^>]+\/>/.test(line) || /^<[^>]+><\/[^>]+>/.test(line)
+    const isOpening = /^<[^!?/][^>]*>/.test(line) && !isClosing && !isSelfClosing
+
+    if (isClosing) pad = Math.max(0, pad - 1)
+    out.push(`${indent(isXmlDecl ? 0 : pad)}${line}`)
+    if (isOpening) pad += 1
+  }
+
+  return out.join('\n')
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
@@ -116,7 +169,14 @@ export function ResponseViewer(props: {
       return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null }
     }
 
-    if (!isJson) return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null }
+    if (!isJson) {
+      const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
+      if (looksLikeXml(ct, props.result.bodyText)) {
+        const pretty = prettyPrintXml(props.result.bodyText)
+        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null }
+      }
+      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null }
+    }
 
     const q = bodyQuery.trim()
     if (!q) return { text: JSON.stringify(parsed, null, 2), matchesCount: null as number | null, error: null as string | null }

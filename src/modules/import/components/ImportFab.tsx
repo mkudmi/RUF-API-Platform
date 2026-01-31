@@ -15,7 +15,7 @@ export function ImportFab(props: {
   const menuRef = useRef<HTMLDialogElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const variant = props.variant ?? 'fab'
-  const label = props.label ?? 'Импорт'
+  const label = props.label ?? 'Import'
   const showTrigger = props.showTrigger ?? true
 
   const [view, setView] = useState<'menu' | 'json' | 'url' | 'name'>('menu')
@@ -49,7 +49,7 @@ export function ImportFab(props: {
 
     const name = pendingName.trim()
     if (!name) {
-      setNameError('Введите имя коллекции.')
+      setNameError('Enter a collection name.')
       return
     }
 
@@ -93,7 +93,7 @@ export function ImportFab(props: {
       const col = await importFromText(text)
       openNameStep({ ...col, sourceType: 'file', sourceFileName: file.name })
     } catch (err: any) {
-      setMenuError(err?.message || 'Не удалось импортировать файл.')
+      setMenuError(err?.message || 'Failed to import file.')
     } finally {
       e.target.value = ''
     }
@@ -110,13 +110,13 @@ export function ImportFab(props: {
     setJsonError(null)
     try {
       if (!jsonText.trim()) {
-        setJsonError('Вставь JSON/YAML спеки.')
+        setJsonError('Paste the spec first.')
         return
       }
       const col = await importFromText(jsonText)
       openNameStep(col)
     } catch (e: any) {
-      setJsonError(e?.message || 'Не удалось импортировать.')
+      setJsonError(e?.message || 'Failed to import.')
     }
   }
 
@@ -133,7 +133,7 @@ export function ImportFab(props: {
     try {
       const raw = specUrl.trim()
       if (!raw) {
-        setUrlError('Введи URL.')
+        setUrlError('Enter a URL.')
         return
       }
       const u = new URL(raw)
@@ -142,13 +142,13 @@ export function ImportFab(props: {
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) {
-        setUrlError('Пустой ответ.')
+        setUrlError('Empty response.')
         return
       }
       const col = await importFromText(text, u.origin)
       openNameStep({ ...col, sourceUrl: u.toString(), sourceType: 'url' })
     } catch (e: any) {
-      setUrlError(e?.message || (isTauri() ? 'Не удалось загрузить по URL.' : 'Не удалось загрузить по URL (проверь CORS).'))
+      setUrlError(e?.message || (isTauri() ? 'Failed to load URL.' : 'Failed to load URL (check CORS).'))
     } finally {
       setLoadingUrl(false)
     }
@@ -159,7 +159,7 @@ export function ImportFab(props: {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".json,.yaml,.yml"
+        accept=".json,.yaml,.yml,.wsdl,.xml"
         style={{ display: 'none' }}
         onChange={onFileSelected}
       />
@@ -176,16 +176,19 @@ export function ImportFab(props: {
 
       <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
         <div className="modalHeader">
-          <b>{view === 'name' ? 'Добавить коллекцию' : 'Import'}</b>
+          <b>{view === 'name' ? 'Add collection' : 'Import'}</b>
           <button className="iconBtn" onClick={closeMenu} aria-label="Close">✕</button>
         </div>
 
         {view === 'menu' && (
           <>
-            <div style={{ display: 'grid', gap: 10 }}>
-              <button onClick={chooseFile}>Choose File</button>
-              <button onClick={openJson}>Import from JSON</button>
-              <button onClick={openUrl}>Import from URL</button>
+            <div className="importMenuGrid">
+              <button className="importMenuBtn" onClick={chooseFile}>File</button>
+              <button className="importMenuBtn" onClick={openJson}>Text</button>
+              <button className="importMenuBtn" onClick={openUrl}>URL</button>
+            </div>
+            <div className="importHint" style={{ marginTop: 10 }}>
+              Supported: OpenAPI/Swagger (JSON/YAML), Postman (JSON), Insomnia (YAML/JSON), WSDL (WSDL/XML).
             </div>
             {menuError && (
               <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>
@@ -201,7 +204,7 @@ export function ImportFab(props: {
               className="mono modalTextarea"
               value={jsonText}
               onChange={e => setJsonText(e.target.value)}
-              placeholder="Paste OpenAPI JSON/YAML..."
+              placeholder="Paste OpenAPI / Postman / Insomnia / WSDL..."
             />
             {jsonError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{jsonError}</div>}
             <div className="modalActions">
@@ -213,8 +216,8 @@ export function ImportFab(props: {
 
         {view === 'url' && (
           <>
-            <div className="small" style={{ marginBottom: 8 }}>
-              Enter the spec URL
+            <div className="importHint" style={{ marginBottom: 8 }}>
+              Enter a URL to OpenAPI / Postman / Insomnia / WSDL.
             </div>
             <input
               className="mono"
@@ -241,7 +244,7 @@ export function ImportFab(props: {
             }}
           >
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-              <div className="small">Collection Name</div>
+              <div className="importHint">Collection name</div>
               <input
                 style={{ width: '100%' }}
                 value={pendingName}
@@ -255,7 +258,7 @@ export function ImportFab(props: {
             {nameError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{nameError}</div>}
 
             <div className="modalActions">
-              <button type="submit">Add Collection</button>
+              <button type="submit">Add collection</button>
             </div>
           </form>
         )}

@@ -21,7 +21,6 @@ import { isTauri } from '../shared/utils/tauri'
 
 //TODO:
 // Необзятельные параметры по умолчанию неактивны
-// Иморт из инсомнии
 // Из body убрать красное подчеркивание
 // Двойное нажатие на нижнюю границу редактора body чтобы развернуть по границу текста в поле ввода, вся нижняя граница с возможностью ресайза
 // Кнопка reload хэдеры\параметры из изначального импорта, восстанавливать недостающие
@@ -30,9 +29,7 @@ import { isTauri } from '../shared/utils/tauri'
 // импортированные хэдеры сделать key редактируемые удаляемые (перелопатить все связанныое с импортом хэдеров и параметров, по умолчанию последняя строка всегда есть, везде крестики, активный неактивный, просто вставлять хэдеры в поля, добавляя в конце пустую строку для нового хэдера)
 // сертификаты в настройках
 // запись в историю поиска по ответу делается после каждого изменения?? нажатия мышки??
-// справа от кнопки настройки выводить версию приложения
 // пофиксить ошибку подключения к бд в варме
-// импорт wsdl
 // отправлять серию запросов с вводом числа итераций??
 // порядковые номера ответа иногда не доходят до конца ответа
 // редактор отпраляемых файлов??
@@ -1770,10 +1767,11 @@ export default function App() {
         ref={settingsDialogRef}
         className="modal modalSmall"
       >
-        <div className="modalHeader">
+        <div className="modalHeader" style={{ marginBottom: 0 }}>
           <b>Settings</b>
           <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close">✕</button>
         </div>
+        <hr className="modalDivider" />
 
         <label className="checkRow">
           <input
@@ -1792,7 +1790,7 @@ export default function App() {
           </div>
         ) : null}
 
-        <div className="modalActions" style={{ justifyContent: 'space-between' }}>
+        <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
           <button onClick={onCheckUpdates} disabled={updateBusy}>
             {updateBusy ? 'Checking…' : 'Check Updates'}
           </button>

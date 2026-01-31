@@ -123,7 +123,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
         onChange={e => setName(e.target.value)}
         placeholder="Collection name"
       />
-      <input type="file" accept=".json,.yaml,.yml" onChange={onFile} />
+      <input type="file" accept=".json,.yaml,.yml,.wsdl,.xml" onChange={onFile} />
       <button onClick={openPasteDialog}>Paste</button>
       {error && (
         <span className="small" style={{ color: '#ff9a9a' }}>
