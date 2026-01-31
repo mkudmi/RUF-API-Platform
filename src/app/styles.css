@@ -149,7 +149,7 @@ a { color: inherit; }
 .updateToast {
   position: fixed;
   right: 18px;
-  bottom: 92px;
+  bottom: 18px;
   width: min(360px, calc(100vw - 36px));
   padding: 12px;
   border-radius: 12px;
