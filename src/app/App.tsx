@@ -18,6 +18,7 @@ import { loadAppSettings, saveAppSettings } from '../shared/utils/appSettings'
 import { fetchWithProxyFallback } from '../shared/utils/proxyFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { isTauri } from '../shared/utils/tauri'
+import { useAppUpdater } from './useAppUpdater'
 
 //TODO:
 // Необзятельные параметры по умолчанию неактивны
@@ -195,11 +196,19 @@ export default function App() {
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
-  const [updateBusy, setUpdateBusy] = useState(false)
-  const [updateHint, setUpdateHint] = useState<string | null>(null)
-  const [pendingUpdate, setPendingUpdate] = useState<{ version: string, downloadAndInstall: (cb?: (event: any) => void) => Promise<void> } | null>(null)
-  const [showUpdateToast, setShowUpdateToast] = useState(false)
-  const updateHintTimeoutRef = useRef<number | null>(null)
+  const {
+    updateBusy,
+    updateTask,
+    updateHint,
+    hasPendingUpdate,
+    updateDownloaded,
+    updateDownloadPct,
+    showUpdateToast,
+    onCheckUpdates,
+    onUpdateNow,
+    onRestartToUpdate,
+    onUpdateLater,
+  } = useAppUpdater()
 
   function openSettings() {
     settingsDialogRef.current?.showModal()
@@ -224,95 +233,6 @@ export default function App() {
       }
     })()
   }, [])
-
-  useEffect(() => {
-    return () => {
-      if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
-    }
-  }, [])
-
-  function setUpdateHintTransient(message: string, ms: number) {
-    if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
-    setUpdateHint(message)
-    updateHintTimeoutRef.current = window.setTimeout(() => {
-      setUpdateHint(null)
-      updateHintTimeoutRef.current = null
-    }, ms)
-  }
-
-  async function checkForUpdates(opts?: { showNoUpdateMessage?: boolean, showToastIfUpdate?: boolean }) {
-    if (!isTauri()) {
-      if (opts?.showNoUpdateMessage) setUpdateHintTransient('Updates are only available in the desktop app.', 2000)
-      return null
-    }
-
-    try {
-      const [{ check }] = await Promise.all([import('@tauri-apps/plugin-updater')])
-      const update = await check()
-      if (!update) {
-        if (opts?.showNoUpdateMessage) setUpdateHintTransient('You are up to date.', 2000)
-        return null
-      }
-
-      setPendingUpdate(update as any)
-      if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
-      setUpdateHint(`v ${update.version} is available!`)
-      if (opts?.showToastIfUpdate) setShowUpdateToast(true)
-      return update as any
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
-      if (opts?.showNoUpdateMessage) setUpdateHintTransient(`Update check failed: ${msg}`, 4000)
-      return null
-    }
-  }
-
-  async function onCheckUpdates() {
-    setUpdateBusy(true)
-    try {
-      setPendingUpdate(null)
-      setShowUpdateToast(false)
-      setUpdateHint(null)
-      await checkForUpdates({ showNoUpdateMessage: true, showToastIfUpdate: false })
-    } finally {
-      setUpdateBusy(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!isTauri()) return
-    const t = window.setTimeout(() => {
-      void checkForUpdates({ showToastIfUpdate: true })
-    }, 900)
-    return () => window.clearTimeout(t)
-  }, [])
-
-  async function onUpdateNow() {
-    if (!isTauri() || !pendingUpdate) return
-
-    setUpdateBusy(true)
-    if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
-    setUpdateHint(`Downloading v ${pendingUpdate.version}...`)
-    try {
-      const [{ relaunch }] = await Promise.all([import('@tauri-apps/plugin-process')])
-
-      await pendingUpdate.downloadAndInstall((event: any) => {
-        if (!event || typeof event !== 'object') return
-        if (event.event === 'Finished') setUpdateHint('Installing...')
-      })
-
-      setUpdateHint('Restarting...')
-      await relaunch()
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
-      setUpdateHintTransient(`Update failed: ${msg}`, 6000)
-    } finally {
-      setUpdateBusy(false)
-    }
-  }
-
-  function onUpdateLater() {
-    setShowUpdateToast(false)
-  }
 
   function onRequestSendStart(requestId: string) {
     setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
@@ -1804,13 +1724,22 @@ export default function App() {
 
         <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            {pendingUpdate ? (
-              <button onClick={onUpdateNow} disabled={updateBusy}>
-                {updateBusy ? 'Updating…' : 'Update'}
-              </button>
+            {hasPendingUpdate ? (
+              updateDownloaded ? (
+                <>
+                  <button onClick={onRestartToUpdate} disabled={updateBusy}>
+                    {updateTask === 'installing' ? 'Restarting…' : 'Restart'}
+                  </button>
+                  <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
+                </>
+              ) : (
+                <button onClick={onUpdateNow} disabled={updateBusy}>
+                  {updateTask === 'downloading' ? 'Downloading…' : 'Update'}
+                </button>
+              )
             ) : (
               <button onClick={onCheckUpdates} disabled={updateBusy}>
-                {updateBusy ? 'Checking…' : 'Check Updates'}
+                {updateTask === 'checking' ? 'Checking…' : 'Check Updates'}
               </button>
             )}
             {updateHint ? (
@@ -1821,7 +1750,7 @@ export default function App() {
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  color: pendingUpdate ? '#6ee7a8' : undefined,
+                  color: hasPendingUpdate ? '#6ee7a8' : undefined,
                 }}
               >
                 {updateHint}
@@ -1832,12 +1761,32 @@ export default function App() {
         </div>
       </dialog>
 
-      {showUpdateToast && pendingUpdate ? (
+      {showUpdateToast && hasPendingUpdate ? (
         <div className="updateToast" role="dialog" aria-label="Update available">
-          <div className="updateToastTitle">New version is avaliable!</div>
+          <div className="updateToastTitle">
+            {updateDownloaded
+              ? 'Download complete. Restart the app to install?'
+              : updateTask === 'downloading'
+                ? `Downloading update${typeof updateDownloadPct === 'number' ? ` (${updateDownloadPct}%)` : ''}…`
+                : 'New version is available!'}
+          </div>
+          {updateTask === 'downloading' && typeof updateDownloadPct === 'number' ? (
+            <div className="small" style={{ opacity: 0.85, marginTop: 4 }}>
+              {updateDownloadPct}%
+            </div>
+          ) : null}
           <div className="updateToastActions">
-            <button onClick={onUpdateNow} disabled={updateBusy}>Update</button>
-            <button onClick={onUpdateLater} disabled={updateBusy}>Later</button>
+            {updateDownloaded ? (
+              <>
+                <button onClick={onRestartToUpdate} disabled={updateBusy}>Restart</button>
+                <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
+              </>
+            ) : (
+              <>
+                <button onClick={onUpdateNow} disabled={updateBusy}>Update</button>
+                <button onClick={onUpdateLater} disabled={updateBusy}>Later</button>
+              </>
+            )}
           </div>
         </div>
       ) : null}
