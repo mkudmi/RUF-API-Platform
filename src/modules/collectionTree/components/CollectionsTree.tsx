@@ -45,6 +45,9 @@ export function CollectionsTree(props: {
   onRenameCollection: (collectionId: string, name: string) => void
   onRenameFolder: (collectionId: string, folderId: string, name: string) => void
   onRenameRequest: (collectionId: string, requestId: string, name: string) => void
+  onDuplicateCollection: (collectionId: string) => void
+  onDuplicateFolder: (collectionId: string, folderId: string) => void
+  onDuplicateRequest: (collectionId: string, requestId: string) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
   onDeleteFolder: (collectionId: string, folderId: string) => void
@@ -475,6 +478,17 @@ export function CollectionsTree(props: {
                     role="menuitem"
                     onClick={() => {
                       setOpenMenuFolderId(null)
+                      props.onDuplicateFolder(col.id, folder.id)
+                    }}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuFolderId(null)
                       startRename()
                     }}
                   >
@@ -663,6 +677,17 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                       }}
                     >
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuRequestId(null)
+                          props.onDuplicateRequest(col.id, r.id)
+                        }}
+                      >
+                        Duplicate
+                      </button>
                       <button
                         type="button"
                         className="treeMenuItem"
@@ -944,6 +969,17 @@ export function CollectionsTree(props: {
                             role="menuitem"
                             onClick={() => {
                               setOpenMenuCollectionId(null)
+                              props.onDuplicateCollection(col.id)
+                            }}
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
                               startRename()
                             }}
                           >
@@ -1195,6 +1231,17 @@ export function CollectionsTree(props: {
                           e.stopPropagation()
                         }}
                       >
+                        <button
+                          type="button"
+                          className="treeMenuItem"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuRequestId(null)
+                            props.onDuplicateRequest(col.id, r.id)
+                          }}
+                        >
+                          Duplicate
+                        </button>
                         <button
                           type="button"
                           className="treeMenuItem"

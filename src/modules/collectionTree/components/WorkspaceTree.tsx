@@ -39,6 +39,9 @@ export function WorkspaceTree(props: {
   onRenameCollection: (collectionId: string, name: string) => void
   onRenameFolder: (collectionId: string, folderId: string, name: string) => void
   onRenameRequest: (collectionId: string, requestId: string, name: string) => void
+  onDuplicateCollection: (collectionId: string) => void
+  onDuplicateFolder: (collectionId: string, folderId: string) => void
+  onDuplicateRequest: (collectionId: string, requestId: string) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
   onDeleteFolder: (collectionId: string, folderId: string) => void
@@ -298,6 +301,9 @@ export function WorkspaceTree(props: {
             onRenameCollection={props.onRenameCollection}
             onRenameFolder={props.onRenameFolder}
             onRenameRequest={props.onRenameRequest}
+            onDuplicateCollection={props.onDuplicateCollection}
+            onDuplicateFolder={props.onDuplicateFolder}
+            onDuplicateRequest={props.onDuplicateRequest}
             onMoveFolder={props.onMoveFolder}
             onMoveRequest={props.onMoveRequest}
             onDeleteFolder={props.onDeleteFolder}
@@ -346,6 +352,9 @@ export function WorkspaceTree(props: {
           onRenameCollection={props.onRenameCollection}
           onRenameFolder={props.onRenameFolder}
           onRenameRequest={props.onRenameRequest}
+          onDuplicateCollection={props.onDuplicateCollection}
+          onDuplicateFolder={props.onDuplicateFolder}
+          onDuplicateRequest={props.onDuplicateRequest}
           onMoveFolder={props.onMoveFolder}
           onMoveRequest={props.onMoveRequest}
           onDeleteFolder={props.onDeleteFolder}

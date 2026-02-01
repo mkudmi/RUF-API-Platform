@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
-import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type HttpMethod, type RequestItem } from '../modules/collectionTree'
+import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
@@ -551,6 +551,202 @@ export default function App() {
         didChange = true
         return { ...c, requests: nextRequests, folders: res.folders }
       })
+      if (!didChange) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function makeCopyName(name: string, existingNames: string[]): string {
+    const base = `${name} (copy)`
+    if (!existingNames.includes(base)) return base
+    for (let i = 2; i < 10_000; i++) {
+      const candidate = `${name} (copy ${i})`
+      if (!existingNames.includes(candidate)) return candidate
+    }
+    return `${name} (copy ${Date.now()})`
+  }
+
+  function cloneBodyExample(example: any): any {
+    try {
+      if (typeof structuredClone === 'function') return structuredClone(example)
+    } catch {
+      // ignore
+    }
+
+    try {
+      return JSON.parse(JSON.stringify(example))
+    } catch {
+      return example
+    }
+  }
+
+  function cloneRequestWithNewId(req: RequestItem, name: string): RequestItem {
+    return {
+      ...req,
+      id: uid('req'),
+      name,
+      params: Array.isArray(req.params) ? req.params.map(p => ({ ...p })) : [],
+      headers: { ...(req.headers ?? {}) },
+      body: req.body ? { ...req.body, example: cloneBodyExample(req.body.example) } : undefined,
+    }
+  }
+
+  function cloneFolderDeep(folder: Folder, nameOverride?: string): Folder {
+    return {
+      id: uid('folder'),
+      name: nameOverride ?? folder.name,
+      requests: Array.isArray(folder.requests) ? folder.requests.map(r => cloneRequestWithNewId(r, r.name)) : [],
+      ...(Array.isArray(folder.folders) ? { folders: folder.folders.map(f => cloneFolderDeep(f)) } : {}),
+    }
+  }
+
+  function cloneCollectionDeep(collection: Collection, nameOverride: string, idOverride?: string): Collection {
+    return {
+      id: idOverride ?? uid('col'),
+      name: nameOverride,
+      baseUrl: collection.baseUrl,
+      variables: collection.variables ? { ...collection.variables } : undefined,
+      requests: Array.isArray(collection.requests) ? collection.requests.map(r => cloneRequestWithNewId(r, r.name)) : undefined,
+      folders: Array.isArray(collection.folders) ? collection.folders.map(f => cloneFolderDeep(f)) : [],
+      // Intentionally drop sourceUrl/sourceType/sourceFileName so the duplicate is a standalone copy.
+    }
+  }
+
+  function insertCollectionIdAfterInWorkspaceFolder(folder: WorkspaceFolder, afterCollectionId: string, newCollectionId: string): { folder: WorkspaceFolder, inserted: boolean } {
+    const idx = folder.collectionIds.indexOf(afterCollectionId)
+    if (idx >= 0) {
+      const nextIds = [...folder.collectionIds.slice(0, idx + 1), newCollectionId, ...folder.collectionIds.slice(idx + 1)]
+      return { folder: { ...folder, collectionIds: nextIds }, inserted: true }
+    }
+
+    const nested = Array.isArray(folder.folders) ? folder.folders : []
+    if (!nested.length) return { folder, inserted: false }
+
+    for (let i = 0; i < nested.length; i++) {
+      const child = nested[i]
+      const res = insertCollectionIdAfterInWorkspaceFolder(child, afterCollectionId, newCollectionId)
+      if (!res.inserted) continue
+      const nextFolders = [...nested.slice(0, i), res.folder, ...nested.slice(i + 1)]
+      return { folder: { ...folder, folders: nextFolders }, inserted: true }
+    }
+
+    return { folder, inserted: false }
+  }
+
+  function duplicateCollection(collectionId: string) {
+    const duplicatedId = uid('col')
+    setCollections(prev => {
+      const idx = prev.findIndex(c => c.id === collectionId)
+      if (idx < 0) return prev
+
+      const original = prev[idx]
+      const nextName = makeCopyName(original.name, prev.map(c => c.name))
+      const copy = cloneCollectionDeep(original, nextName, duplicatedId)
+      const next = [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)]
+      saveCollections(next)
+      return next
+    })
+
+    setWorkspace(prev => {
+      let inserted = false
+      const nextFolders = prev.folders.map(f => {
+        if (inserted) return f
+        const res = insertCollectionIdAfterInWorkspaceFolder(f, collectionId, duplicatedId)
+        if (res.inserted) inserted = true
+        return res.folder
+      })
+
+      if (!inserted) return prev
+      const next: Workspace = { ...prev, folders: nextFolders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
+  function duplicateFolder(collectionId: string, folderId: string) {
+    setCollections(prev => {
+      let didChange = false
+
+      function duplicateInFolders(folders: Folder[]): { folders: Folder[], duplicated: boolean } {
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          if (f.id === folderId) {
+            const siblingNames = folders.map(x => x.name)
+            const nextName = makeCopyName(f.name, siblingNames)
+            const copy = cloneFolderDeep(f, nextName)
+            return { folders: [...folders.slice(0, i + 1), copy, ...folders.slice(i + 1)], duplicated: true }
+          }
+
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          if (!nested.length) continue
+          const child = duplicateInFolders(nested)
+          if (!child.duplicated) continue
+          return { folders: [...folders.slice(0, i), { ...f, folders: child.folders }, ...folders.slice(i + 1)], duplicated: true }
+        }
+        return { folders, duplicated: false }
+      }
+
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+        const res = duplicateInFolders(c.folders)
+        if (!res.duplicated) return c
+        didChange = true
+        return { ...c, folders: res.folders }
+      })
+
+      if (!didChange) return prev
+      saveCollections(next)
+      return next
+    })
+  }
+
+  function duplicateRequest(collectionId: string, requestId: string) {
+    setCollections(prev => {
+      let didChange = false
+
+      function duplicateInFolders(folders: Folder[]): { folders: Folder[], duplicated: boolean } {
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          const reqs = Array.isArray(f.requests) ? f.requests : []
+          const idx = reqs.findIndex(r => r.id === requestId)
+          if (idx >= 0) {
+            const nextName = makeCopyName(reqs[idx].name, reqs.map(r => r.name))
+            const copy = cloneRequestWithNewId(reqs[idx], nextName)
+            const nextReqs = [...reqs.slice(0, idx + 1), copy, ...reqs.slice(idx + 1)]
+            return { folders: [...folders.slice(0, i), { ...f, requests: nextReqs }, ...folders.slice(i + 1)], duplicated: true }
+          }
+
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          if (!nested.length) continue
+          const child = duplicateInFolders(nested)
+          if (!child.duplicated) continue
+          return { folders: [...folders.slice(0, i), { ...f, folders: child.folders }, ...folders.slice(i + 1)], duplicated: true }
+        }
+        return { folders, duplicated: false }
+      }
+
+      const next = prev.map(c => {
+        if (c.id !== collectionId) return c
+
+        const directReqs = Array.isArray(c.requests) ? c.requests : null
+        if (directReqs) {
+          const idx = directReqs.findIndex(r => r.id === requestId)
+          if (idx >= 0) {
+            didChange = true
+            const nextName = makeCopyName(directReqs[idx].name, directReqs.map(r => r.name))
+            const copy = cloneRequestWithNewId(directReqs[idx], nextName)
+            const nextReqs = [...directReqs.slice(0, idx + 1), copy, ...directReqs.slice(idx + 1)]
+            return { ...c, requests: nextReqs }
+          }
+        }
+
+        const res = duplicateInFolders(c.folders)
+        if (!res.duplicated) return c
+        didChange = true
+        return { ...c, folders: res.folders }
+      })
+
       if (!didChange) return prev
       saveCollections(next)
       return next
@@ -1526,6 +1722,9 @@ export default function App() {
             onRenameCollection={renameCollection}
             onRenameFolder={renameFolder}
             onRenameRequest={renameRequest}
+            onDuplicateCollection={duplicateCollection}
+            onDuplicateFolder={duplicateFolder}
+            onDuplicateRequest={duplicateRequest}
             onMoveFolder={moveFolder}
             onMoveRequest={moveRequest}
             onDeleteFolder={deleteFolder}
