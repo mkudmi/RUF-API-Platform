@@ -1385,6 +1385,7 @@ export function RequestEditor(props: {
   const methodMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const valueHistoryMenuPanelRef = useRef<HTMLDivElement | null>(null)
   const enumMenuPanelRef = useRef<HTMLDivElement | null>(null)
+  const baseUrlMenuPanelRef = useRef<HTMLDivElement | null>(null)
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
@@ -1408,6 +1409,8 @@ export function RequestEditor(props: {
   ))
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
+  const [baseUrlMenuOpen, setBaseUrlMenuOpen] = useState(false)
+  const [baseUrlMenuAnchor, setBaseUrlMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
   const [copyMenuOpen, setCopyMenuOpen] = useState(false)
   const copyMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [copyOk, setCopyOk] = useState(false)
@@ -1487,6 +1490,11 @@ export function RequestEditor(props: {
     setEnumMenuAnchor(null)
   }
 
+  function closeBaseUrlMenu() {
+    setBaseUrlMenuOpen(false)
+    setBaseUrlMenuAnchor(null)
+  }
+
   function toggleValueHistoryMenu(menuId: string, anchorEl: HTMLElement) {
     if (valueHistoryMenuOpenId === menuId) {
       closeValueHistoryMenu()
@@ -1494,6 +1502,7 @@ export function RequestEditor(props: {
     }
 
     closeEnumMenu()
+    closeBaseUrlMenu()
 
     const rect = anchorEl.getBoundingClientRect()
     const margin = 8
@@ -1524,6 +1533,7 @@ export function RequestEditor(props: {
     }
 
     closeValueHistoryMenu()
+    closeBaseUrlMenu()
 
     const rect = anchorEl.getBoundingClientRect()
     const margin = 8
@@ -1545,6 +1555,37 @@ export function RequestEditor(props: {
 
     setEnumMenuOpenId(menuId)
     setEnumMenuAnchor({ left, top, width })
+  }
+
+  function toggleBaseUrlMenu(anchorEl: HTMLElement) {
+    if (baseUrlMenuOpen) {
+      closeBaseUrlMenu()
+      return
+    }
+
+    closeValueHistoryMenu()
+    closeEnumMenu()
+
+    const rect = anchorEl.getBoundingClientRect()
+    const margin = 8
+    const assumedMaxHeight = 240
+
+    let width = rect.width
+    if (width < 220) width = 220
+    if (width > 520) width = 520
+
+    let left = rect.left
+    let top = rect.bottom + 6
+
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width)
+    if (left < margin) left = margin
+
+    if (top + assumedMaxHeight > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - 6 - assumedMaxHeight)
+    }
+
+    setBaseUrlMenuOpen(true)
+    setBaseUrlMenuAnchor({ left, top, width })
   }
 
   function commitFocusedValueFieldToState() {
@@ -1646,6 +1687,35 @@ export function RequestEditor(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [enumMenuOpenId])
+
+  useEffect(() => {
+    if (!baseUrlMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (baseUrlMenuPanelRef.current && baseUrlMenuPanelRef.current.contains(t)) return
+      if (t.closest?.('[data-base-url-btn]')) return
+      if (t.closest?.('[data-base-url-anchor]')) return
+      closeBaseUrlMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeBaseUrlMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [baseUrlMenuOpen])
+
+  useEffect(() => {
+    if (showBaseUrlPicker) return
+    closeBaseUrlMenu()
+  }, [showBaseUrlPicker])
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
 
@@ -1836,7 +1906,10 @@ export function RequestEditor(props: {
 
   const variableKeys = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
-    const keys = Object.keys(envVars).filter(k => k !== 'scheme').sort((a, b) => a.localeCompare(b))
+    const keys = Object.keys(envVars)
+      .filter(k => k !== 'scheme')
+      .filter(k => /url/i.test(k))
+      .sort((a, b) => a.localeCompare(b))
     if (!keys.length && baseUrlKey) return [baseUrlKey]
     if (baseUrlKey && !keys.includes(baseUrlKey)) return [...keys, baseUrlKey].sort((a, b) => a.localeCompare(b))
     return keys
@@ -3248,19 +3321,78 @@ export function RequestEditor(props: {
 
         {showBaseUrlPicker && (
           <div style={{ marginTop: 6, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="small">Base URL var:</span>
-            <select
-              className="mono"
-              value={baseUrlKey}
-              onChange={e => {
-                setBaseUrlKey(e.target.value)
-                setShowBaseUrlPicker(false)
-              }}
+            <span className="small">Base URL:</span>
+            <div
+              className="selectMenuWrap"
+              style={{ width: 'max-content', maxWidth: 520, minWidth: 180 }}
+              data-base-url-anchor
             >
-              {variableKeys.map(k => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
+              <button
+                type="button"
+                className="selectMenuBtn mono"
+                data-base-url-btn
+                onPointerDown={e => e.stopPropagation()}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const anchorEl = (e.currentTarget.closest('[data-base-url-anchor]') as HTMLElement | null) ?? e.currentTarget
+                  toggleBaseUrlMenu(anchorEl)
+                }}
+                aria-haspopup="menu"
+                aria-expanded={baseUrlMenuOpen}
+                aria-label="Base URL selector"
+                title="Pick Base URL"
+              >
+                {baseUrlKey}
+              </button>
+
+              {baseUrlMenuOpen && baseUrlMenuAnchor ? (
+                <div
+                  className="selectMenuPanel valueHistoryPanel"
+                  ref={baseUrlMenuPanelRef}
+                  role="menu"
+                  style={{
+                    position: 'fixed',
+                    left: baseUrlMenuAnchor.left,
+                    top: baseUrlMenuAnchor.top,
+                    minWidth: baseUrlMenuAnchor.width,
+                    width: 'max-content',
+                    maxWidth: 520,
+                    zIndex: 220,
+                  }}
+                  onPointerDown={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onClick={e => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                >
+                  {variableKeys.length ? (
+                    variableKeys.map(k => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`selectMenuItem ${k === baseUrlKey ? 'selectMenuItemActive' : ''}`}
+                        role="menuitem"
+                        onClick={() => {
+                          setBaseUrlKey(k)
+                          closeBaseUrlMenu()
+                        }}
+                      >
+                        <div className="mono">{k}</div>
+                        {props.environment?.variables?.[k] ? (
+                          <div className="varMenuDesc mono">{String(props.environment?.variables?.[k] ?? '')}</div>
+                        ) : null}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="valueHistoryEmpty small">No URLs</div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
       </div>

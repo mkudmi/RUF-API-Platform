@@ -291,6 +291,9 @@ input, textarea, select, button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  line-height: 1;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 .selectMenuBtn::after { content: '▾'; opacity: .9; font-size: 12px; }
 .selectMenuPanel {
