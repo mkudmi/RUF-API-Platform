@@ -37,8 +37,6 @@ import { useAppUpdater } from './useAppUpdater'
 // активный неактивный файл
 // добавить переменные из окружения в выбор через скобки
 // Экспорт в openapi?? и\или postman
-// Кнопка Send превращается в красную Cancel которая останавливает запрос если он в процессе
-// По центру responseViewer счетчик времени запроса от отправки до получения ответа
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))

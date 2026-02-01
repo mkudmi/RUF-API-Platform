@@ -286,6 +286,7 @@ export async function runRequest(args: {
   fileFieldName?: string
   files?: Array<{ fieldName: string, file: File }>
   formFields?: Record<string, string>
+  signal?: AbortSignal
 }): Promise<RunResult> {
   const start = performance.now()
   const vars = args.variables ?? {}
@@ -327,6 +328,7 @@ export async function runRequest(args: {
     headers: Object.fromEntries(
       Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)]),
     ),
+    signal: args.signal,
   }
 
   const methodAllowsBody = args.request.method !== 'GET' && args.request.method !== 'HEAD'
@@ -383,6 +385,23 @@ export async function runRequest(args: {
     res = await platformFetch(finalUrl, init, { insecureTls: !validateCertificates })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
+    if (e?.name === 'AbortError') {
+      return {
+        ok: false,
+        status: 0,
+        statusText: 'Canceled',
+        timeMs,
+        requestHeadersBytes,
+        requestBodyBytes,
+        requestBytes,
+        responseHeadersBytes: 0,
+        responseBodyBytes: 0,
+        responseBytes: 0,
+        requestHeaders: requestHeadersObj,
+        responseHeaders: {},
+        bodyText: 'Request was canceled.',
+      }
+    }
     return {
       ok: false,
       status: 0,

@@ -863,6 +863,12 @@ button:hover { background: rgba(255,255,255,.10); }
 .editorTitle { display: flex; gap: 10px; align-items: center; min-width: 0; flex: 1 1 auto; overflow: visible; }
 .editorRequestName { font-weight: 600; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
 .editorHeader > button { margin-left: auto; flex: 0 0 auto; }
+.editorSendBtnCancel {
+  background: rgba(239,68,68,.18);
+  border-color: rgba(239,68,68,.35);
+  color: rgba(255,255,255,.96);
+}
+.editorSendBtnCancel:hover { background: rgba(239,68,68,.28); }
 .methodMenuWrap { position: relative; display: inline-flex; align-items: center; }
 .methodMenuWrap { flex: 0 0 auto; }
 .methodBadgeBtn { cursor: pointer; font-size: 14px; padding: 8px 10px; line-height: 1; flex: 0 0 auto; white-space: nowrap; }

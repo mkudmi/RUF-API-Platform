@@ -1934,6 +1934,12 @@ export function RequestEditor(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const isSending = inFlightCount > 0
   const sendRef = useRef<(() => void) | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  function cancelInFlightSend() {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+  }
 
   function requestDefaultBodyText() {
     const b = props.request.body?.example
@@ -2634,6 +2640,10 @@ export function RequestEditor(props: {
   }
 
   async function send() {
+    cancelInFlightSend()
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
@@ -2689,6 +2699,22 @@ export function RequestEditor(props: {
         bodyText: message,
       })
 
+      const getCanceledResult = (): RunResult => ({
+        ok: false,
+        status: 0,
+        statusText: 'Canceled',
+        timeMs: 0,
+        requestHeadersBytes: 0,
+        requestBodyBytes: 0,
+        requestBytes: 0,
+        responseHeadersBytes: 0,
+        responseBodyBytes: 0,
+        responseBytes: 0,
+        requestHeaders: {},
+        responseHeaders: {},
+        bodyText: 'Request was canceled.',
+      })
+
       if (shouldRunSql) {
         const env = props.environment
         if (!env) {
@@ -2724,6 +2750,11 @@ export function RequestEditor(props: {
             return
           }
         }
+
+        if (abortController.signal.aborted) {
+          props.onResult(props.request.id, getCanceledResult(), runId)
+          return
+        }
       }
 
       let result = await runRequest({
@@ -2739,9 +2770,14 @@ export function RequestEditor(props: {
         file: snapshot.fileForOctetStream,
         fileFieldName: snapshot.fileFieldName,
         formFields: snapshot.formFields,
+        signal: abortController.signal,
       })
 
       if (shouldRunSql && postSql && props.environment) {
+        if (abortController.signal.aborted) {
+          props.onResult(props.request.id, getCanceledResult(), runId)
+          return
+        }
         const rawType = props.environment.variables?.[DB_ENV_KEYS.type]
         const dbType = rawType === 'mysql' ? 'mysql' : 'postgres'
         const fromEnv = (props.environment.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
@@ -2770,6 +2806,7 @@ export function RequestEditor(props: {
 
       props.onResult(props.request.id, result, runId)
     } finally {
+      if (abortControllerRef.current === abortController) abortControllerRef.current = null
       props.onSendEnd?.(props.request.id, runId)
     }
   }
@@ -2780,6 +2817,13 @@ export function RequestEditor(props: {
       sendRef.current = null
     }
   }, [send])
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -3185,11 +3229,17 @@ export function RequestEditor(props: {
           <span className="editorRequestName">{props.request.name}</span>
         </div>
         <button
-          onPointerDown={() => commitFocusedValueFieldToState()}
-          onClick={send}
-          disabled={isSending || !canSend}
+          className={isSending ? 'editorSendBtnCancel' : undefined}
+          onPointerDown={() => {
+            if (!isSending) commitFocusedValueFieldToState()
+          }}
+          onClick={() => {
+            if (isSending) cancelInFlightSend()
+            else void send()
+          }}
+          disabled={!canSend && !isSending}
         >
-          {isSending ? 'Sending...' : 'Send'}
+          {isSending ? 'Cancel' : 'Send'}
         </button>
       </div>
 

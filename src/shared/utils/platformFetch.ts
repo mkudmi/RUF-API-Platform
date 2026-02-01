@@ -108,6 +108,11 @@ export async function platformFetch(
   init?: RequestInit,
   opts?: { insecureTls?: boolean },
 ): Promise<Response> {
+  const signal = init?.signal
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
+
   if (isTauri()) {
     const urlString = getUrlString(input)
     const normalizedNetworkUrl = urlString ? normalizeHttpUrlLoose(urlString) : null
@@ -142,13 +147,15 @@ export async function platformFetch(
           if (!hasContentType) headers.push(['Content-Type', inferredContentType])
         }
 
-        const result = await tauriInvoke<{
+        type HttpRequestResult = {
           ok: boolean
           status: number
           statusText: string
           headers: [string, string][]
           bodyBase64: string
-        }>('http_request', {
+        }
+
+        const requestPromise = tauriInvoke<HttpRequestResult>('http_request', {
           args: {
             url,
             method,
@@ -157,6 +164,32 @@ export async function platformFetch(
             insecureTls: !!opts?.insecureTls,
           },
         })
+
+        const result: HttpRequestResult = await (signal
+          ? new Promise<HttpRequestResult>((resolve, reject) => {
+            let settled = false
+            const onAbort = () => {
+              if (settled) return
+              settled = true
+              reject(new DOMException('Aborted', 'AbortError'))
+            }
+            signal.addEventListener('abort', onAbort, { once: true })
+            requestPromise.then(
+              v => {
+                if (settled) return
+                settled = true
+                signal.removeEventListener('abort', onAbort)
+                resolve(v)
+              },
+              err => {
+                if (settled) return
+                settled = true
+                signal.removeEventListener('abort', onAbort)
+                reject(err)
+              },
+            )
+          })
+          : requestPromise)
 
         const binary = atob(result.bodyBase64 || '')
         const bytes = new Uint8Array(binary.length)
@@ -170,6 +203,7 @@ export async function platformFetch(
       }
     } catch (e: any) {
       if (isNetworkUrl) {
+        if (e?.name === 'AbortError') throw e
         const msg = e?.message ? String(e.message) : String(e)
         throw new Error(`Backend http_request failed: ${msg}`)
       }
