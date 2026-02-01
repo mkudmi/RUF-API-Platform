@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Collection, RequestItem } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace'
-import { readDraggedCollection } from '../utils/treeDragDrop'
+import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
 import { CollectionsTree } from './CollectionsTree'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'
@@ -45,6 +45,7 @@ export function WorkspaceTree(props: {
   onDeleteRequest: (collectionId: string, requestId: string) => void
   onDeleteCollection: (collectionId: string) => void
   onMoveCollectionToWorkspaceFolder: (collectionId: string, workspaceFolderId: string | null) => void
+  onMoveWorkspaceFolder: (workspaceFolderId: string, targetParentWorkspaceFolderId: string | null) => void
   onAddWorkspaceFolderToFolder: (workspaceFolderId: string) => void
   onRenameWorkspaceFolder: (workspaceFolderId: string, name: string) => void
   onDeleteWorkspaceFolder: (workspaceFolderId: string) => void
@@ -145,6 +146,7 @@ export function WorkspaceTree(props: {
       >
         <summary
           className="treeSummary treeSummaryWorkspaceFolder"
+          draggable={!isEditing}
           onPointerDown={e => {
             if (!isEditing) return
             const target = e.target as HTMLElement | null
@@ -153,16 +155,19 @@ export function WorkspaceTree(props: {
             e.stopPropagation()
             cancelRename()
           }}
+          onDragStart={e => {
+            if (isEditing) return
+            onWorkspaceFolderDragStart(e, folder.id)
+          }}
           onDragOver={e => {
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
+            onDragOverMove(e)
           }}
           onDrop={e => {
-            e.preventDefault()
-            e.stopPropagation()
-            const dragged = readDraggedCollection(e.dataTransfer)
-            if (!dragged) return
-            props.onMoveCollectionToWorkspaceFolder(dragged.collectionId, folder.id)
+            handleWorkspaceDrop(e, {
+              targetWorkspaceFolderId: folder.id,
+              onMoveWorkspaceFolder: props.onMoveWorkspaceFolder,
+              onMoveCollectionToWorkspaceFolder: props.onMoveCollectionToWorkspaceFolder,
+            })
           }}
         >
           <span className="treeChevron" aria-hidden="true" />
@@ -312,13 +317,14 @@ export function WorkspaceTree(props: {
     <div
       className="workspaceRoot"
       onDragOver={e => {
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
+        onDragOverMove(e)
       }}
       onDrop={e => {
-        const dragged = readDraggedCollection(e.dataTransfer)
-        if (!dragged) return
-        props.onMoveCollectionToWorkspaceFolder(dragged.collectionId, null)
+        handleWorkspaceDrop(e, {
+          targetWorkspaceFolderId: null,
+          onMoveWorkspaceFolder: props.onMoveWorkspaceFolder,
+          onMoveCollectionToWorkspaceFolder: props.onMoveCollectionToWorkspaceFolder,
+        })
       }}
     >
       <div className="tree">

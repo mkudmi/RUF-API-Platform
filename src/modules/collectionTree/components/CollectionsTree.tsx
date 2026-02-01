@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { DragEvent } from 'react'
 import type { Collection, Folder, RequestItem } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import { copyText } from '../../../shared/utils/clipboard'
-import { readDraggedFolder, readDraggedRequest, setDraggedCollection, setDraggedFolder, setDraggedRequest } from '../utils/treeDragDrop'
+import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -201,18 +202,18 @@ export function CollectionsTree(props: {
     return `treeMethodInFlight treeMethodInFlight${method}`
   }
 
-  function onFolderDragStart(e: React.DragEvent, collectionId: string, folderId: string) {
+  function onFolderDragStart(e: DragEvent<HTMLElement>, collectionId: string, folderId: string) {
     setDraggingFolder({ collectionId, folderId })
-    setDraggedFolder(e.dataTransfer, { collectionId, folderId })
+    setFolderDragData(e, collectionId, folderId)
   }
 
   function onFolderDragEnd() {
     setDraggingFolder(null)
   }
 
-  function onRequestDragStart(e: React.DragEvent, collectionId: string, requestId: string) {
+  function onRequestDragStart(e: DragEvent<HTMLElement>, collectionId: string, requestId: string) {
     setDraggingRequest({ collectionId, requestId })
-    setDraggedRequest(e.dataTransfer, { collectionId, requestId })
+    setRequestDragData(e, collectionId, requestId)
   }
 
   function onRequestDragEnd() {
@@ -283,24 +284,14 @@ export function CollectionsTree(props: {
             onFolderDragEnd()
           }}
           onDragOver={e => {
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
+            onDragOverMove(e)
           }}
           onDrop={e => {
-            e.preventDefault()
-            e.stopPropagation()
-            const dragged = readDraggedFolder(e.dataTransfer)
-            if (dragged) {
-              if (dragged.collectionId !== col.id) return
-              if (dragged.folderId === folder.id) return
-              props.onMoveFolder(col.id, dragged.folderId, folder.id)
-              return
-            }
-
-            const draggedReq = readDraggedRequest(e.dataTransfer)
-            if (!draggedReq) return
-            if (draggedReq.collectionId !== col.id) return
-            props.onMoveRequest(col.id, draggedReq.requestId, folder.id)
+            handleCollectionTreeDrop(e, {
+              ...asCollectionDropArgs(col, folder.id),
+              onMoveFolder: props.onMoveFolder,
+              onMoveRequest: props.onMoveRequest,
+            })
           }}
         >
           <span className="treeChevron" aria-hidden="true" />
@@ -766,26 +757,17 @@ export function CollectionsTree(props: {
                   }}
                   onDragStart={e => {
                     if (isEditing) return
-                    setDraggedCollection(e.dataTransfer, { collectionId: col.id })
+                    setCollectionDragData(e, col.id)
                   }}
                   onDragOver={e => {
-                    e.preventDefault()
-                    e.dataTransfer.dropEffect = 'move'
+                    onDragOverMove(e)
                   }}
                   onDrop={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const dragged = readDraggedFolder(e.dataTransfer)
-                    if (dragged) {
-                      if (dragged.collectionId !== col.id) return
-                      props.onMoveFolder(col.id, dragged.folderId, null)
-                      return
-                    }
-
-                    const draggedReq = readDraggedRequest(e.dataTransfer)
-                    if (!draggedReq) return
-                    if (draggedReq.collectionId !== col.id) return
-                    props.onMoveRequest(col.id, draggedReq.requestId, null)
+                    handleCollectionTreeDrop(e, {
+                      ...asCollectionDropArgs(col, null),
+                      onMoveFolder: props.onMoveFolder,
+                      onMoveRequest: props.onMoveRequest,
+                    })
                   }}
                 >
                   <span className="treeChevron" aria-hidden="true" />

@@ -1188,6 +1188,94 @@ export default function App() {
     })
   }
 
+  function moveWorkspaceFolder(workspaceFolderId: string, targetParentWorkspaceFolderId: string | null) {
+    setWorkspace(prev => {
+      function findInFolders(folders: WorkspaceFolder[], id: string): WorkspaceFolder | null {
+        for (const f of folders) {
+          if (f.id === id) return f
+          const nested = f.folders ?? []
+          if (!nested.length) continue
+          const found = findInFolders(nested, id)
+          if (found) return found
+        }
+        return null
+      }
+
+      const moving = findInFolders(prev.folders, workspaceFolderId)
+      if (!moving) return prev
+
+      if (targetParentWorkspaceFolderId) {
+        if (targetParentWorkspaceFolderId === workspaceFolderId) return prev
+        const inSubtree = findInFolders(moving.folders ?? [], targetParentWorkspaceFolderId)
+        if (inSubtree) return prev
+      }
+
+      function removeFromFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], removed: WorkspaceFolder | null, changed: boolean } {
+        let removed: WorkspaceFolder | null = null
+        let changed = false
+        const nextFolders: WorkspaceFolder[] = []
+
+        for (const f of folders) {
+          if (f.id === workspaceFolderId) {
+            removed = f
+            changed = true
+            continue
+          }
+
+          const nested = f.folders ?? []
+          if (!nested.length) {
+            nextFolders.push(f)
+            continue
+          }
+
+          const childRes = removeFromFolders(nested)
+          if (!childRes.changed) {
+            nextFolders.push(f)
+            continue
+          }
+
+          changed = true
+          nextFolders.push(childRes.folders.length ? { ...f, folders: childRes.folders } : { ...f, folders: undefined })
+          if (childRes.removed) removed = childRes.removed
+        }
+
+        return { folders: nextFolders, removed, changed }
+      }
+
+      const removedRes = removeFromFolders(prev.folders)
+      const movedFolder = removedRes.removed
+      if (!removedRes.changed || !movedFolder) return prev
+      const movedFolderSafe: WorkspaceFolder = movedFolder
+
+      function insertIntoFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], inserted: boolean } {
+        if (!targetParentWorkspaceFolderId) return { folders: [movedFolderSafe, ...folders], inserted: true }
+
+        let inserted = false
+        const nextFolders = folders.map(f => {
+          if (f.id === targetParentWorkspaceFolderId) {
+            inserted = true
+            const nested = f.folders ?? []
+            return { ...f, folders: [movedFolderSafe, ...nested] }
+          }
+          const nested = f.folders ?? []
+          if (!nested.length) return f
+          const childRes = insertIntoFolders(nested)
+          if (!childRes.inserted) return f
+          inserted = true
+          return { ...f, folders: childRes.folders }
+        })
+
+        return { folders: nextFolders, inserted }
+      }
+
+      const insertRes = insertIntoFolders(removedRes.folders)
+      const nextFolders = insertRes.inserted ? insertRes.folders : [movedFolderSafe, ...removedRes.folders]
+      const next: Workspace = { ...prev, folders: nextFolders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
   function moveCollectionToWorkspaceFolder(collectionId: string, workspaceFolderId: string | null) {
     setWorkspace(prev => {
       function moveInFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
@@ -1444,6 +1532,7 @@ export default function App() {
             onDeleteRequest={deleteRequest}
             onDeleteCollection={requestDeleteCollection}
             onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
+            onMoveWorkspaceFolder={moveWorkspaceFolder}
             onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
             onRenameWorkspaceFolder={renameWorkspaceFolder}
             onDeleteWorkspaceFolder={deleteWorkspaceFolder}
