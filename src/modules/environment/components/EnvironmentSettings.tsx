@@ -10,7 +10,7 @@ import {
   mergeDbIntoVariables,
   runDbConnectionTest,
 } from '../utils/dbConnection'
-import type { DbType } from '../utils/dbConnection'
+import type { DbType, PgSslMode } from '../utils/dbConnection'
 
 type HeaderRow = { key: string; value: string }
 type VariableRow = { key: string; value: string }
@@ -28,6 +28,7 @@ export function EnvironmentSettings(props: {
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null)
   const dbTypeMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const dbSslModeMenuWrapRef = useRef<HTMLDivElement | null>(null)
 
   function ensureTrailingEmptyRow<T extends { key: string; value: string }>(rows: T[]) {
     if (rows.length === 0) return [{ key: '', value: '' } as T]
@@ -58,6 +59,7 @@ export function EnvironmentSettings(props: {
 
   const initialDb = useMemo(() => getDbFormStateFromEnv(props.env), [props.env])
   const [dbType, setDbType] = useState<DbType>(() => initialDb.type)
+  const [dbSslMode, setDbSslMode] = useState<PgSslMode>(() => initialDb.sslmode)
   const [dbHost, setDbHost] = useState(() => initialDb.host)
   const [dbPort, setDbPort] = useState(() => initialDb.port)
   const [dbDatabase, setDbDatabase] = useState(() => initialDb.database)
@@ -65,6 +67,7 @@ export function EnvironmentSettings(props: {
   const [dbPassword, setDbPassword] = useState(() => initialDb.password)
   const [dbShowPassword, setDbShowPassword] = useState(false)
   const [dbTypeMenuOpen, setDbTypeMenuOpen] = useState(false)
+  const [dbSslModeMenuOpen, setDbSslModeMenuOpen] = useState(false)
   const [dbAccordionOpen, setDbAccordionOpen] = useState(() => hasDbConfigInEnv(props.env))
   const [dbTestInFlight, setDbTestInFlight] = useState(false)
   const [dbTestError, setDbTestError] = useState<string | null>(null)
@@ -76,13 +79,14 @@ export function EnvironmentSettings(props: {
     () =>
       buildDbConnectionString({
         type: dbType,
+        sslmode: dbSslMode,
         host: dbHost,
         port: dbPort,
         database: dbDatabase,
         username: dbUsername,
         password: dbPassword,
       }),
-    [dbDatabase, dbHost, dbPassword, dbPort, dbType, dbUsername],
+    [dbDatabase, dbHost, dbPassword, dbPort, dbSslMode, dbType, dbUsername],
   )
 
   const dbConnectionStringPreview = useMemo(() => {
@@ -123,6 +127,7 @@ export function EnvironmentSettings(props: {
     )
     const nextDb = getDbFormStateFromEnv(props.env)
     setDbType(nextDb.type)
+    setDbSslMode(nextDb.sslmode)
     setDbHost(nextDb.host)
     setDbPort(nextDb.port)
     setDbDatabase(nextDb.database)
@@ -169,8 +174,31 @@ export function EnvironmentSettings(props: {
     }
   }, [dbTypeMenuOpen])
 
+  useEffect(() => {
+    if (!dbSslModeMenuOpen) return
+
+    function onPointerDown(e: PointerEvent) {
+      const wrap = dbSslModeMenuWrapRef.current
+      const t = e.target as Node | null
+      if (wrap && t && wrap.contains(t)) return
+      setDbSslModeMenuOpen(false)
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setDbSslModeMenuOpen(false)
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [dbSslModeMenuOpen])
+
   function setDbTypeAndMaybeDefaultPort(nextType: DbType) {
     setDbType(nextType)
+    setDbSslModeMenuOpen(false)
     setDbPort(prev => {
       const raw = prev.trim()
       if (!raw) return nextType === 'mysql' ? '3306' : '5432'
@@ -214,6 +242,7 @@ export function EnvironmentSettings(props: {
 
       variables = mergeDbIntoVariables(variables, {
         type: dbType,
+        sslmode: dbSslMode,
         host: dbHost,
         port: dbPort,
         database: dbDatabase,
@@ -283,6 +312,7 @@ export function EnvironmentSettings(props: {
     setDbDatabase('')
     setDbUsername('')
     setDbPassword('')
+    setDbSslMode('prefer')
     setDbShowPassword(false)
 
     setDbTestError(null)
@@ -555,6 +585,67 @@ export function EnvironmentSettings(props: {
                 ) : null}
               </div>
             </div>
+
+            {dbType === 'postgres' ? (
+              <div className="formRow">
+                <div className="formLabel">SSL mode</div>
+                <div ref={dbSslModeMenuOpen ? dbSslModeMenuWrapRef : null} className="selectMenuWrap">
+                  <button
+                    type="button"
+                    className="selectMenuBtn"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setDbSslModeMenuOpen(v => !v)
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={dbSslModeMenuOpen}
+                    aria-label="PostgreSQL SSL mode"
+                    title="PostgreSQL SSL mode"
+                  >
+                    {dbSslMode}
+                  </button>
+
+                  {dbSslModeMenuOpen ? (
+                    <div
+                      className="selectMenuPanel"
+                      role="menu"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                    >
+                      {([
+                        { value: 'prefer', label: 'prefer (default)' },
+                        { value: 'require', label: 'require (encrypt, no verify)' },
+                        { value: 'verify-ca', label: 'verify-ca' },
+                        { value: 'verify-full', label: 'verify-full' },
+                        { value: 'disable', label: 'disable' },
+                        { value: 'allow', label: 'allow' },
+                      ] as Array<{ value: PgSslMode; label: string }>).map(o => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          className={`selectMenuItem ${dbSslMode === o.value ? 'selectMenuItemActive' : ''}`}
+                          role="menuitem"
+                          onClick={() => {
+                            setDbSslModeMenuOpen(false)
+                            setDbSslMode(o.value)
+                          }}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <div className="formRow">
               <div className="formLabel">Host</div>

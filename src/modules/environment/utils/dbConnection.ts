@@ -1,10 +1,13 @@
 import type { Environment } from '../../../shared/types/environment'
 import { isTauri, tauriInvoke } from '../../../shared/utils/tauri'
+import { loadAppSettings } from '../../../shared/utils/appSettings'
 
 export type DbType = 'postgres' | 'mysql'
+export type PgSslMode = 'disable' | 'allow' | 'prefer' | 'require' | 'verify-ca' | 'verify-full'
 
 export type DbFormState = {
   type: DbType
+  sslmode: PgSslMode
   host: string
   port: string
   database: string
@@ -15,6 +18,7 @@ export type DbFormState = {
 export const DB_ENV_KEYS = {
   type: 'db.type',
   connectionString: 'db.connectionString',
+  sslmode: 'db.sslmode',
   host: 'db.host',
   port: 'db.port',
   database: 'db.database',
@@ -33,6 +37,7 @@ export function hasDbConfigInEnv(env: Environment): boolean {
   const type: DbType = rawType === 'mysql' ? 'mysql' : 'postgres'
   const defaultPort = type === 'mysql' ? '3306' : '5432'
 
+  const sslmode = (env.variables[DB_ENV_KEYS.sslmode] ?? '').trim()
   const host = (env.variables[DB_ENV_KEYS.host] ?? '').trim()
   const port = (env.variables[DB_ENV_KEYS.port] ?? '').trim()
   const database = (env.variables[DB_ENV_KEYS.database] ?? '').trim()
@@ -40,15 +45,21 @@ export function hasDbConfigInEnv(env: Environment): boolean {
   const password = (env.variables[DB_ENV_KEYS.password] ?? '').trim()
   const connectionString = (env.variables[DB_ENV_KEYS.connectionString] ?? '').trim()
 
-  return !!(connectionString || host || database || username || password || (port && port !== defaultPort))
+  return !!(connectionString || sslmode || host || database || username || password || (port && port !== defaultPort))
 }
 
 export function getDbFormStateFromEnv(env: Environment): DbFormState {
   const rawType = env.variables[DB_ENV_KEYS.type]
   const type: DbType = rawType === 'mysql' ? 'mysql' : 'postgres'
   const defaultPort = type === 'mysql' ? '3306' : '5432'
+  const sslRaw = (env.variables[DB_ENV_KEYS.sslmode] ?? '').trim().toLowerCase()
+  const sslmode: PgSslMode =
+    sslRaw === 'disable' || sslRaw === 'allow' || sslRaw === 'require' || sslRaw === 'verify-ca' || sslRaw === 'verify-full'
+      ? (sslRaw as PgSslMode)
+      : 'prefer'
   return {
     type,
+    sslmode,
     host: env.variables[DB_ENV_KEYS.host] ?? '',
     port: env.variables[DB_ENV_KEYS.port] ?? defaultPort,
     database: env.variables[DB_ENV_KEYS.database] ?? '',
@@ -73,6 +84,10 @@ export function buildDbConnectionString(state: DbFormState): string {
     u.username = state.username
     u.password = state.password
     u.pathname = database ? `/${database}` : '/'
+    if (type === 'postgres') {
+      const sslmode = (state.sslmode || 'prefer').trim()
+      if (sslmode && sslmode !== 'prefer') u.searchParams.set('sslmode', sslmode)
+    }
     return u.toString()
   } catch {
     return ''
@@ -97,14 +112,16 @@ export function mergeDbIntoVariables(variables: Record<string, string>, state: D
   const defaultPort = state.type === 'mysql' ? '3306' : '5432'
   const port = state.port.trim() || defaultPort
   const database = state.database.trim()
+  const sslmode = state.type === 'postgres' ? (state.sslmode || 'prefer') : 'prefer'
   const username = state.username
   const password = state.password
 
-  const hasAnyDbField = !!(host || database || username || password || (port && port !== defaultPort))
+  const hasAnyDbField = !!(host || database || username || password || (port && port !== defaultPort) || (state.type === 'postgres' && sslmode !== 'prefer'))
   if (!hasAnyDbField) return variables
 
   const next: Record<string, string> = { ...variables }
   next[DB_ENV_KEYS.type] = state.type || 'postgres'
+  if (state.type === 'postgres') next[DB_ENV_KEYS.sslmode] = sslmode
   next[DB_ENV_KEYS.host] = host
   next[DB_ENV_KEYS.port] = port
   next[DB_ENV_KEYS.database] = database
@@ -116,12 +133,14 @@ export function mergeDbIntoVariables(variables: Record<string, string>, state: D
 
 export async function runDbConnectionTest(opts: { type: string; connectionString: string }) {
   const started = performance.now()
+  const caCertsPem = loadAppSettings().caCertificates.map(c => c.pem)
 
   if (isTauri()) {
     const result = await tauriInvoke<{ ok: boolean; message?: string }>('db_test', {
       args: {
         type: opts.type,
         connectionString: opts.connectionString,
+        caCertsPem,
       },
     })
     const durationMs = Math.max(0, Math.round(performance.now() - started))
@@ -131,7 +150,7 @@ export async function runDbConnectionTest(opts: { type: string; connectionString
   const resp = await fetch('/__ruf/db/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: opts.type, connectionString: opts.connectionString }),
+    body: JSON.stringify({ type: opts.type, connectionString: opts.connectionString, caCertsPem }),
   })
   const durationMs = Math.max(0, Math.round(performance.now() - started))
 
@@ -165,6 +184,7 @@ export async function runDbConnectionTest(opts: { type: string; connectionString
 
 export async function runDbSql(opts: { type: string; connectionString: string; sql: string; timeoutMs?: number }) {
   const started = performance.now()
+  const caCertsPem = loadAppSettings().caCertificates.map(c => c.pem)
 
   if (isTauri()) {
     const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number }>('db_exec', {
@@ -173,6 +193,7 @@ export async function runDbSql(opts: { type: string; connectionString: string; s
         connectionString: opts.connectionString,
         sql: opts.sql,
         timeoutMs: opts.timeoutMs,
+        caCertsPem,
       },
     })
     const durationMs = Math.max(0, Math.round(performance.now() - started))
@@ -188,6 +209,7 @@ export async function runDbSql(opts: { type: string; connectionString: string; s
       connectionString: opts.connectionString,
       sql: opts.sql,
       timeoutMs: opts.timeoutMs,
+      caCertsPem,
     }),
   })
   const durationMs = Math.max(0, Math.round(performance.now() - started))

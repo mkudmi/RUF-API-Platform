@@ -21,7 +21,7 @@ function buildProxyUrl(targetAbsoluteUrl: string, opts?: { insecureTls?: boolean
 export async function fetchWithProxyFallback(
   targetAbsoluteUrl: string,
   init?: RequestInit,
-  opts?: { insecureTls?: boolean },
+  opts?: { insecureTls?: boolean; caCertsPem?: string[] },
 ): Promise<Response> {
   if (isTauri()) {
     return await platformFetch(targetAbsoluteUrl, init, opts)

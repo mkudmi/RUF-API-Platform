@@ -30,6 +30,8 @@ pub struct HttpRequestArgs {
   pub timeout_ms: Option<u64>,
   #[serde(rename = "insecureTls")]
   pub insecure_tls: Option<bool>,
+  #[serde(rename = "caCertsPem")]
+  pub ca_certs_pem: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,11 +118,28 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
     let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(30000), 1000, 120_000);
     let insecure_tls = args.insecure_tls.unwrap_or(false);
 
-    let client = reqwest::Client::builder()
+    let mut client_builder = reqwest::Client::builder()
       .timeout(Duration::from_millis(timeout_ms))
       .danger_accept_invalid_certs(insecure_tls)
       .danger_accept_invalid_hostnames(insecure_tls)
       .user_agent("ruf/0.1.0")
+      ;
+
+    if !insecure_tls {
+      if let Some(certs) = args.ca_certs_pem {
+        for pem in certs {
+          let trimmed = pem.trim();
+          if trimmed.is_empty() {
+            continue;
+          }
+          let cert = reqwest::Certificate::from_pem(trimmed.as_bytes())
+            .map_err(|e| HttpError::RequestFailed(format!("invalid CA certificate: {e}")))?;
+          client_builder = client_builder.add_root_certificate(cert);
+        }
+      }
+    }
+
+    let client = client_builder
       .build()
       .map_err(|e| HttpError::RequestFailed(e.to_string()))?;
 

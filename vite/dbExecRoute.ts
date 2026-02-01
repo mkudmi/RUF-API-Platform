@@ -2,6 +2,7 @@ import type { Connect } from 'vite'
 import type { ServerResponse } from 'node:http'
 import pg, { type QueryConfig, type QueryResult, type QueryResultRow } from 'pg'
 import mysql from 'mysql2/promise'
+import type { ConnectionOptions } from 'node:tls'
 
 export function registerDbExecRoute(middlewares: Connect.Server) {
   middlewares.use('/__ruf/db/exec', async (req: Connect.IncomingMessage, res: ServerResponse) => {
@@ -36,6 +37,8 @@ export function registerDbExecRoute(middlewares: Connect.Server) {
       const sql = typeof obj.sql === 'string' ? obj.sql.trim() : ''
       const timeoutMsRaw = typeof obj.timeoutMs === 'number' ? obj.timeoutMs : 15000
       const timeoutMs = clamp(Math.floor(timeoutMsRaw), 1000, 60000)
+      const caCertsPemRaw = Array.isArray(obj.caCertsPem) ? obj.caCertsPem : []
+      const caCertsPem = caCertsPemRaw.filter(x => typeof x === 'string' && x.trim()).map(x => String(x))
 
       if (!connectionString) {
         res.statusCode = 400
@@ -62,7 +65,8 @@ export function registerDbExecRoute(middlewares: Connect.Server) {
 
       if (type === 'postgres') {
         const { Client } = pg
-        const client = new Client({ connectionString, connectionTimeoutMillis: timeoutMs })
+        const ssl = getPgSslFromConnectionString(connectionString, caCertsPem)
+        const client = new Client({ connectionString, connectionTimeoutMillis: timeoutMs, ...(ssl ? { ssl } : {}) })
         try {
           await withTimeout(client.connect(), timeoutMs, 'Connection timeout')
           type PgQueryResult = QueryResult<QueryResultRow>
@@ -151,6 +155,29 @@ export function registerDbExecRoute(middlewares: Connect.Server) {
       res.end(JSON.stringify({ ok: false, error: message }))
     }
   })
+}
+
+function getPgSslFromConnectionString(connectionString: string, caCertsPem: string[]): boolean | ConnectionOptions | undefined {
+  let u: URL
+  try {
+    u = new URL(connectionString)
+  } catch {
+    return undefined
+  }
+
+  const raw = (u.searchParams.get('sslmode') || u.searchParams.get('ssl-mode') || '').toLowerCase().replaceAll('_', '-')
+
+  if (!raw || raw === 'prefer' || raw === 'allow' || raw === 'disable') return undefined
+
+  const ca = caCertsPem.length ? caCertsPem.join('\n') : undefined
+
+  if (raw === 'require') return { rejectUnauthorized: false, ...(ca ? { ca } : {}) }
+
+  if (raw === 'verify-ca') return { rejectUnauthorized: true, ...(ca ? { ca } : {}), checkServerIdentity: () => undefined }
+
+  if (raw === 'verify-full') return { rejectUnauthorized: true, ...(ca ? { ca } : {}) }
+
+  return undefined
 }
 
 function clamp(n: number, min: number, max: number) {

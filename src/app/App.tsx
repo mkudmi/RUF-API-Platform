@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { CloseIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -14,11 +15,12 @@ import type { RunResult } from '../modules/requestRunner/runRequest'
 import { uid } from '../shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
-import { loadAppSettings, saveAppSettings } from '../shared/utils/appSettings'
+import { loadAppSettings, saveAppSettings, type CaCertificate } from '../shared/utils/appSettings'
 import { fetchWithProxyFallback } from '../shared/utils/proxyFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
-import { isTauri } from '../shared/utils/tauri'
+import { isTauri, tauriInvoke } from '../shared/utils/tauri'
 import { useAppUpdater } from './useAppUpdater'
+import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 
 //TODO:
 // Из body убрать красное подчеркивание
@@ -98,7 +100,12 @@ export default function App() {
   const importOpenRef = useRef<(() => void) | null>(null)
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
-  const [validateCertificates, setValidateCertificates] = useState<boolean>(() => loadAppSettings().validateCertificates)
+  const initialAppSettings = useMemo(() => loadAppSettings(), [])
+  const [validateCertificates, setValidateCertificates] = useState<boolean>(() => initialAppSettings.validateCertificates)
+  const [caCertificates, setCaCertificates] = useState<CaCertificate[]>(() => initialAppSettings.caCertificates)
+  const [caCertInput, setCaCertInput] = useState('')
+  const [caCertError, setCaCertError] = useState<string | null>(null)
+  const [caCertBusy, setCaCertBusy] = useState(false)
   const [reloadFromFileCollectionId, setReloadFromFileCollectionId] = useState<string | null>(null)
   const [reloadFromFileError, setReloadFromFileError] = useState<string | null>(null)
   const [reloadFromFilePending, setReloadFromFilePending] = useState<Collection | null>(null)
@@ -212,9 +219,88 @@ export default function App() {
     settingsDialogRef.current?.close()
   }
 
+  async function addCaCertificatesFromInput() {
+    setCaCertError(null)
+    const blocks = extractPemCertificates(caCertInput)
+    if (!blocks.length) {
+      setCaCertError('Paste one or more PEM certificates (BEGIN CERTIFICATE / END CERTIFICATE).')
+      return
+    }
+
+    setCaCertBusy(true)
+    try {
+      const existingBySha = new Set((caCertificates || []).map(c => (c.sha256 || '').toLowerCase()).filter(Boolean))
+      const added: CaCertificate[] = []
+
+      for (const pem of blocks) {
+        let sha256 = ''
+        try {
+          sha256 = await sha256Hex(pemToDerBytes(pem))
+        } catch {
+          sha256 = ''
+        }
+        if (sha256 && existingBySha.has(sha256.toLowerCase())) continue
+
+        const base: CaCertificate = {
+          id: uid(),
+          pem,
+          addedAt: Date.now(),
+          ...(sha256 ? { sha256 } : {}),
+        }
+
+        if (isTauri()) {
+          try {
+            const inspected = await tauriInvoke<{
+              ok: boolean
+              message?: string
+              sha256?: string
+              subject?: string
+              issuer?: string
+              notBefore?: string
+              notAfter?: string
+            }>('cert_inspect', { args: { pem } })
+
+            if (inspected?.ok) {
+              const next: CaCertificate = {
+                ...base,
+                ...(typeof inspected.sha256 === 'string' ? { sha256: inspected.sha256 } : null),
+                ...(typeof inspected.subject === 'string' ? { subject: inspected.subject } : null),
+                ...(typeof inspected.issuer === 'string' ? { issuer: inspected.issuer } : null),
+                ...(typeof inspected.notBefore === 'string' ? { notBefore: inspected.notBefore } : null),
+                ...(typeof inspected.notAfter === 'string' ? { notAfter: inspected.notAfter } : null),
+              }
+              added.push(next)
+              if (next.sha256) existingBySha.add(next.sha256.toLowerCase())
+              continue
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        added.push(base)
+        if (base.sha256) existingBySha.add(base.sha256.toLowerCase())
+      }
+
+      if (!added.length) {
+        setCaCertError('No new certificates were added (duplicates or invalid input).')
+        return
+      }
+
+      setCaCertificates(prev => [...(prev || []), ...added])
+      setCaCertInput('')
+    } finally {
+      setCaCertBusy(false)
+    }
+  }
+
+  function deleteCaCertificate(id: string) {
+    setCaCertificates(prev => (prev || []).filter(c => c.id !== id))
+  }
+
   useEffect(() => {
-    saveAppSettings({ validateCertificates })
-  }, [validateCertificates])
+    saveAppSettings({ validateCertificates, caCertificates })
+  }, [validateCertificates, caCertificates])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -349,7 +435,7 @@ export default function App() {
 
     try {
       const u = new URL(rawUrl)
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) throw new Error('Response is empty.')
@@ -1985,7 +2071,7 @@ export default function App() {
 
       <dialog
         ref={settingsDialogRef}
-        className="modal modalSmall"
+        className="modal modalSmall modalSettings"
       >
         <div className="modalHeader" style={{ marginBottom: 0 }}>
           <b>Settings</b>
@@ -2003,6 +2089,83 @@ export default function App() {
           <span className="checkBox" aria-hidden="true" />
           <span className="checkText">Validate certificates</span>
         </label>
+
+        <details className="accordion" style={{ marginTop: 10 }}>
+          <summary>
+            <span style={{ flex: 1 }}>CA certificates</span>
+            <span className="badge">{caCertificates.length}</span>
+          </summary>
+          <div className="section">
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div className="small">Paste PEM certificate(s)</div>
+              <textarea
+                className="mono"
+                value={caCertInput}
+                onChange={e => setCaCertInput(e.target.value)}
+                placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+                spellCheck={false}
+                style={{
+                  width: '100%',
+                  minHeight: 120,
+                  resize: 'vertical',
+                  padding: 10,
+                  borderRadius: 10,
+                  border: '1px solid rgba(255,255,255,.12)',
+                  background: 'rgba(255,255,255,.04)',
+                  color: 'inherit',
+                }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
+                  {caCertBusy ? 'Adding…' : 'Add'}
+                </button>
+              </div>
+              {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
+            </div>
+
+            {caCertificates.length ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {caCertificates.map(cert => {
+                  const title = cert.subject || 'Certificate'
+                  const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
+                  return (
+                    <div
+                      key={cert.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto',
+                        gap: 10,
+                        alignItems: 'center',
+                        padding: 10,
+                        borderRadius: 10,
+                        border: '1px solid rgba(255,255,255,.12)',
+                        background: 'rgba(255,255,255,.03)',
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+                        {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
+                        {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="headerDeleteBtn"
+                        onClick={() => deleteCaCertificate(cert.id)}
+                        aria-label="Delete certificate"
+                        title="Delete"
+                      >
+                        <CloseIcon size={18} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
+            )}
+          </div>
+        </details>
 
         <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>

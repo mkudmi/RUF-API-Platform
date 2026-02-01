@@ -106,7 +106,7 @@ async function bodyToBase64(body: BodyInit): Promise<{ bodyBase64: string; conte
 export async function platformFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
-  opts?: { insecureTls?: boolean },
+  opts?: { insecureTls?: boolean; caCertsPem?: string[] },
 ): Promise<Response> {
   const signal = init?.signal
   if (signal?.aborted) {
@@ -162,6 +162,7 @@ export async function platformFetch(
             headers,
             bodyBase64,
             insecureTls: !!opts?.insecureTls,
+            caCertsPem: opts?.caCertsPem,
           },
         })
 

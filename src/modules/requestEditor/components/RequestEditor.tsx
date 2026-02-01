@@ -2355,7 +2355,7 @@ export function RequestEditor(props: {
 
     setQueryKeyOrder(prev => {
       const keep = new Set(visible)
-      let next = prev.filter(k => keep.has(k))
+      const next = prev.filter(k => keep.has(k))
       for (const k of visible) {
         if (!next.includes(k)) next.push(k)
       }

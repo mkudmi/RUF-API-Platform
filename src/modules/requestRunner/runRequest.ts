@@ -107,6 +107,14 @@ function shouldValidateCertificates(): boolean {
   }
 }
 
+function getCaCertsPem(): string[] {
+  try {
+    return (loadAppSettings().caCertificates || []).map(c => c.pem).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
 function applyVariables(text: string, vars: Record<string, string>) {
   return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
 }
@@ -376,13 +384,14 @@ export async function runRequest(args: {
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
   const finalUrl = maybeProxyUrl(url, { insecureTls: !validateCertificates })
+  const caCertsPem = getCaCertsPem()
   const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)
   const requestBodyBytes = estimateBodyBytes(init.body)
   const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
-    res = await platformFetch(finalUrl, init, { insecureTls: !validateCertificates })
+    res = await platformFetch(finalUrl, init, { insecureTls: !validateCertificates, caCertsPem })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
     if (e?.name === 'AbortError') {

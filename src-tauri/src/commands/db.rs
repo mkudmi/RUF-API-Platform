@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Connection;
+use std::str::FromStr;
 use std::time::Duration;
+use tauri::Manager;
 use thiserror::Error;
 use tokio::time::timeout;
 
@@ -27,6 +29,8 @@ pub struct DbTestArgs {
   connection_string: String,
   #[serde(rename = "timeoutMs")]
   timeout_ms: Option<u64>,
+  #[serde(rename = "caCertsPem")]
+  ca_certs_pem: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +42,8 @@ pub struct DbExecArgs {
   sql: String,
   #[serde(rename = "timeoutMs")]
   timeout_ms: Option<u64>,
+  #[serde(rename = "caCertsPem")]
+  ca_certs_pem: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,6 +64,34 @@ pub struct DbExecResult {
 
 fn clamp_ms(value: u64, min: u64, max: u64) -> u64 {
   value.max(min).min(max)
+}
+
+fn conn_str_has_ssl_root_cert(conn_str: &str) -> bool {
+  let lower = conn_str.to_ascii_lowercase();
+  lower.contains("sslrootcert=") || lower.contains("ssl-root-cert=")
+}
+
+fn write_ca_bundle(app: &tauri::AppHandle, ca_pems: &[String]) -> Result<std::path::PathBuf, DbError> {
+  let dir = app
+    .path()
+    .app_data_dir()
+    .map_err(|e| DbError::Sqlx(e.to_string()))?;
+  std::fs::create_dir_all(&dir).map_err(|e| DbError::Sqlx(e.to_string()))?;
+  let path = dir.join("ruf_ca_bundle.pem");
+
+  let mut out = String::new();
+  for pem in ca_pems {
+    let trimmed = pem.trim();
+    if trimmed.is_empty() {
+      continue;
+    }
+    out.push_str(trimmed);
+    out.push('\n');
+    out.push('\n');
+  }
+
+  std::fs::write(&path, out).map_err(|e| DbError::Sqlx(e.to_string()))?;
+  Ok(path)
 }
 
 fn split_sql_statements(sql: &str) -> Vec<String> {
@@ -174,10 +208,10 @@ fn split_sql_statements(sql: &str) -> Vec<String> {
   out
 }
 
-async fn db_test_postgres(conn_str: &str, timeout_ms: u64) -> Result<(), DbError> {
+async fn db_test_postgres(options: sqlx::postgres::PgConnectOptions, timeout_ms: u64) -> Result<(), DbError> {
   let mut conn = timeout(
     Duration::from_millis(timeout_ms),
-    sqlx::postgres::PgConnection::connect(conn_str),
+    sqlx::postgres::PgConnection::connect_with(&options),
   )
   .await
   .map_err(|_| DbError::ConnectionTimeout)?
@@ -214,10 +248,10 @@ async fn db_test_mysql(conn_str: &str, timeout_ms: u64) -> Result<(), DbError> {
   Ok(())
 }
 
-async fn db_exec_postgres(conn_str: &str, sql: &str, timeout_ms: u64) -> Result<u64, DbError> {
+async fn db_exec_postgres(options: sqlx::postgres::PgConnectOptions, sql: &str, timeout_ms: u64) -> Result<u64, DbError> {
   let mut conn = timeout(
     Duration::from_millis(timeout_ms),
-    sqlx::postgres::PgConnection::connect(conn_str),
+    sqlx::postgres::PgConnection::connect_with(&options),
   )
   .await
   .map_err(|_| DbError::ConnectionTimeout)?
@@ -267,11 +301,41 @@ async fn db_exec_mysql(conn_str: &str, sql: &str, timeout_ms: u64) -> Result<u64
 }
 
 #[tauri::command]
-pub async fn db_test(args: DbTestArgs) -> DbTestResult {
+pub async fn db_test(app: tauri::AppHandle, args: DbTestArgs) -> DbTestResult {
   let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(5000), 1000, 30000);
 
+  let postgres_options = if args.db_type == "postgres" {
+    let mut opts =
+      sqlx::postgres::PgConnectOptions::from_str(&args.connection_string).map_err(|e| DbError::Sqlx(e.to_string()));
+
+    match &mut opts {
+      Ok(o) => {
+        if !conn_str_has_ssl_root_cert(&args.connection_string) {
+          if let Some(ca) = args.ca_certs_pem.as_ref() {
+            if !ca.is_empty() {
+              if let Ok(path) = write_ca_bundle(&app, ca) {
+                if let Ok(reparsed) = sqlx::postgres::PgConnectOptions::from_str(&args.connection_string) {
+                  *o = reparsed.ssl_root_cert(path);
+                }
+              }
+            }
+          }
+        }
+      }
+      Err(_) => {}
+    }
+
+    Some(opts)
+  } else {
+    None
+  };
+
   let result = match args.db_type.as_str() {
-    "postgres" => db_test_postgres(&args.connection_string, timeout_ms).await,
+    "postgres" => match postgres_options {
+      Some(Ok(opts)) => db_test_postgres(opts, timeout_ms).await,
+      Some(Err(e)) => Err(e),
+      None => Err(DbError::Sqlx("missing postgres options".to_string())),
+    },
     "mysql" => db_test_mysql(&args.connection_string, timeout_ms).await,
     other => Err(DbError::InvalidType(other.to_string())),
   };
@@ -283,11 +347,41 @@ pub async fn db_test(args: DbTestArgs) -> DbTestResult {
 }
 
 #[tauri::command]
-pub async fn db_exec(args: DbExecArgs) -> DbExecResult {
+pub async fn db_exec(app: tauri::AppHandle, args: DbExecArgs) -> DbExecResult {
   let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(15000), 1000, 60000);
 
+  let postgres_options = if args.db_type == "postgres" {
+    let mut opts =
+      sqlx::postgres::PgConnectOptions::from_str(&args.connection_string).map_err(|e| DbError::Sqlx(e.to_string()));
+
+    match &mut opts {
+      Ok(o) => {
+        if !conn_str_has_ssl_root_cert(&args.connection_string) {
+          if let Some(ca) = args.ca_certs_pem.as_ref() {
+            if !ca.is_empty() {
+              if let Ok(path) = write_ca_bundle(&app, ca) {
+                if let Ok(reparsed) = sqlx::postgres::PgConnectOptions::from_str(&args.connection_string) {
+                  *o = reparsed.ssl_root_cert(path);
+                }
+              }
+            }
+          }
+        }
+      }
+      Err(_) => {}
+    }
+
+    Some(opts)
+  } else {
+    None
+  };
+
   let result = match args.db_type.as_str() {
-    "postgres" => db_exec_postgres(&args.connection_string, &args.sql, timeout_ms).await,
+    "postgres" => match postgres_options {
+      Some(Ok(opts)) => db_exec_postgres(opts, &args.sql, timeout_ms).await,
+      Some(Err(e)) => Err(e),
+      None => Err(DbError::Sqlx("missing postgres options".to_string())),
+    },
     "mysql" => db_exec_mysql(&args.connection_string, &args.sql, timeout_ms).await,
     other => Err(DbError::InvalidType(other.to_string())),
   };

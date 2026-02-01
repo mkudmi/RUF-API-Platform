@@ -16,6 +16,7 @@ fn main() {
       commands::db::db_test,
       commands::db::db_exec,
       commands::http::http_request,
+      commands::cert::cert_inspect,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

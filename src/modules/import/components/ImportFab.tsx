@@ -137,8 +137,8 @@ export function ImportFab(props: {
         return
       }
       const u = new URL(raw)
-      const { validateCertificates } = loadAppSettings()
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
+      const { validateCertificates, caCertificates } = loadAppSettings()
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: (caCertificates || []).map(c => c.pem) })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) {

@@ -98,8 +98,8 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
       }
 
       const u = new URL(url)
-      const { validateCertificates } = loadAppSettings()
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates })
+      const { validateCertificates, caCertificates } = loadAppSettings()
+      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: (caCertificates || []).map(c => c.pem) })
       if (!res.ok) {
         throw new Error(`HTTP ${res.status} ${res.statusText}`)
       }

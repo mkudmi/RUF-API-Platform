@@ -17,6 +17,8 @@ sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-r
 thiserror = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "system-proxy"] }
 base64 = "0.22"
+sha2 = "0.10"
+x509-parser = "0.16"
 
 [target.'cfg(any(windows, target_os = "linux", target_os = "macos"))'.dependencies]
 tauri-plugin-updater = "2"
