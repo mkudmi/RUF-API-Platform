@@ -4,8 +4,16 @@ import type { Collection, Folder, RequestItem } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import { copyText } from '../../../shared/utils/clipboard'
 import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
+import { buildPostmanCollectionFromRufCollection } from '../../export/rufCollection/rufCollectionExporter'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
+
+type FileSystemFileHandleLike = {
+  createWritable: () => Promise<{
+    write: (data: string | Blob | BufferSource) => Promise<void>
+    close: () => Promise<void>
+  }>
+}
 
 type TreeOpenState = {
   collections: string[]
@@ -27,6 +35,51 @@ function loadTreeOpenState(): TreeOpenState {
 
 function saveTreeOpenState(state: TreeOpenState) {
   localStorage.setItem(TREE_OPEN_STATE_KEY, JSON.stringify(state))
+}
+
+function sanitizeFileNameBase(rawName: string) {
+  const trimmed = rawName.trim()
+  const replaced = trimmed.replaceAll(/[\\/:*?"<>|]/g, '_')
+  const cleaned = replaced.replaceAll(/\s+/g, ' ').replaceAll(/[. ]+$/g, '')
+  return cleaned || 'collection'
+}
+
+function normalizeRufCollectionFileName(rawName: string) {
+  const base = sanitizeFileNameBase(rawName)
+  return base.toLowerCase().endsWith('.ruf_collection') ? base : `${base}.ruf_collection`
+}
+
+async function saveTextWithSuggestedName(args: { suggestedName: string, text: string }) {
+  try {
+    const w = window as unknown as { showSaveFilePicker?: (options: unknown) => Promise<FileSystemFileHandleLike> }
+    if (typeof w.showSaveFilePicker === 'function') {
+        const handle = await w.showSaveFilePicker({
+          suggestedName: args.suggestedName,
+          types: [
+            {
+              description: 'JSON Source file',
+              accept: { 'application/json': ['.ruf_collection'] },
+            },
+          ],
+        })
+      const writable = await handle.createWritable()
+      await writable.write(args.text)
+      await writable.close()
+      return
+    }
+
+    const blob = new Blob([args.text], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = args.suggestedName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    if ((e as Error | null)?.name !== 'AbortError') throw e
+  }
 }
 
 export function CollectionsTree(props: {
@@ -70,6 +123,14 @@ export function CollectionsTree(props: {
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
+
+  async function exportCollection(col: Collection) {
+    const env = props.environmentsByCollection[col.id]
+    const postman = buildPostmanCollectionFromRufCollection({ collection: col, environment: env })
+    const text = JSON.stringify(postman, null, 2)
+    const fileName = normalizeRufCollectionFileName(col.name || 'collection')
+    await saveTextWithSuggestedName({ suggestedName: fileName, text })
+  }
 
   function applyMenuAutoFlip(panel: HTMLDivElement | null) {
     if (!panel) return
@@ -973,6 +1034,21 @@ export function CollectionsTree(props: {
                             }}
                           >
                             Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
+                              void exportCollection(col).catch(e => {
+                                // eslint-disable-next-line no-console
+                                console.error(e)
+                                alert((e as Error | null)?.message || 'Export failed')
+                              })
+                            }}
+                          >
+                            Export
                           </button>
                           <button
                             type="button"

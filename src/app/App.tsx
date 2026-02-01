@@ -36,7 +36,6 @@ import { useAppUpdater } from './useAppUpdater'
 // активный неактивный sql скрипт
 // активный неактивный файл
 // добавить переменные из окружения в выбор через скобки
-// Экспорт в openapi?? и\или postman
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))

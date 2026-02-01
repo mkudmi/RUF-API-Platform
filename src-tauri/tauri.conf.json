@@ -27,6 +27,14 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "ext": ["ruf_collection"],
+        "name": "RUF Collection",
+        "description": "JSON Source file",
+        "mimeType": "application/json"
+      }
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
