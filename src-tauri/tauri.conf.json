@@ -29,7 +29,7 @@
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["ruf_collection"],
+        "ext": ["rufcollection"],
         "name": "RUF Collection",
         "description": "JSON Source file",
         "mimeType": "application/json"

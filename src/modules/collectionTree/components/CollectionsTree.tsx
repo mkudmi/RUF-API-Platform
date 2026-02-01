@@ -46,7 +46,10 @@ function sanitizeFileNameBase(rawName: string) {
 
 function normalizeRufCollectionFileName(rawName: string) {
   const base = sanitizeFileNameBase(rawName)
-  return base.toLowerCase().endsWith('.ruf_collection') ? base : `${base}.ruf_collection`
+  const lower = base.toLowerCase()
+  if (lower.endsWith('.rufcollection')) return base
+  if (lower.endsWith('.ruf_collection')) return `${base.slice(0, -'.ruf_collection'.length)}.rufcollection`
+  return `${base}.rufcollection`
 }
 
 async function saveTextWithSuggestedName(args: { suggestedName: string, text: string }) {
@@ -58,7 +61,7 @@ async function saveTextWithSuggestedName(args: { suggestedName: string, text: st
           types: [
             {
               description: 'JSON Source file',
-              accept: { 'application/json': ['.ruf_collection'] },
+              accept: { 'application/json': ['.rufcollection'] },
             },
           ],
         })
