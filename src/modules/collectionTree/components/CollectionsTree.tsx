@@ -329,7 +329,6 @@ export function CollectionsTree(props: {
       >
         <summary
           className="treeSummary treeSummaryFolder"
-          draggable={!isEditing}
           onPointerDown={e => {
             if (!isEditing) return
             const target = e.target as HTMLElement | null
@@ -342,25 +341,29 @@ export function CollectionsTree(props: {
             suppressNextBlurRef.current = true
             cancelRename()
           }}
-          onDragStart={e => {
-            if (isEditing) return
-            onFolderDragStart(e, col.id, folder.id)
-          }}
-          onDragEnd={() => {
-            if (isEditing) return
-            onFolderDragEnd()
-          }}
-          onDragOver={e => {
-            onDragOverMove(e)
-          }}
-          onDrop={e => {
-            handleCollectionTreeDrop(e, {
-              ...asCollectionDropArgs(col, folder.id),
-              onMoveFolder: props.onMoveFolder,
-              onMoveRequest: props.onMoveRequest,
-            })
-          }}
         >
+          <div
+            className="treeSummaryDnd"
+            draggable={!isEditing}
+            onDragStart={e => {
+              if (isEditing) return
+              onFolderDragStart(e, col.id, folder.id)
+            }}
+            onDragEnd={() => {
+              if (isEditing) return
+              onFolderDragEnd()
+            }}
+            onDragOver={e => {
+              onDragOverMove(e)
+            }}
+            onDrop={e => {
+              handleCollectionTreeDrop(e, {
+                ...asCollectionDropArgs(col, folder.id),
+                onMoveFolder: props.onMoveFolder,
+                onMoveRequest: props.onMoveRequest,
+              })
+            }}
+          >
           <span className="treeChevron" aria-hidden="true" />
           <div className="treeSummaryLeft">
             {isEditing ? (
@@ -573,6 +576,7 @@ export function CollectionsTree(props: {
                 </div>
               ) : null}
             </div>
+          </div>
           </div>
         </summary>
 
@@ -831,7 +835,6 @@ export function CollectionsTree(props: {
               <>
                 <summary
                   className="treeSummary"
-                  draggable={!isEditing}
                   onPointerDown={e => {
                     if (!isEditing) return
                     const target = e.target as HTMLElement | null
@@ -844,21 +847,25 @@ export function CollectionsTree(props: {
                     suppressNextBlurRef.current = true
                     cancelRename()
                   }}
-                  onDragStart={e => {
-                    if (isEditing) return
-                    setCollectionDragData(e, col.id)
-                  }}
-                  onDragOver={e => {
-                    onDragOverMove(e)
-                  }}
-                  onDrop={e => {
-                    handleCollectionTreeDrop(e, {
-                      ...asCollectionDropArgs(col, null),
-                      onMoveFolder: props.onMoveFolder,
-                      onMoveRequest: props.onMoveRequest,
-                    })
-                  }}
                 >
+                  <div
+                    className="treeSummaryDnd"
+                    draggable={!isEditing}
+                    onDragStart={e => {
+                      if (isEditing) return
+                      setCollectionDragData(e, col.id)
+                    }}
+                    onDragOver={e => {
+                      onDragOverMove(e)
+                    }}
+                    onDrop={e => {
+                      handleCollectionTreeDrop(e, {
+                        ...asCollectionDropArgs(col, null),
+                        onMoveFolder: props.onMoveFolder,
+                        onMoveRequest: props.onMoveRequest,
+                      })
+                    }}
+                  >
                   <span className="treeChevron" aria-hidden="true" />
                   <div className="treeSummaryLeft">
                     {isEditing ? (
@@ -1141,6 +1148,7 @@ export function CollectionsTree(props: {
                     >
                       ✕
                     </button>
+                  </div>
                   </div>
                 </summary>
               </>

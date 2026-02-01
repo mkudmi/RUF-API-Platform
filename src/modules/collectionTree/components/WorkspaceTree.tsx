@@ -149,7 +149,6 @@ export function WorkspaceTree(props: {
       >
         <summary
           className="treeSummary treeSummaryWorkspaceFolder"
-          draggable={!isEditing}
           onPointerDown={e => {
             if (!isEditing) return
             const target = e.target as HTMLElement | null
@@ -158,78 +157,82 @@ export function WorkspaceTree(props: {
             e.stopPropagation()
             cancelRename()
           }}
-          onDragStart={e => {
-            if (isEditing) return
-            onWorkspaceFolderDragStart(e, folder.id)
-          }}
-          onDragOver={e => {
-            onDragOverMove(e)
-          }}
-          onDrop={e => {
-            handleWorkspaceDrop(e, {
-              targetWorkspaceFolderId: folder.id,
-              onMoveWorkspaceFolder: props.onMoveWorkspaceFolder,
-              onMoveCollectionToWorkspaceFolder: props.onMoveCollectionToWorkspaceFolder,
-            })
-          }}
         >
-          <span className="treeChevron" aria-hidden="true" />
-          <div className="treeSummaryLeft">
-            {isEditing ? (
-              <span className="treeFolderNameWrap">
-                <input
-                  ref={editInputRef}
-                  className="treeFolderName treeNameEditing"
-                  value={draftName}
-                  onChange={e => setDraftName(e.target.value)}
-                  onClick={e => e.stopPropagation()}
-                  onPointerDown={e => e.stopPropagation()}
-                  onKeyDown={e => {
-                    e.stopPropagation()
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      submitRename()
-                    }
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      cancelRename()
-                    }
-                  }}
-                  onBlur={submitRename}
-                  style={{ width: '100%', background: 'transparent', border: 0, color: 'inherit', padding: 0 }}
-                />
-                <span className="small treeFolderCount">{cols.length}</span>
-              </span>
-            ) : (
-              <span className="treeFolderNameWrap">
-                <span className="treeFolderName">{folder.name}</span>
-                <span className="small treeFolderCount">{cols.length}</span>
-              </span>
-            )}
-          </div>
+          <div
+            className="treeSummaryDnd"
+            draggable={!isEditing}
+            onDragStart={e => {
+              if (isEditing) return
+              onWorkspaceFolderDragStart(e, folder.id)
+            }}
+            onDragOver={e => {
+              onDragOverMove(e)
+            }}
+            onDrop={e => {
+              handleWorkspaceDrop(e, {
+                targetWorkspaceFolderId: folder.id,
+                onMoveWorkspaceFolder: props.onMoveWorkspaceFolder,
+                onMoveCollectionToWorkspaceFolder: props.onMoveCollectionToWorkspaceFolder,
+              })
+            }}
+          >
+            <span className="treeChevron" aria-hidden="true" />
+            <div className="treeSummaryLeft">
+              {isEditing ? (
+                <span className="treeFolderNameWrap">
+                  <input
+                    ref={editInputRef}
+                    className="treeFolderName treeNameEditing"
+                    value={draftName}
+                    onChange={e => setDraftName(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    onPointerDown={e => e.stopPropagation()}
+                    onKeyDown={e => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        submitRename()
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        cancelRename()
+                      }
+                    }}
+                    onBlur={submitRename}
+                    style={{ width: '100%', background: 'transparent', border: 0, color: 'inherit', padding: 0 }}
+                  />
+                  <span className="small treeFolderCount">{cols.length}</span>
+                </span>
+              ) : (
+                <span className="treeFolderNameWrap">
+                  <span className="treeFolderName">{folder.name}</span>
+                  <span className="small treeFolderCount">{cols.length}</span>
+                </span>
+              )}
+            </div>
 
-          <div className="treeSummaryRight">
-            <div ref={isMenuOpen ? menuWrapRef : null} className="treeMenuWrap">
-              <button
-                type="button"
-                className="iconBtn treeMenuBtn"
-                disabled={isEditing}
-                onPointerDown={e => {
-                  if (isEditing) return
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onClick={e => {
-                  if (isEditing) return
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setOpenMenuWorkspaceFolderId(prev => (prev === folder.id ? null : folder.id))
-                }}
-                aria-label="Folder menu"
-                title="Menu"
-              >
-                ...
-              </button>
+            <div className="treeSummaryRight">
+              <div ref={isMenuOpen ? menuWrapRef : null} className="treeMenuWrap">
+                <button
+                  type="button"
+                  className="iconBtn treeMenuBtn"
+                  disabled={isEditing}
+                  onPointerDown={e => {
+                    if (isEditing) return
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onClick={e => {
+                    if (isEditing) return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setOpenMenuWorkspaceFolderId(prev => (prev === folder.id ? null : folder.id))
+                  }}
+                  aria-label="Folder menu"
+                  title="Menu"
+                >
+                  ...
+                </button>
 
               {isMenuOpen ? (
                 <div
@@ -279,6 +282,7 @@ export function WorkspaceTree(props: {
                 </div>
               ) : null}
             </div>
+          </div>
           </div>
         </summary>
 
