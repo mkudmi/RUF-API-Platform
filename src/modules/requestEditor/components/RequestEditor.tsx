@@ -180,6 +180,41 @@ function headerIsInactive(inactiveHeaderNames: Record<string, true>, headerName:
   return false
 }
 
+function headerNameExistsCaseInsensitive(headers: Record<string, string>, name: string): boolean {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) return true
+  }
+  return false
+}
+
+function defaultInactiveQueryParamNamesFromSpec(params: RequestParam[]): Record<string, true> {
+  const out: Record<string, true> = {}
+  for (const p of params) {
+    if (!p || p.in !== 'query') continue
+    if (p.required !== false) continue
+    const name = (p.name || '').trim()
+    if (!name) continue
+    out[name] = true
+  }
+  return out
+}
+
+function defaultInactiveHeaderNamesFromSpec(params: RequestParam[], requestBaseHeaders: Record<string, string>): Record<string, true> {
+  const out: Record<string, true> = {}
+  for (const p of params) {
+    if (!p || p.in !== 'header') continue
+    if (p.required !== false) continue
+    const name = (p.name || '').trim()
+    if (!name) continue
+    const lower = name.toLowerCase()
+    if (lower === 'authorization') continue
+    if (headerNameExistsCaseInsensitive(requestBaseHeaders, name)) continue
+    out[name] = true
+  }
+  return out
+}
+
 function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNames: Record<string, true>): Record<string, string> {
   const needles = new Set(Object.keys(inactiveHeaderNames).map(k => k.toLowerCase()).filter(Boolean))
   if (!needles.size) return headers
@@ -1850,7 +1885,9 @@ export function RequestEditor(props: {
     const nextDisabledQueryParamNames =
       draft?.disabledQueryParamNames && typeof draft.disabledQueryParamNames === 'object' ? draft.disabledQueryParamNames : {}
     const nextInactiveQueryParamNames =
-      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
+      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object'
+        ? draft.inactiveQueryParamNames
+        : (draft ? {} : defaultInactiveQueryParamNamesFromSpec(props.request.params))
 
     const env = props.environment?.headers ?? {}
     const base = props.request.headers ?? {}
@@ -1871,7 +1908,9 @@ export function RequestEditor(props: {
       draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object' ? draft.disabledHeaderNames : {}
 
     const nextInactiveHeaderNames =
-      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? draft.inactiveHeaderNames : {}
+      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object'
+        ? draft.inactiveHeaderNames
+        : (draft ? {} : defaultInactiveHeaderNamesFromSpec(props.request.params, base))
     const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
 
     const headersForSeedCheck = (() => {
