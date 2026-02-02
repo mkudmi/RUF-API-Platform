@@ -2,9 +2,14 @@ import type { DragEvent } from 'react'
 import type { Collection } from '../types'
 import { readDraggedCollection, readDraggedFolder, readDraggedRequest, readDraggedWorkspaceFolder, setDraggedCollection, setDraggedFolder, setDraggedRequest, setDraggedWorkspaceFolder } from './treeDragDrop'
 
+function isFileDrag(dt: DataTransfer | null) {
+  if (!dt) return false
+  return Array.from(dt.types).includes('Files')
+}
+
 export function onDragOverMove<T extends HTMLElement>(e: DragEvent<T>) {
   e.preventDefault()
-  e.dataTransfer.dropEffect = 'move'
+  e.dataTransfer.dropEffect = isFileDrag(e.dataTransfer) ? 'copy' : 'move'
 }
 
 export function onCollectionDragStart<T extends HTMLElement>(e: DragEvent<T>, collectionId: string) {
@@ -30,23 +35,33 @@ export function handleCollectionTreeDrop<T extends HTMLElement>(
     targetFolderId: string | null
     onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
     onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
+    onMoveFolderToCollection?: (sourceCollectionId: string, folderId: string, targetCollectionId: string, targetParentFolderId: string | null) => void
+    onMoveRequestToCollection?: (sourceCollectionId: string, requestId: string, targetCollectionId: string, targetFolderId: string | null) => void
   },
 ) {
+  if (isFileDrag(e.dataTransfer)) return
+
   e.preventDefault()
   e.stopPropagation()
 
   const draggedFolder = readDraggedFolder(e.dataTransfer)
   if (draggedFolder) {
-    if (draggedFolder.collectionId !== opts.collectionId) return
-    if (opts.targetFolderId && draggedFolder.folderId === opts.targetFolderId) return
-    opts.onMoveFolder(opts.collectionId, draggedFolder.folderId, opts.targetFolderId)
+    if (draggedFolder.collectionId === opts.collectionId && opts.targetFolderId && draggedFolder.folderId === opts.targetFolderId) return
+    if (draggedFolder.collectionId === opts.collectionId) {
+      opts.onMoveFolder(opts.collectionId, draggedFolder.folderId, opts.targetFolderId)
+      return
+    }
+    opts.onMoveFolderToCollection?.(draggedFolder.collectionId, draggedFolder.folderId, opts.collectionId, opts.targetFolderId)
     return
   }
 
   const draggedReq = readDraggedRequest(e.dataTransfer)
   if (!draggedReq) return
-  if (draggedReq.collectionId !== opts.collectionId) return
-  opts.onMoveRequest(opts.collectionId, draggedReq.requestId, opts.targetFolderId)
+  if (draggedReq.collectionId === opts.collectionId) {
+    opts.onMoveRequest(opts.collectionId, draggedReq.requestId, opts.targetFolderId)
+    return
+  }
+  opts.onMoveRequestToCollection?.(draggedReq.collectionId, draggedReq.requestId, opts.collectionId, opts.targetFolderId)
 }
 
 export function handleWorkspaceDrop<T extends HTMLElement>(
@@ -57,6 +72,8 @@ export function handleWorkspaceDrop<T extends HTMLElement>(
     onMoveCollectionToWorkspaceFolder: (collectionId: string, workspaceFolderId: string | null) => void
   },
 ) {
+  if (isFileDrag(e.dataTransfer)) return
+
   e.preventDefault()
   e.stopPropagation()
 

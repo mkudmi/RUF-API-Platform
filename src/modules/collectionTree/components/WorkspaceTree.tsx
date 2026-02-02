@@ -44,6 +44,8 @@ export function WorkspaceTree(props: {
   onDuplicateRequest: (collectionId: string, requestId: string) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
+  onMoveFolderToCollection?: (sourceCollectionId: string, folderId: string, targetCollectionId: string, targetParentFolderId: string | null) => void
+  onMoveRequestToCollection?: (sourceCollectionId: string, requestId: string, targetCollectionId: string, targetFolderId: string | null) => void
   onDeleteFolder: (collectionId: string, folderId: string) => void
   onDeleteRequest: (collectionId: string, requestId: string) => void
   onDeleteCollection: (collectionId: string) => void
@@ -310,6 +312,8 @@ export function WorkspaceTree(props: {
             onDuplicateRequest={props.onDuplicateRequest}
             onMoveFolder={props.onMoveFolder}
             onMoveRequest={props.onMoveRequest}
+            onMoveFolderToCollection={props.onMoveFolderToCollection}
+            onMoveRequestToCollection={props.onMoveRequestToCollection}
             onDeleteFolder={props.onDeleteFolder}
             onDeleteRequest={props.onDeleteRequest}
             onDeleteCollection={props.onDeleteCollection}
@@ -361,6 +365,8 @@ export function WorkspaceTree(props: {
           onDuplicateRequest={props.onDuplicateRequest}
           onMoveFolder={props.onMoveFolder}
           onMoveRequest={props.onMoveRequest}
+          onMoveFolderToCollection={props.onMoveFolderToCollection}
+          onMoveRequestToCollection={props.onMoveRequestToCollection}
           onDeleteFolder={props.onDeleteFolder}
           onDeleteRequest={props.onDeleteRequest}
           onDeleteCollection={props.onDeleteCollection}

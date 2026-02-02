@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { CloseIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem } from '../modules/collectionTree'
@@ -29,9 +29,7 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // При релоаде из урла\файла восстанавливать еще и хэдеры\параметры если они отсутствуют
 // удалил параметр\хэдер возврат через ctrl+z
 // импортированные хэдеры сделать key редактируемые удаляемые (перелопатить все связанныое с импортом хэдеров и параметров, по умолчанию последняя строка всегда есть, везде крестики, активный неактивный, просто вставлять хэдеры в поля, добавляя в конце пустую строку для нового хэдера)
-// сертификаты в настройках
 // запись в историю поиска по ответу делается после каждого изменения?? нажатия мышки??
-// пофиксить ошибку подключения к бд в варме
 // отправлять серию запросов с вводом числа итераций??
 // редактор отпраляемых файлов??
 // переработать историю запросов
@@ -97,7 +95,10 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
 
 export default function App() {
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
-  const importOpenRef = useRef<(() => void) | null>(null)
+  const importOpenRef = useRef<{
+    openMenu: () => void
+    openNameStep: (col: Collection) => void
+  } | null>(null)
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
   const initialAppSettings = useMemo(() => loadAppSettings(), [])
@@ -409,9 +410,11 @@ export default function App() {
   }, [active, collections])
 
   function addCollection(col: Collection) {
-    const next = [col, ...collections]
-    setCollections(next)
-    saveCollections(next)
+    setCollections(prev => {
+      const next = [col, ...prev]
+      saveCollections(next)
+      return next
+    })
 
     setEnvByCollection(prev => {
       if (prev[col.id]) return prev
@@ -426,6 +429,55 @@ export default function App() {
       return nextEnvs
     }
     )
+  }
+
+  function isFileDrag(dt: DataTransfer | null) {
+    if (!dt) return false
+    return Array.from(dt.types).includes('Files')
+  }
+
+  function isSupportedImportFileName(name: string) {
+    const lower = name.toLowerCase()
+    return (
+      lower.endsWith('.json') ||
+      lower.endsWith('.yaml') ||
+      lower.endsWith('.yml') ||
+      lower.endsWith('.wsdl') ||
+      lower.endsWith('.xml') ||
+      lower.endsWith('.rufcollection')
+    )
+  }
+
+  function fileBaseName(name: string) {
+    return name.replace(/\\.[^/.]+$/u, '') || name
+  }
+
+  async function importDroppedFiles(files: FileList) {
+    const list = Array.from(files)
+    const supported = list.filter(f => isSupportedImportFileName(f.name))
+    const file = supported[0]
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const imported = await buildImportedCollectionFromText({ text })
+      const defaultName = (imported.name?.trim() || fileBaseName(file.name).trim() || 'Imported')
+      importOpenRef.current?.openNameStep({ ...imported, name: defaultName, sourceType: 'file', sourceFileName: file.name })
+    } catch (e: any) {
+      alert(e?.message || `Failed to import dropped file: ${file.name}`)
+    }
+  }
+
+  function onAppDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(e.dataTransfer)) return
+    e.preventDefault()
+  }
+
+  function onAppDrop(e: DragEvent<HTMLDivElement>) {
+    if (!isFileDrag(e.dataTransfer)) return
+    e.preventDefault()
+    e.stopPropagation()
+    void importDroppedFiles(e.dataTransfer.files)
   }
 
   async function updateCollectionFromUrl(collectionId: string) {
@@ -1182,6 +1234,107 @@ export default function App() {
     })
   }
 
+  function moveFolderToCollection(sourceCollectionId: string, folderId: string, targetCollectionId: string, targetParentFolderId: string | null) {
+    if (sourceCollectionId === targetCollectionId) {
+      moveFolder(sourceCollectionId, folderId, targetParentFolderId)
+      return
+    }
+
+    setCollections(prev => {
+      const source = prev.find(c => c.id === sourceCollectionId) ?? null
+      const target = prev.find(c => c.id === targetCollectionId) ?? null
+      if (!source || !target) return prev
+
+      function removeFolder(folders: any[]): { folders: any[], removed: any | null } {
+        let removed: any | null = null
+        const nextFolders: any[] = []
+
+        for (const f of folders) {
+          if (!removed && f?.id === folderId) {
+            removed = f
+            continue
+          }
+          if (removed) {
+            nextFolders.push(f)
+            continue
+          }
+          const nested = Array.isArray(f?.folders) ? f.folders : []
+          const child = nested.length ? removeFolder(nested) : { folders: nested, removed: null }
+          if (child.removed) {
+            removed = child.removed
+            nextFolders.push({ ...f, folders: child.folders })
+            continue
+          }
+          nextFolders.push(f)
+        }
+
+        return { folders: nextFolders, removed }
+      }
+
+      function insertFolder(folders: any[], parentId: string, folder: any): { folders: any[], inserted: boolean } {
+        let inserted = false
+        const nextFolders = folders.map(f => {
+          if (inserted) return f
+          if (f?.id === parentId) {
+            inserted = true
+            const kids = Array.isArray(f?.folders) ? f.folders : []
+            return { ...f, folders: [...kids, folder] }
+          }
+          const nested = Array.isArray(f?.folders) ? f.folders : []
+          if (!nested.length) return f
+          const child = insertFolder(nested, parentId, folder)
+          if (!child.inserted) return f
+          inserted = true
+          return { ...f, folders: child.folders }
+        })
+        return { folders: nextFolders, inserted }
+      }
+
+      function findRequestInFolder(folder: any, requestId: string): RequestItem | null {
+        const reqs: RequestItem[] = Array.isArray(folder?.requests) ? folder.requests : []
+        const found = reqs.find(r => r?.id === requestId) ?? null
+        if (found) return found
+        const nested = Array.isArray(folder?.folders) ? folder.folders : []
+        for (const f of nested) {
+          const inner = findRequestInFolder(f, requestId)
+          if (inner) return inner
+        }
+        return null
+      }
+
+      const sourceRemoved = removeFolder(source.folders as any)
+      const movedFolder = sourceRemoved.removed
+      if (!movedFolder) return prev
+
+      let nextTargetFolders: any[]
+      if (!targetParentFolderId) {
+        nextTargetFolders = [...(target.folders as any), movedFolder]
+      } else {
+        const inserted = insertFolder(target.folders as any, targetParentFolderId, movedFolder)
+        nextTargetFolders = inserted.inserted ? inserted.folders : [...(target.folders as any), movedFolder]
+      }
+
+      const updatedSource: Collection = { ...source, folders: sourceRemoved.folders }
+      const updatedTarget: Collection = { ...target, folders: nextTargetFolders }
+
+      const next = prev.map(c => {
+        if (c.id === sourceCollectionId) return updatedSource
+        if (c.id === targetCollectionId) return updatedTarget
+        return c
+      })
+
+      saveCollections(next)
+
+      if (active?.col.id === sourceCollectionId) {
+        const activeReqId = active.req.id
+        const movedActive = findRequestInFolder(movedFolder, activeReqId)
+        if (movedActive) setActive({ col: updatedTarget, req: movedActive })
+      }
+
+      return next
+    })
+  }
+
   function moveRequest(collectionId: string, requestId: string, targetFolderId: string | null) {
     setCollections(prev => {
       let didMove = false
@@ -1321,6 +1474,160 @@ export default function App() {
 
       if (active?.req.id === requestId && active.col.id === collectionId) {
         setActive({ col: updatedCol, req: movedReq })
+      }
+
+      return next
+    })
+  }
+
+  function moveRequestToCollection(sourceCollectionId: string, requestId: string, targetCollectionId: string, targetFolderId: string | null) {
+    if (sourceCollectionId === targetCollectionId) {
+      moveRequest(sourceCollectionId, requestId, targetFolderId)
+      return
+    }
+
+    setCollections(prev => {
+      const source = prev.find(c => c.id === sourceCollectionId) ?? null
+      const target = prev.find(c => c.id === targetCollectionId) ?? null
+      if (!source || !target) return prev
+
+      let movedReq: RequestItem | null = null
+
+      function findInFolders(folders: any[]): { req: RequestItem, folderId: string } | null {
+        for (const f of folders) {
+          const reqs: RequestItem[] = Array.isArray(f?.requests) ? f.requests : []
+          const found = reqs.find(r => r?.id === requestId)
+          if (found) return { req: found, folderId: f.id }
+          const nested = Array.isArray(f?.folders) ? f.folders : []
+          const inner = nested.length ? findInFolders(nested) : null
+          if (inner) return inner
+        }
+        return null
+      }
+
+      function removeFromFolders(folders: any[]): { folders: any[], removed: boolean } {
+        let didRemove = false
+        let nextFolders: any[] | null = null
+
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          if (!f) {
+            if (nextFolders) nextFolders.push(f)
+            continue
+          }
+
+          let nextFolder = f
+
+          const reqs: RequestItem[] = Array.isArray(f.requests) ? f.requests : []
+          const idx = reqs.findIndex(r => r?.id === requestId)
+          if (idx >= 0) {
+            didRemove = true
+            movedReq = reqs[idx] ?? movedReq
+            const nextReqs = [...reqs.slice(0, idx), ...reqs.slice(idx + 1)]
+            nextFolder = { ...nextFolder, requests: nextReqs }
+          }
+
+          const nested = Array.isArray(f.folders) ? f.folders : []
+          const nestedRes = nested.length ? removeFromFolders(nested) : { folders: nested, removed: false }
+          if (nestedRes.removed) {
+            didRemove = true
+            nextFolder = { ...nextFolder, folders: nestedRes.folders }
+          }
+
+          if (!nextFolders) {
+            if (nextFolder !== f) {
+              nextFolders = folders.slice(0, i)
+              nextFolders.push(nextFolder)
+            }
+          } else {
+            nextFolders.push(nextFolder)
+          }
+        }
+
+        if (!didRemove) return { folders, removed: false }
+        return { folders: nextFolders ?? folders, removed: true }
+      }
+
+      function insertIntoFolders(folders: any[], folderId: string, req: RequestItem): { folders: any[], inserted: boolean } {
+        let inserted = false
+        let nextFolders: any[] | null = null
+
+        for (let i = 0; i < folders.length; i++) {
+          const f = folders[i]
+          if (!f) {
+            if (nextFolders) nextFolders.push(f)
+            continue
+          }
+
+          let nextFolder = f
+          if (!inserted && f.id === folderId) {
+            inserted = true
+            const reqs: RequestItem[] = Array.isArray(f.requests) ? f.requests : []
+            nextFolder = { ...f, requests: [...reqs, req] }
+          } else if (!inserted) {
+            const nested = Array.isArray(f.folders) ? f.folders : []
+            if (nested.length) {
+              const child = insertIntoFolders(nested, folderId, req)
+              if (child.inserted) {
+                inserted = true
+                nextFolder = { ...f, folders: child.folders }
+              }
+            }
+          }
+
+          if (!nextFolders) {
+            if (nextFolder !== f) {
+              nextFolders = folders.slice(0, i)
+              nextFolders.push(nextFolder)
+            }
+          } else {
+            nextFolders.push(nextFolder)
+          }
+        }
+
+        if (!inserted) return { folders, inserted: false }
+        return { folders: nextFolders ?? folders, inserted: true }
+      }
+
+      const direct = source.requests ?? []
+      const directIndex = direct.findIndex(r => r?.id === requestId)
+      const directFound = directIndex >= 0 ? (direct[directIndex] ?? null) : null
+      const folderFound = directFound ? null : findInFolders(source.folders as any)
+
+      movedReq = directFound ?? folderFound?.req ?? null
+      if (!movedReq) return prev
+
+      let nextSourceDirect = directFound ? [...direct.slice(0, directIndex), ...direct.slice(directIndex + 1)] : direct
+      let nextSourceFolders = source.folders as any
+      if (!directFound) {
+        const removed = removeFromFolders(source.folders as any)
+        nextSourceFolders = removed.removed ? removed.folders : nextSourceFolders
+      }
+
+      let nextTargetDirect = target.requests ?? []
+      let nextTargetFolders = target.folders as any
+
+      if (!targetFolderId) {
+        nextTargetDirect = [...nextTargetDirect, movedReq]
+      } else {
+        const inserted = insertIntoFolders(nextTargetFolders, targetFolderId, movedReq)
+        nextTargetFolders = inserted.folders
+        if (!inserted.inserted) nextTargetDirect = [...nextTargetDirect, movedReq]
+      }
+
+      const updatedSource: Collection = { ...source, requests: nextSourceDirect, folders: nextSourceFolders }
+      const updatedTarget: Collection = { ...target, requests: nextTargetDirect, folders: nextTargetFolders }
+
+      const next = prev.map(c => {
+        if (c.id === sourceCollectionId) return updatedSource
+        if (c.id === targetCollectionId) return updatedTarget
+        return c
+      })
+
+      saveCollections(next)
+
+      if (active?.req.id === requestId && active.col.id === sourceCollectionId) {
+        setActive({ col: updatedTarget, req: movedReq })
       }
 
       return next
@@ -1767,13 +2074,18 @@ export default function App() {
   }
 
   return (
-    <div className="layout" style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}>
+    <div
+      className="layout"
+      style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}
+      onDragOver={onAppDragOver}
+      onDrop={onAppDrop}
+    >
       <aside className="sidebar">
         <div className="sidebarBrand">
           <div className="sidebarBrandRow">
             <span className="appTitle">Ruf</span> <span className="small">API Platofrm</span>
             <SidebarCreateMenu
-              onImport={() => importOpenRef.current?.()}
+              onImport={() => importOpenRef.current?.openMenu()}
               onCreateCollection={openCreateProject}
               onCreateFolder={openCreateWorkspaceFolder}
             />
@@ -1812,6 +2124,8 @@ export default function App() {
             onDuplicateRequest={duplicateRequest}
             onMoveFolder={moveFolder}
             onMoveRequest={moveRequest}
+            onMoveFolderToCollection={moveFolderToCollection}
+            onMoveRequestToCollection={moveRequestToCollection}
             onDeleteFolder={deleteFolder}
             onDeleteRequest={deleteRequest}
             onDeleteCollection={requestDeleteCollection}

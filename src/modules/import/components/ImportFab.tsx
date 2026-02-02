@@ -10,7 +10,10 @@ export function ImportFab(props: {
   variant?: 'fab' | 'button'
   label?: string
   showTrigger?: boolean
-  openRef?: React.MutableRefObject<(() => void) | null>
+  openRef?: React.MutableRefObject<{
+    openMenu: () => void
+    openNameStep: (col: Collection) => void
+  } | null>
 }) {
   const menuRef = useRef<HTMLDialogElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -43,6 +46,11 @@ export function ImportFab(props: {
     setView('name')
   }
 
+  function openNameStepFromOutside(col: Collection) {
+    openNameStep(col)
+    menuRef.current?.showModal()
+  }
+
   function confirmAddCollection() {
     const col = pendingCollection
     if (!col) return
@@ -65,7 +73,7 @@ export function ImportFab(props: {
 
   useEffect(() => {
     if (!props.openRef) return
-    props.openRef.current = openMenu
+    props.openRef.current = { openMenu, openNameStep: openNameStepFromOutside }
     return () => {
       props.openRef!.current = null
     }
