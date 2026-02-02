@@ -430,9 +430,7 @@ export default function App() {
         ...(importedEnv?.variables ?? {}),
         [baseUrlKey]: seededBaseUrl || ((importedEnv?.variables ?? col.variables)?.[baseUrlKey] ?? ''),
       }
-
-      const headers = importedEnv?.headers ?? DEFAULT_ENVIRONMENT.headers
-      const nextEnvs = { ...prev, [col.id]: { baseUrlKey, variables: seededVariables, headers } }
+      const nextEnvs = { ...prev, [col.id]: { baseUrlKey, variables: seededVariables, headers: DEFAULT_ENVIRONMENT.headers } }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     }

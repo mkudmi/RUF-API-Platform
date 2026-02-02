@@ -37,18 +37,6 @@ function setHeaderCaseInsensitive(headers: Record<string, string>, name: string,
   headers[name] = value
 }
 
-function mergeHeadersCaseInsensitive(base: Record<string, string>, override: Record<string, string>) {
-  const out: Record<string, string> = { ...base }
-  for (const [k, v] of Object.entries(override)) {
-    const needle = k.toLowerCase()
-    for (const existingKey of Object.keys(out)) {
-      if (existingKey.toLowerCase() === needle) delete out[existingKey]
-    }
-    out[k] = v
-  }
-  return out
-}
-
 function toPostmanPathParamSyntax(path: string) {
   return path.replaceAll(/\{([^}]+)\}/g, (_m: string, name: string) => `:${name}`)
 }
@@ -112,16 +100,14 @@ function toPostmanUrlObject(req: RequestItem) {
   return { raw, path: pathSegments, query, variable }
 }
 
-function toPostmanRequestItem(req: RequestItem, environment?: Environment) {
-  const envHeaders = environment?.headers ?? {}
-  const mergedHeaders = mergeHeadersCaseInsensitive(envHeaders, req.headers ?? {})
-
+function toPostmanRequestItem(req: RequestItem, _environment?: Environment) {
+  const headers: Record<string, string> = { ...(req.headers ?? {}) }
   const contentType = (req.body?.contentType || '').trim()
-  if (req.body && contentType && !getHeaderCaseInsensitive(mergedHeaders, 'Content-Type')) {
-    setHeaderCaseInsensitive(mergedHeaders, 'Content-Type', contentType)
+  if (req.body && contentType && !getHeaderCaseInsensitive(headers, 'Content-Type')) {
+    setHeaderCaseInsensitive(headers, 'Content-Type', contentType)
   }
 
-  const header = Object.entries(mergedHeaders).map(([key, value]) => ({ key, value }))
+  const header = Object.entries(headers).map(([key, value]) => ({ key, value }))
 
   const body = (() => {
     if (!req.body) return undefined
@@ -196,7 +182,6 @@ export function buildPostmanCollectionFromRufCollection(args: {
       ? {
           baseUrlKey: args.environment.baseUrlKey,
           variables: envVars,
-          headers: args.environment.headers ?? {},
         }
       : undefined,
   }

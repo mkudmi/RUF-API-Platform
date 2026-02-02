@@ -25,16 +25,7 @@ function parseRufEnvironment(raw: any): Environment | null {
     if (isDbEnvKey(k)) continue
     variables[k] = typeof v === 'string' ? v : v == null ? '' : String(v)
   }
-
-  const headersObj = (raw as any).headers && typeof (raw as any).headers === 'object' ? (raw as any).headers : {}
-  const headers: Record<string, string> = {}
-  for (const [k, v] of Object.entries(headersObj)) {
-    if (typeof k !== 'string' || !k.trim()) continue
-    if (typeof v !== 'string') continue
-    headers[k] = v
-  }
-
-  return { baseUrlKey, variables, headers }
+  return { baseUrlKey, variables, headers: {} }
 }
 
 export async function buildImportedCollectionFromText(args: {
