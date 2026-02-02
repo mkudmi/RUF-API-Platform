@@ -199,13 +199,29 @@ export function ResponseViewer(props: {
   const responseSearchMatchesCount = !bodyView.error && bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? bodyView.matchesCount : null
   const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
 
-  const onDownloadFile = useCallback(() => {
+  const onDownloadFile = useCallback(async () => {
     const f = result?.file
     if (!f) return
+
+    const suggestedName = f.fileName || 'download'
+
+    const savePickerFn = (window as any)?.showSaveFilePicker as undefined | ((opts?: any) => Promise<any>)
+    if (typeof savePickerFn === 'function') {
+      try {
+        const handle = await savePickerFn({ suggestedName })
+        const writable = await handle.createWritable()
+        await writable.write(f.blob)
+        await writable.close()
+        return
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return
+      }
+    }
+
     const url = URL.createObjectURL(f.blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = f.fileName || 'download'
+    a.download = suggestedName
     a.style.display = 'none'
     document.body.appendChild(a)
     a.click()
