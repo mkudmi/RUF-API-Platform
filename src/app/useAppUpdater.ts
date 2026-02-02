@@ -8,10 +8,61 @@ type PendingUpdate = {
   install: () => Promise<void>
 }
 
+function safeStringify(value: unknown) {
+  try {
+    const seen = new WeakSet<object>()
+    return JSON.stringify(
+      value,
+      (_k, v) => {
+        if (typeof v === 'bigint') return v.toString()
+        if (v instanceof Error) {
+          const out: Record<string, unknown> = {
+            name: v.name,
+            message: v.message,
+            stack: v.stack,
+          }
+          for (const key of Object.keys(v)) out[key] = (v as any)[key]
+          const cause = (v as any)?.cause
+          if (cause !== undefined) out.cause = cause
+          return out
+        }
+        if (v && typeof v === 'object') {
+          if (seen.has(v)) return '[Circular]'
+          seen.add(v)
+        }
+        return v
+      },
+      2,
+    )
+  } catch {
+    return null
+  }
+}
+
+function formatUpdateErrorLog(action: 'check' | 'download' | 'install', e: unknown) {
+  const ts = new Date().toISOString()
+  const header = `[${ts}] updater.${action} failed`
+
+  if (typeof e === 'string') return `${header}\n${e}`
+  if (!e || (typeof e !== 'object' && typeof e !== 'function')) return `${header}\n${String(e)}`
+
+  const err = e as any
+  const message = typeof err?.message === 'string' ? err.message : String(err)
+  const name = typeof err?.name === 'string' ? err.name : null
+  const stack = typeof err?.stack === 'string' ? err.stack : null
+  const json = safeStringify(e)
+
+  const lines: string[] = [header, name ? `${name}: ${message}` : message]
+  if (stack) lines.push('', 'Stack:', stack)
+  if (json) lines.push('', 'Details:', json)
+  return lines.join('\n')
+}
+
 export function useAppUpdater() {
   const [updateBusy, setUpdateBusy] = useState(false)
   const [updateTask, setUpdateTask] = useState<'checking' | 'downloading' | 'installing' | null>(null)
   const [updateHint, setUpdateHint] = useState<string | null>(null)
+  const [updateErrorLog, setUpdateErrorLog] = useState<string | null>(null)
   const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState(false)
   const [updateDownloadPct, setUpdateDownloadPct] = useState<number | null>(null)
@@ -54,6 +105,7 @@ export function useAppUpdater() {
       const update = await check()
       if (!update) {
         if (opts?.showNoUpdateMessage) setUpdateHintTransient('You are up to date!', 5000)
+        setUpdateErrorLog(null)
         return null
       }
 
@@ -62,11 +114,13 @@ export function useAppUpdater() {
       resetUpdateDownloadProgress()
       if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
       setUpdateHint(`v ${update.version} is available!`)
+      setUpdateErrorLog(null)
       if (opts?.showToastIfUpdate) setShowUpdateToast(true)
       return update as any
     } catch (e: any) {
       const msg = typeof e?.message === 'string' ? e.message : String(e)
       if (opts?.showNoUpdateMessage) setUpdateHintTransient(`Update check failed: ${msg}`, 4000)
+      setUpdateErrorLog(formatUpdateErrorLog('check', e))
       return null
     }
   }
@@ -80,6 +134,7 @@ export function useAppUpdater() {
       resetUpdateDownloadProgress()
       setShowUpdateToast(false)
       setUpdateHint(null)
+      setUpdateErrorLog(null)
       await checkForUpdates({ showNoUpdateMessage: true, showToastIfUpdate: false })
     } finally {
       setUpdateBusy(false)
@@ -111,6 +166,7 @@ export function useAppUpdater() {
     resetUpdateDownloadProgress()
     if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
     setUpdateHint(`Downloading v ${pendingUpdate.version}...`)
+    setUpdateErrorLog(null)
     try {
       await pendingUpdate.download((event: DownloadEvent) => {
         if (!event || typeof event !== 'object') return
@@ -155,6 +211,7 @@ export function useAppUpdater() {
     } catch (e: any) {
       const msg = typeof e?.message === 'string' ? e.message : String(e)
       setUpdateHintTransient(`Update failed: ${msg}`, 6000)
+      setUpdateErrorLog(formatUpdateErrorLog('download', e))
     } finally {
       setUpdateBusy(false)
       setUpdateTask(null)
@@ -168,6 +225,7 @@ export function useAppUpdater() {
     setUpdateTask('installing')
     if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
     setUpdateHint('Installing...')
+    setUpdateErrorLog(null)
     try {
       const [{ relaunch }] = await Promise.all([import('@tauri-apps/plugin-process')])
       await pendingUpdate.install()
@@ -176,6 +234,7 @@ export function useAppUpdater() {
     } catch (e: any) {
       const msg = typeof e?.message === 'string' ? e.message : String(e)
       setUpdateHintTransient(`Update failed: ${msg}`, 6000)
+      setUpdateErrorLog(formatUpdateErrorLog('install', e))
     } finally {
       setUpdateBusy(false)
       setUpdateTask(null)
@@ -190,6 +249,7 @@ export function useAppUpdater() {
     updateBusy,
     updateTask,
     updateHint,
+    updateErrorLog,
     hasPendingUpdate: pendingUpdate != null,
     pendingUpdateVersion: pendingUpdate?.version ?? null,
     updateDownloaded,
@@ -201,4 +261,3 @@ export function useAppUpdater() {
     onUpdateLater,
   }
 }
-

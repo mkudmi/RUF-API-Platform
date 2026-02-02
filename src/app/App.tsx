@@ -202,6 +202,7 @@ export default function App() {
     updateBusy,
     updateTask,
     updateHint,
+    updateErrorLog,
     hasPendingUpdate,
     updateDownloaded,
     updateDownloadPct,
@@ -2482,38 +2483,74 @@ export default function App() {
         </details>
 
         <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            {hasPendingUpdate ? (
-              updateDownloaded ? (
-                <>
-                  <button onClick={onRestartToUpdate} disabled={updateBusy}>
-                    {updateTask === 'installing' ? 'Restarting…' : 'Restart'}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              {hasPendingUpdate ? (
+                updateDownloaded ? (
+                  <>
+                    <button onClick={onRestartToUpdate} disabled={updateBusy}>
+                      {updateTask === 'installing' ? 'Restarting…' : 'Restart'}
+                    </button>
+                    <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
+                  </>
+                ) : (
+                  <button onClick={onUpdateNow} disabled={updateBusy}>
+                    {updateTask === 'downloading' ? 'Downloading…' : 'Update'}
                   </button>
-                  <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
-                </>
+                )
               ) : (
-                <button onClick={onUpdateNow} disabled={updateBusy}>
-                  {updateTask === 'downloading' ? 'Downloading…' : 'Update'}
+                <button onClick={onCheckUpdates} disabled={updateBusy}>
+                  {updateTask === 'checking' ? 'Checking…' : 'Check Updates'}
                 </button>
-              )
-            ) : (
-              <button onClick={onCheckUpdates} disabled={updateBusy}>
-                {updateTask === 'checking' ? 'Checking…' : 'Check Updates'}
-              </button>
-            )}
-            {updateHint ? (
-              <div
-                className="small"
-                style={{
-                  opacity: 0.85,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  color: hasPendingUpdate ? '#6ee7a8' : undefined,
-                }}
-              >
-                {updateHint}
-              </div>
+              )}
+              {updateHint ? (
+                <div
+                  className="small"
+                  style={{
+                    opacity: 0.85,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    color: hasPendingUpdate ? '#6ee7a8' : undefined,
+                  }}
+                >
+                  {updateHint}
+                </div>
+              ) : null}
+            </div>
+
+            {updateErrorLog ? (
+              <details open style={{ width: 'min(820px, calc(100vw - 80px))' }}>
+                <summary className="small" style={{ cursor: 'pointer', opacity: 0.9 }}>
+                  Update error log
+                </summary>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard?.writeText(updateErrorLog)}
+                    disabled={!navigator.clipboard}
+                  >
+                    Copy log
+                  </button>
+                </div>
+                <pre
+                  className="mono small"
+                  style={{
+                    marginTop: 8,
+                    maxHeight: 220,
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                    background: '#0b1220',
+                    color: '#d1d5db',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                  }}
+                >
+                  {updateErrorLog}
+                </pre>
+              </details>
             ) : null}
           </div>
           <button onClick={closeSettings}>Save</button>
