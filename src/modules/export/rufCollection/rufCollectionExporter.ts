@@ -2,6 +2,7 @@ import type { Collection, Folder, RequestItem } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
 import { uid } from '../../../shared/utils/id'
 import { computeEffectiveBaseUrl, isAbsoluteUrl } from '../../../shared/utils/url'
+import { isDbEnvKey } from '../../environment/utils/dbConnection'
 
 function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
   const raw = url.trim().replace(/\/+$/, '')
@@ -160,14 +161,15 @@ export function buildPostmanCollectionFromRufCollection(args: {
   collection: Collection
   environment?: Environment
 }) {
-  const envVars = args.environment?.variables ?? {}
+  const envVarsRaw = args.environment?.variables ?? {}
+  const envVars = Object.fromEntries(Object.entries(envVarsRaw).filter(([k]) => !isDbEnvKey(k)))
   const envKey = args.environment?.baseUrlKey || 'baseUrl'
   const envBaseUrl = envVars[envKey] ?? ''
   const scheme = String(envVars.scheme || '').trim().toLowerCase() === 'https' ? 'https' : 'http'
   const effectiveBaseUrl = applySchemeIfHostLike(computeEffectiveBaseUrl(envBaseUrl, args.collection.baseUrl), scheme)
 
   const variables: Record<string, string> = {
-    ...(args.collection.variables ?? {}),
+    ...Object.fromEntries(Object.entries(args.collection.variables ?? {}).filter(([k]) => !isDbEnvKey(k))),
     ...envVars,
     scheme,
     baseUrl: effectiveBaseUrl,
@@ -189,5 +191,13 @@ export function buildPostmanCollectionFromRufCollection(args: {
     },
     item: items,
     variable,
+    // Extra metadata for round-tripping back into RUF. Postman should ignore unknown keys.
+    rufEnvironment: args.environment
+      ? {
+          baseUrlKey: args.environment.baseUrlKey,
+          variables: envVars,
+          headers: args.environment.headers ?? {},
+        }
+      : undefined,
   }
 }

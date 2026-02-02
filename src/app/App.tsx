@@ -411,6 +411,8 @@ export default function App() {
   }, [active, collections])
 
   function addCollection(col: Collection) {
+    const importedEnv = (col as unknown as { __rufEnvironment?: Environment }).__rufEnvironment
+
     setCollections(prev => {
       const next = [col, ...prev]
       saveCollections(next)
@@ -420,12 +422,17 @@ export default function App() {
     setEnvByCollection(prev => {
       if (prev[col.id]) return prev
       const seededBaseUrl = col.baseUrl && isAbsoluteUrl(col.baseUrl) ? col.baseUrl.trim() : ''
+      const baseUrlKey = importedEnv?.baseUrlKey?.trim() || DEFAULT_ENVIRONMENT.baseUrlKey
+
       const seededVariables = {
         ...DEFAULT_ENVIRONMENT.variables,
         ...(col.variables ?? {}),
-        [DEFAULT_ENVIRONMENT.baseUrlKey]: seededBaseUrl || (col.variables?.[DEFAULT_ENVIRONMENT.baseUrlKey] ?? ''),
+        ...(importedEnv?.variables ?? {}),
+        [baseUrlKey]: seededBaseUrl || ((importedEnv?.variables ?? col.variables)?.[baseUrlKey] ?? ''),
       }
-      const nextEnvs = { ...prev, [col.id]: { ...DEFAULT_ENVIRONMENT, variables: seededVariables } }
+
+      const headers = importedEnv?.headers ?? DEFAULT_ENVIRONMENT.headers
+      const nextEnvs = { ...prev, [col.id]: { baseUrlKey, variables: seededVariables, headers } }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     }
@@ -445,7 +452,8 @@ export default function App() {
       lower.endsWith('.yml') ||
       lower.endsWith('.wsdl') ||
       lower.endsWith('.xml') ||
-      lower.endsWith('.rufcollection')
+      lower.endsWith('.rufcollection') ||
+      lower.endsWith('.ruf_collection')
     )
   }
 

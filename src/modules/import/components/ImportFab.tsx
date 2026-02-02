@@ -167,7 +167,7 @@ export function ImportFab(props: {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".rufcollection,.json,.yaml,.yml,.wsdl,.xml"
+        accept=".ruf_collection,.rufcollection,.json,.yaml,.yml,.wsdl,.xml"
         style={{ display: 'none' }}
         onChange={onFileSelected}
       />
