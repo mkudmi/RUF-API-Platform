@@ -634,6 +634,7 @@ function HeaderRow(props: {
   name: string
   value: string
   readOnlyName: boolean
+  required?: boolean
   isActive: boolean
   onToggleActive: (isActive: boolean) => void
   onChangeValue: (value: string) => void
@@ -679,21 +680,34 @@ function HeaderRow(props: {
 
   return (
     <div className="formRow">
-      {props.readOnlyName ? (
-        <div className={`formLabel mono ${props.isActive ? '' : 'rowInactive'}`.trim()}>{props.name}</div>
-      ) : (
-        <input
-          className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
-          value={draftName}
-          onChange={e => setDraftName(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter') commitRename()
-            if (e.key === 'Escape') setDraftName(props.name)
-          }}
-          onBlur={commitRename}
-          placeholder="Key"
-        />
-      )}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+          {props.readOnlyName ? (
+            <input
+              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
+              style={{ width: '100%' }}
+              value={props.name}
+              readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+            />
+          ) : (
+            <input
+              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
+              style={{ width: '100%' }}
+              value={draftName}
+              onChange={e => setDraftName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitRename()
+                if (e.key === 'Escape') setDraftName(props.name)
+              }}
+              onBlur={commitRename}
+              placeholder="Key"
+            />
+          )}
+          {props.required ? <span className="reqStar keyReqStar">*</span> : null}
+        </div>
+      </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <div
           style={{ position: 'relative', flex: 1, minWidth: 0 }}
@@ -3535,6 +3549,7 @@ export function RequestEditor(props: {
                   name={h.name}
                   value={value}
                   readOnlyName={isSpec}
+                  required={isSpec ? h.required : false}
                   isActive={!headerIsInactive(inactiveHeaderNames, h.name)}
                   onToggleActive={isActive => {
                     setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, isActive))
