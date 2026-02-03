@@ -2559,7 +2559,7 @@ export default function App() {
               </details>
             ) : null}
           </div>
-          <button onClick={closeSettings}>Save</button>
+          <button onClick={closeSettings} style={{ alignSelf: 'flex-start' }}>Save</button>
         </div>
       </dialog>
 
