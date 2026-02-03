@@ -115,6 +115,7 @@ export function WorkspaceTree(props: {
     const isEditing = editingFolderId === folder.id
     const isMenuOpen = openMenuWorkspaceFolderId === folder.id && !isEditing
     const childWorkspaceFolders = folder.folders ?? []
+    const directChildCount = cols.length + childWorkspaceFolders.length
 
     function startRename() {
       setOpenMenuWorkspaceFolderId(null)
@@ -203,12 +204,12 @@ export function WorkspaceTree(props: {
                     onBlur={submitRename}
                     style={{ width: '100%', background: 'transparent', border: 0, color: 'inherit', padding: 0 }}
                   />
-                  <span className="small treeFolderCount">{cols.length}</span>
+                  <span className="small treeFolderCount">{directChildCount}</span>
                 </span>
               ) : (
                 <span className="treeFolderNameWrap">
                   <span className="treeFolderName">{folder.name}</span>
-                  <span className="small treeFolderCount">{cols.length}</span>
+                  <span className="small treeFolderCount">{directChildCount}</span>
                 </span>
               )}
             </div>
