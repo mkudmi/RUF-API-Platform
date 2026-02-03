@@ -2529,7 +2529,7 @@ export default function App() {
                   {updateTask === 'checking' ? 'Checking…' : 'Check Updates'}
                 </button>
               )}
-              {updateHint ? (
+              {updateHint && !updateErrorLog ? (
                 <div
                   className="small"
                   style={{
