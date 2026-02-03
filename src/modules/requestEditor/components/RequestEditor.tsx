@@ -663,6 +663,8 @@ function HeaderRow(props: {
   const [draftName, setDraftName] = useState(props.name)
   const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
   const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
+  const keyIsLocked = props.readOnlyName || !!props.required
+  const clearValueOnly = !!props.required
 
   useEffect(() => {
     setDraftName(props.name)
@@ -682,10 +684,10 @@ function HeaderRow(props: {
     <div className="formRow">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-          {props.readOnlyName ? (
+          {keyIsLocked ? (
             <input
               className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-              style={{ width: '100%' }}
+              style={clearValueOnly ? { width: '100%', pointerEvents: 'none', opacity: 0.75 } : { width: '100%' }}
               value={props.name}
               readOnly
               aria-readonly="true"
@@ -836,10 +838,10 @@ function HeaderRow(props: {
           <ConfirmIconButton
             className="headerDeleteBtn"
             onConfirm={props.onDelete}
-            ariaLabel={`Delete header ${props.name}`}
-            confirmAriaLabel={`Confirm delete header ${props.name}`}
-            title="Delete"
-            confirmTitle="Confirm delete"
+            ariaLabel={clearValueOnly ? `Clear header value ${props.name}` : `Delete header ${props.name}`}
+            confirmAriaLabel={clearValueOnly ? `Confirm clear header value ${props.name}` : `Confirm delete header ${props.name}`}
+            title={clearValueOnly ? 'Clear value' : 'Delete'}
+            confirmTitle={clearValueOnly ? 'Confirm clear value' : 'Confirm delete'}
             icon={<CloseIcon size={18} />}
           />
         ) : null}
@@ -856,6 +858,7 @@ function QueryRow(props: {
   hint?: string
   enumValues?: Array<string | number | boolean>
   required?: boolean
+  readOnlyName?: boolean
   isActive: boolean
   onToggleActive: (isActive: boolean) => void
   onChangeValue: (value: string) => void
@@ -883,6 +886,8 @@ function QueryRow(props: {
   const [draftName, setDraftName] = useState(props.name)
   const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
   const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
+  const keyIsLocked = !!props.readOnlyName || !!props.required
+  const clearValueOnly = !!props.required
 
   useEffect(() => {
     setDraftName(props.name)
@@ -902,18 +907,29 @@ function QueryRow(props: {
     <div className="formRow">
       <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-          <input
-            className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-            style={{ width: '100%' }}
-            value={draftName}
-            onChange={e => setDraftName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') commitRename()
-              if (e.key === 'Escape') setDraftName(props.name)
-            }}
-            onBlur={commitRename}
-            placeholder="Key"
-          />
+          {keyIsLocked ? (
+            <input
+              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
+              style={clearValueOnly ? { width: '100%', pointerEvents: 'none', opacity: 0.75 } : { width: '100%' }}
+              value={props.name}
+              readOnly
+              aria-readonly="true"
+              tabIndex={-1}
+            />
+          ) : (
+            <input
+              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
+              style={{ width: '100%' }}
+              value={draftName}
+              onChange={e => setDraftName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') commitRename()
+                if (e.key === 'Escape') setDraftName(props.name)
+              }}
+              onBlur={commitRename}
+              placeholder="Key"
+            />
+          )}
           {props.required ? <span className="reqStar keyReqStar">*</span> : null}
         </div>
       </div>
@@ -1047,10 +1063,10 @@ function QueryRow(props: {
           <ConfirmIconButton
             className="rowDeleteBtn"
             onConfirm={props.onDelete}
-            ariaLabel={`Delete query param ${props.name}`}
-            confirmAriaLabel={`Confirm delete query param ${props.name}`}
-            title="Delete"
-            confirmTitle="Confirm delete"
+            ariaLabel={clearValueOnly ? `Clear query value ${props.name}` : `Delete query param ${props.name}`}
+            confirmAriaLabel={clearValueOnly ? `Confirm clear query value ${props.name}` : `Confirm delete query param ${props.name}`}
+            title={clearValueOnly ? 'Clear value' : 'Delete'}
+            confirmTitle={clearValueOnly ? 'Confirm clear value' : 'Confirm delete'}
             icon={<CloseIcon size={18} />}
           />
         ) : null}
@@ -2347,6 +2363,58 @@ export function RequestEditor(props: {
     return decorated.map(x => x.p)
   }, [disabledQuerySpecNames, grouped.query, queryKeyOrder, queryParams, queryParamKeyOverrides, querySpecNames])
 
+  useEffect(() => {
+    const requiredSpecNames = grouped.query
+      .filter(Boolean)
+      .filter(p => !!p.required)
+      .map(p => (p.name || '').trim())
+      .filter(Boolean)
+
+    if (!requiredSpecNames.length) return
+
+    const moves: Array<{ from: string, to: string }> = []
+    for (const rawName of requiredSpecNames) {
+      const overridden = queryParamKeyOverrides[rawName]
+      if (typeof overridden !== 'string' || !overridden.trim()) continue
+      if (overridden === rawName) continue
+      moves.push({ from: overridden, to: rawName })
+    }
+
+    if (!moves.length) return
+
+    setQueryParams(prev => {
+      let next = prev
+      for (const { from, to } of moves) {
+        if (!Object.prototype.hasOwnProperty.call(next, from)) continue
+        const v = next[from]
+        if (next === prev) next = { ...prev }
+        delete next[from]
+        if (!Object.prototype.hasOwnProperty.call(next, to)) next[to] = v
+      }
+      return next
+    })
+    setInactiveQueryParamNames(prev => {
+      let next = prev
+      for (const { from, to } of moves) next = renameFlagKey(next, from, to)
+      return next
+    })
+    setQueryKeyOrder(prev => {
+      let next = prev
+      for (const { from, to } of moves) next = replaceKeyInOrder(next, from, to)
+      return next
+    })
+    setQueryParamKeyOverrides(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const rawName of requiredSpecNames) {
+        if (!(rawName in next)) continue
+        delete next[rawName]
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [grouped.query, queryParamKeyOverrides])
+
   const headerParams = useMemo(
     () => normalizeHeaderParams(grouped.header, committedHeaders, headerKeyOrder),
     [grouped.header, committedHeaders, headerKeyOrder],
@@ -3633,7 +3701,9 @@ export function RequestEditor(props: {
                   }
                   onDelete={
                     isSpec
-                      ? undefined
+                      ? h.required
+                        ? () => setHeaderValueForRequest(h.name, '')
+                        : undefined
                       : () => {
                         setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, true))
                         const shouldEnsureEmptyRowAfterDelete =
@@ -3799,7 +3869,13 @@ export function RequestEditor(props: {
           {queryParamsList.map(p => {
             const rawName = p.name
             const isSpec = querySpecNames.has(rawName)
-            const effectiveName = isSpec ? (queryParamKeyOverrides[rawName] ?? rawName) : rawName
+            const isRequiredSpecKey = isSpec && !!p.required
+            const effectiveName =
+              isRequiredSpecKey
+                ? rawName
+                : isSpec
+                  ? (queryParamKeyOverrides[rawName] ?? rawName)
+                  : rawName
             const value = queryParams[effectiveName] ?? ''
             const isActive = !inactiveQueryParamNames[effectiveName]
             const hint =
@@ -3817,6 +3893,7 @@ export function RequestEditor(props: {
                 hint={isSpec ? hint : undefined}
                 enumValues={isSpec ? p.enumValues : undefined}
                 required={isSpec ? p.required : false}
+                readOnlyName={isRequiredSpecKey}
                 isActive={isActive}
                 onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
                 variableSuggestions={variableSuggestions}
@@ -3855,7 +3932,9 @@ export function RequestEditor(props: {
                   })
                 }}
                 onRename={
-                  nextName => {
+                  isRequiredSpecKey
+                    ? undefined
+                    : nextName => {
                     const trimmed = nextName.trim()
                     if (trimmed === effectiveName) return
 
@@ -3905,7 +3984,13 @@ export function RequestEditor(props: {
                     setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
                   }
                 }
-                onDelete={() => {
+                onDelete={isRequiredSpecKey ? () => {
+                  setQueryParams(prev => {
+                    if (!Object.prototype.hasOwnProperty.call(prev, effectiveName)) return prev
+                    if (prev[effectiveName] === '') return prev
+                    return { ...prev, [effectiveName]: '' }
+                  })
+                } : () => {
                   const totalRows = queryParamsList.length + queryDraftRows.length
                   const isLastRow = totalRows === 1
 
