@@ -430,6 +430,7 @@ export function CollectionsTree(props: {
               <span className="treeFolderNameWrap">
                 <span
                   className="treeFolderName"
+                  title={folder.name}
                 >
                   {folder.name}
                 </span>
@@ -694,7 +695,7 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                         startRenameRequest()
                       }}
-                      title="Double-click to rename"
+                      title={r.name}
                     >
                       {r.name}
                     </span>
@@ -939,7 +940,7 @@ export function CollectionsTree(props: {
                             e.stopPropagation()
                             startRename()
                           }}
-                          title="Double-click to rename"
+                          title={col.name}
                         >
                           {col.name}
                         </b>
@@ -1262,19 +1263,19 @@ export function CollectionsTree(props: {
                     </span>
                   ) : (
                     <span className="treeItemNameWrap">
-                      <span
-                        className="treeItemName"
-                        onDoubleClick={e => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          startRenameRequest()
-                        }}
-                        title="Double-click to rename"
-                      >
-                        {r.name}
-                      </span>
-                      <button
-                        className="treeRenameIcon"
+                    <span
+                      className="treeItemName"
+                      onDoubleClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        startRenameRequest()
+                      }}
+                      title={r.name}
+                    >
+                      {r.name}
+                    </span>
+                    <button
+                      className="treeRenameIcon"
                         onPointerDown={e => {
                           e.preventDefault()
                           e.stopPropagation()

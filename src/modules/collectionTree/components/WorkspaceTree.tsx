@@ -208,7 +208,7 @@ export function WorkspaceTree(props: {
                 </span>
               ) : (
                 <span className="treeFolderNameWrap">
-                  <span className="treeFolderName">{folder.name}</span>
+                  <span className="treeFolderName" title={folder.name}>{folder.name}</span>
                   <span className="small treeFolderCount">{directChildCount}</span>
                 </span>
               )}
