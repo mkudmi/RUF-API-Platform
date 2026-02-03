@@ -6,6 +6,7 @@ import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
 import { EnvironmentSettings } from '../modules/environment'
+import { TerminalDrawer } from '../modules/terminal'
 import type { Environment } from '../shared/types/environment'
 import { DEFAULT_ENVIRONMENT } from '../shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from '../shared/utils/storage'
@@ -198,6 +199,7 @@ export default function App() {
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const {
     updateBusy,
     updateTask,
@@ -1604,7 +1606,7 @@ export default function App() {
       movedReq = directFound ?? folderFound?.req ?? null
       if (!movedReq) return prev
 
-      let nextSourceDirect = directFound ? [...direct.slice(0, directIndex), ...direct.slice(directIndex + 1)] : direct
+      const nextSourceDirect = directFound ? [...direct.slice(0, directIndex), ...direct.slice(directIndex + 1)] : direct
       let nextSourceFolders = source.folders as any
       if (!directFound) {
         const removed = removeFromFolders(source.folders as any)
@@ -2106,6 +2108,14 @@ export default function App() {
             >
               ⚙
             </button>
+            <button
+              className="iconBtn"
+              onClick={() => setTerminalOpen(v => !v)}
+              aria-label="Terminal"
+              title="Terminal"
+            >
+              &gt;_
+            </button>
           </div>
         </div>
         <div className="sidebarTreeWrap">
@@ -2145,14 +2155,24 @@ export default function App() {
         </div>
 
         <div className="sidebarBottom">
-          <button
-            className="iconBtn settingsBtn"
-            onClick={openSettings}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <span className="iconGlyph">&#9881;</span>
-          </button>
+          <div className="sidebarBottomLeft">
+            <button
+              className="iconBtn settingsBtn"
+              onClick={openSettings}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <span className="iconGlyph">&#9881;</span>
+            </button>
+            <button
+              className="iconBtn terminalBtn"
+              onClick={() => setTerminalOpen(v => !v)}
+              aria-label="Terminal"
+              title="Terminal"
+            >
+              <span className="iconGlyph">&gt;_</span>
+            </button>
+          </div>
           <div className="sidebarVersion mono">
             v{appVersion ?? '—'}
           </div>
@@ -2562,6 +2582,8 @@ export default function App() {
           <button onClick={closeSettings} style={{ alignSelf: 'flex-start' }}>Save</button>
         </div>
       </dialog>
+
+      <TerminalDrawer open={terminalOpen} onClose={() => setTerminalOpen(false)} />
 
       {showUpdateToast && hasPendingUpdate ? (
         <div className="updateToast" role="dialog" aria-label="Update available">

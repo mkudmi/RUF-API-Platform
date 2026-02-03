@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "terminal-exec",
+      "description": "Allows executing commands via the built-in terminal.",
+      "commands": {
+        "allow": ["terminal_exec", "terminal_resolve_cwd", "terminal_list_shells"]
+      }
+    }
+  ]
+}

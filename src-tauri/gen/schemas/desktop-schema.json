@@ -189,6 +189,12 @@
           "markdownDescription": "Allows making HTTP requests from the Rust backend (CORS-free)."
         },
         {
+          "description": "Allows executing commands via the built-in terminal.",
+          "type": "string",
+          "const": "terminal-exec",
+          "markdownDescription": "Allows executing commands via the built-in terminal."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

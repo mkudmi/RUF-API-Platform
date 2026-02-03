@@ -7,6 +7,7 @@
     "process:default",
     "updater:default",
     "db-access",
-    "http-raw"
+    "http-raw",
+    "terminal-exec"
   ]
 }

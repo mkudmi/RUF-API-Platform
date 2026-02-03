@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import type { Collection, Folder, RequestItem } from '../types'
 import type { Environment } from '../../../shared/types/environment'
@@ -174,13 +174,10 @@ export function CollectionsTree(props: {
     return folderCount + requestCount
   }
 
-  const requestCountByCollection = useMemo(() => {
-    const out: Record<string, number> = {}
-    for (const col of props.collections) {
-      out[col.id] = (col.requests ?? []).length + col.folders.reduce((n, f) => n + countRequests(f), 0)
-    }
-    return out
-  }, [props.collections])
+  const requestCountByCollection: Record<string, number> = {}
+  for (const col of props.collections) {
+    requestCountByCollection[col.id] = (col.requests ?? []).length + col.folders.reduce((n, f) => n + countRequests(f), 0)
+  }
 
   useEffect(() => {
     saveTreeOpenState({ collections: Array.from(openCollections), folders: Array.from(openFolders) })
