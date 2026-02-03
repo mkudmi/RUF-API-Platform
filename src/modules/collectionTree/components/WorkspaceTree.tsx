@@ -318,7 +318,7 @@ export function WorkspaceTree(props: {
             onDeleteRequest={props.onDeleteRequest}
             onDeleteCollection={props.onDeleteCollection}
           />
-        ) : (
+        ) : childWorkspaceFolders.length ? null : (
           <div className="small" style={{ padding: '6px 4px', color: 'rgba(255,255,255,.55)' }}>
             Drop collections here
           </div>
