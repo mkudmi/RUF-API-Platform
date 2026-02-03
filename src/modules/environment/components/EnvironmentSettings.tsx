@@ -213,7 +213,7 @@ export function EnvironmentSettings(props: {
     try {
       const normalizedBaseUrlKey = normalizeVarName(baseUrlRow.key)
       if (!normalizedBaseUrlKey) {
-        setError('Ключ переменной Base URL обязателен.')
+        setError('Base URL variable key is required.')
         return
       }
 
@@ -264,7 +264,7 @@ export function EnvironmentSettings(props: {
       })
       close()
     } catch (e: any) {
-      setError(e?.message || 'Некорректные настройки окружения.')
+      setError(e?.message || 'Invalid environment settings.')
     }
   }
 
@@ -381,7 +381,7 @@ export function EnvironmentSettings(props: {
 
           {!hasAnyVariable && (
             <div className="small" style={{ marginBottom: 8 }}>
-              Можно использовать переменные как <span className="mono">{'{{var}}'}</span> в URL, headers и body.
+              You can use variables like <span className="mono">{'{{var}}'}</span> in the URL, headers, and body.
             </div>
           )}
 

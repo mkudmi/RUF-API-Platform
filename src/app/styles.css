@@ -7,18 +7,18 @@
 }
 
 @font-face {
-  font-family: 'GoshaSans';
-  src: url('../assets/fonts/Nimbus\ Sans\ Round.otf') format('opentype');
+  font-family: 'Nimbus Sans Round';
+  src: url('../assets/fonts/Nimbus Sans Round.otf') format('opentype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 :root {
-  font-family: 'GoshaSans', system-ui, -apple-system, Segoe UI, Roboto, Arial;
   --radius: 6px;
   --font-brand: 'Verdanto', system-ui, -apple-system, Segoe UI, Roboto, Arial;
-  --font-ui: 'GoshaSans', system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  --font-ui: 'Nimbus Sans Round', system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  font-family: var(--font-ui);
 }
 * { box-sizing: border-box; }
 html, body, #root {
@@ -28,6 +28,7 @@ html, body, #root {
   overscroll-behavior: none;
 }
 body { margin: 0; background: #0b0c10; color: #e8e8e8; font-family: var(--font-ui); }
+button, input, textarea, select { font-family: inherit; }
 a { color: inherit; }
 
 /* Scrollbars */

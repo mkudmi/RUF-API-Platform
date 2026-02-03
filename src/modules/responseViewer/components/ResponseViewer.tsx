@@ -737,7 +737,7 @@ export function ResponseViewer(props: {
                   }}
                   disabled={!isJson}
                   style={{ width: '100%' }}
-                  placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
+                  placeholder="Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id"
                 />
 
                 <button
@@ -834,8 +834,8 @@ export function ResponseViewer(props: {
                 type="button"
                 className="iconBtn"
                 onClick={() => responseSearchHelpDialogRef.current?.showModal()}
-                title="Инструкция"
-                aria-label="Инструкция по поиску"
+                title="Help"
+                aria-label="Search help"
                 style={{ width: 34, height: 34 }}
               >
                 i
@@ -989,12 +989,12 @@ export function ResponseViewer(props: {
 
           <dialog ref={responseSearchHelpDialogRef} className="modal">
             <div className="modalHeader">
-              <b>Как пользоваться поиском</b>
+              <b>How to use search</b>
               <button
                 className="iconBtn"
                 onClick={() => responseSearchHelpDialogRef.current?.close()}
-                aria-label="Закрыть"
-                title="Закрыть"
+                aria-label="Close"
+                title="Close"
               >
                 <CloseIcon />
               </button>
@@ -1007,13 +1007,13 @@ export function ResponseViewer(props: {
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div><b>JSONPath</b></div>
                   <div>
-                    Запрос начинается с <span className="mono">$</span> и выполняется над JSON-ответом.
+                    A query starts with <span className="mono">$</span> and runs against the JSON response.
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Примеры: <span className="mono">$..id</span>, <span className="mono">$.data.items[*].name</span>, <span className="mono">$[0]</span>
+                    Examples: <span className="mono">$..id</span>, <span className="mono">$.data.items[*].name</span>, <span className="mono">$[0]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Документация:{' '}
+                    Docs:{' '}
                     <a
                       href="https://github.com/JSONPath-Plus/JSONPath"
                       target="_blank"
@@ -1028,21 +1028,21 @@ export function ResponseViewer(props: {
                 <div className="treeMenuDivider" role="separator" style={{ width: 1, height: '100%', margin: 0, alignSelf: 'stretch' }} />
 
                 <div style={{ display: 'grid', gap: 12 }}>
-                  <div><b>Фильтр</b></div>
+                  <div><b>Filter</b></div>
                   <div>
-                    Формат: <span className="mono">field op value</span>. Ищет совпадения по всем объектам внутри JSON (рекурсивно).
+                    Format: <span className="mono">field op value</span>. Matches across all objects inside the JSON (recursively).
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Примеры: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Максим"</span>
+                    Examples: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Max"</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Операторы: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span> (для <span className="mono">~</span> поиск подстроки, без учета регистра).
+                    Operators: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span> (for <span className="mono">~</span>, substring match, case-insensitive).
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Списки: <span className="mono">id = 1, 2, 3</span>. Строки можно брать в кавычки: <span className="mono">"text"</span> или <span className="mono">'text'</span>.
+                    Lists: <span className="mono">id = 1, 2, 3</span>. Strings can be quoted: <span className="mono">"text"</span> or <span className="mono">'text'</span>.
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Пути в поле: <span className="mono">user.name = "Bob"</span> (через точку).
+                    Field paths: <span className="mono">user.name = "Bob"</span> (dot-separated).
                   </div>
                 </div>
               </div>

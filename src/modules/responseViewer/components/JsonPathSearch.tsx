@@ -40,12 +40,12 @@ export function JsonPathSearch(props: {
   return (
     <div className="accordion">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <div className="sectionTitle">Поиск</div>
+        <div className="sectionTitle">Search</div>
         <button
           className="iconBtn"
           onClick={() => helpDialogRef.current?.showModal()}
-          title="Инструкция"
-          aria-label="Инструкция по поиску"
+          title="Help"
+          aria-label="Search help"
           style={{ width: 28, height: 28 }}
         >
           i
@@ -61,7 +61,7 @@ export function JsonPathSearch(props: {
           value={query}
           onChange={e => props.onQueryChange(e.target.value)}
           disabled={disabled}
-          placeholder="Examples: id = 5 | id = 24, 25 | name ~ Максим | height >= 166 | $..id"
+          placeholder="Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id"
         />
         <button
           type="button"

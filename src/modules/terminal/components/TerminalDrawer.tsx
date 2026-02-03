@@ -269,7 +269,7 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       setTabs(prev => {
         if (!activeTabId) return prev
         return prev.map(t =>
-          t.id === activeTabId ? { ...t, entries: [...t.entries, { kind: 'sys', text: 'Terminal доступен только в desktop (Tauri) сборке.' }] } : t,
+          t.id === activeTabId ? { ...t, entries: [...t.entries, { kind: 'sys', text: 'Terminal is available only in the desktop (Tauri) build.' }] } : t,
         )
       })
       focusInputSoon()

@@ -24,19 +24,19 @@ import { useAppUpdater } from './useAppUpdater'
 import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 
 //TODO:
-// Из body убрать красное подчеркивание
-// Двойное нажатие на нижнюю границу редактора body чтобы развернуть по границу текста в поле ввода, вся нижняя граница с возможностью ресайза
-// Кнопка reload хэдеры\параметры из изначального импорта, восстанавливать недостающие
-// При релоаде из урла\файла восстанавливать еще и хэдеры\параметры если они отсутствуют
-// удалил параметр\хэдер возврат через ctrl+z
-// импортированные хэдеры сделать key редактируемые удаляемые (перелопатить все связанныое с импортом хэдеров и параметров, по умолчанию последняя строка всегда есть, везде крестики, активный неактивный, просто вставлять хэдеры в поля, добавляя в конце пустую строку для нового хэдера)
-// запись в историю поиска по ответу делается после каждого изменения?? нажатия мышки??
-// отправлять серию запросов с вводом числа итераций??
-// редактор отпраляемых файлов??
-// переработать историю запросов
-// активный неактивный sql скрипт
-// активный неактивный файл
-// добавить переменные из окружения в выбор через скобки
+// Remove red underline in body
+// Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
+// "Reload" button: restore headers/params from the initial import; re-add missing ones
+// On reload from URL/file, also restore headers/params if they are missing
+// Undo after deleting a param/header via Ctrl+Z
+// Imported headers: make key editable/removable (rework everything related to importing headers/params: keep a trailing empty row by default; show delete icons everywhere; active/inactive states; allow pasting headers directly into fields while keeping an empty row for the next header)
+// Response search history: is it recorded after every change?? mouse clicks??
+// Send a series of requests with an iteration count input??
+// Editor for uploaded/sent files??
+// Rework request history
+// Active/inactive SQL script
+// Active/inactive file
+// Add environment variables to the picker via braces
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
@@ -1714,7 +1714,7 @@ export default function App() {
     setWorkspaceFolderError(null)
     const base = workspaceFolderName.trim()
     if (!base) {
-      setWorkspaceFolderError('Введите имя папки.')
+      setWorkspaceFolderError('Enter a folder name.')
       return
     }
 
@@ -1979,7 +1979,7 @@ export default function App() {
     setProjectError(null)
     const name = projectName.trim()
     if (!name) {
-      setProjectError('Введите имя коллекции.')
+      setProjectError('Enter a collection name.')
       return
     }
 
@@ -2104,7 +2104,7 @@ export default function App() {
               style={{ marginLeft: 'auto' }}
               onClick={openSettings}
               aria-label="Settings"
-              title="Настройки"
+              title="Settings"
             >
               ⚙
             </button>
@@ -2187,9 +2187,9 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <b><span className="appTitle">Ruf</span> <span className="small">(web-only)</span></b>
-          <span className="small">OpenAPI v2/v3 import + коллекции</span>
+          <span className="small">OpenAPI v2/v3 import + collections</span>
           <span className="small" style={{marginLeft:'auto'}}>
-            Для запросов нужен CORS на стороне API
+            CORS must be enabled on the API server for requests to work
           </span>
         </div>
 
@@ -2286,7 +2286,7 @@ export default function App() {
         </div>
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
-          <div className="small">Имя</div>
+          <div className="small">Name</div>
           <input style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="My API" />
         </div>
 
@@ -2311,7 +2311,7 @@ export default function App() {
         </div>
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
-          <div className="small">Имя</div>
+          <div className="small">Name</div>
           <input
             style={{ width: '100%' }}
             value={workspaceFolderName}
@@ -2331,16 +2331,16 @@ export default function App() {
 
       <dialog ref={confirmDeleteDialogRef} className="modal modalSmall" onClose={cancelDeleteCollection}>
         <div className="modalHeader">
-          <b>Удалить коллекцию?</b>
+          <b>Delete collection?</b>
         </div>
 
         <div className="small">
-          {confirmDeleteName ? `Коллекция: ${confirmDeleteName}` : 'Эта коллекция будет удалена.'}
+          {confirmDeleteName ? `Collection: ${confirmDeleteName}` : 'This collection will be deleted.'}
         </div>
 
         <div className="modalActions">
-          <button onClick={cancelDeleteCollection}>Отмена</button>
-          <button className="deleteBtn" onClick={confirmDeleteCollection}>Удалить</button>
+          <button onClick={cancelDeleteCollection}>Cancel</button>
+          <button className="deleteBtn" onClick={confirmDeleteCollection}>Delete</button>
         </div>
       </dialog>
 

@@ -3531,7 +3531,7 @@ export function RequestEditor(props: {
 
       {!canSend && (
         <div className="small" style={{ color: '#ff9a9a' }}>
-          Укажи Base URL в «Окружение», иначе запрос не отправится.
+          Set Base URL in "Environment", otherwise the request won't be sent.
         </div>
       )}
 

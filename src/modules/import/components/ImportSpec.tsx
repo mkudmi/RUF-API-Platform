@@ -51,7 +51,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
     setPasteError(null)
     try {
       if (!canReadClipboard) {
-        setPasteError('В этом контексте нельзя читать буфер. Вставь вручную в поле (Ctrl+V).')
+        setPasteError("Clipboard access isn't available in this context. Paste manually into the field (Ctrl+V).")
         return
       }
       const t = await navigator.clipboard.readText()
@@ -109,7 +109,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
       if (!text.trim()) setPasteError('Response is empty.')
       setTimeout(() => pasteTextareaRef.current?.focus(), 0)
     } catch (e: any) {
-      setPasteError(e?.message || (isTauri() ? 'Не удалось загрузить по URL.' : 'Не удалось загрузить по URL (проверь CORS).'))
+      setPasteError(e?.message || (isTauri() ? 'Failed to load from URL.' : 'Failed to load from URL (check CORS).'))
       setSourceOrigin(undefined)
     } finally {
       setLoadingUrl(false)
@@ -172,7 +172,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
         )}
 
         <div className="modalActions">
-          <button onClick={pasteFromClipboard} disabled={!canReadClipboard} title={!canReadClipboard ? 'Недоступно без secure context (https/localhost) и разрешений' : undefined}>
+          <button onClick={pasteFromClipboard} disabled={!canReadClipboard} title={!canReadClipboard ? 'Unavailable without a secure context (https/localhost) and permissions' : undefined}>
             Paste from clipboard
           </button>
           <button onClick={submitPasted}>Import</button>

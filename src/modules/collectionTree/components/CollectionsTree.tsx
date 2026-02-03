@@ -1141,7 +1141,7 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                         props.onOpenEnv(col.id)
                       }}
-                      title="Окружение"
+                      title="Environment"
                     >
                       env
                     </button>
@@ -1152,7 +1152,7 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                         props.onDeleteCollection(col.id)
                       }}
-                      title="Удалить коллекцию"
+                      title="Delete collection"
                       aria-label="Delete collection"
                     >
                       ✕
