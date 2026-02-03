@@ -168,6 +168,12 @@ export function CollectionsTree(props: {
     return folder.requests.length + nested
   }
 
+  function countFolderItems(folder: Folder): number {
+    const folderCount = Array.isArray(folder.folders) ? folder.folders.length : 0
+    const requestCount = Array.isArray(folder.requests) ? folder.requests.length : 0
+    return folderCount + requestCount
+  }
+
   const requestCountByCollection = useMemo(() => {
     const out: Record<string, number> = {}
     for (const col of props.collections) {
@@ -291,7 +297,7 @@ export function CollectionsTree(props: {
 
   function renderFolder(col: Collection, folder: Folder) {
     const childFolders = folder.folders ?? []
-    const reqCount = countRequests(folder)
+    const reqCount = countFolderItems(folder)
     const isEditing = editing?.kind === 'folder' && editing.id === folder.id
     const isFolderMenuOpen = openMenuFolderId === folder.id && !isEditing
 
