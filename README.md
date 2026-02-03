@@ -1,13 +1,13 @@
 # Ruf — “Вызов”
 
-Ruf — браузерный мини‑клиент для API (в духе Postman/Insomnia) с импортом OpenAPI/Swagger и запуском запросов прямо из UI.
+Ruf — desktop‑приложение (Tauri) для работы с API (в духе Postman/Insomnia) с импортом OpenAPI/Swagger и запуском запросов прямо из UI.
 
 ## Возможности
 
 - Импорт OpenAPI v2/v3:
   - из файла (`.json/.yaml/.yml`)
   - вставкой JSON/YAML
-  - по URL (нужен CORS на стороне сервера, иначе браузер заблокирует `fetch`)
+  - по URL
 - Дерево коллекций:
   - коллекции и “контроллеры”
   - кнопка `env` для окружения каждой коллекции
@@ -22,22 +22,7 @@ Ruf — браузерный мини‑клиент для API (в духе Pos
   - подсветка статусов (2xx/3xx/4xx/5xx)
   - `⏱` время ответа
 
-## Ограничения (важно)
-
-- Приложение **только браузерное**: если API не разрешает CORS, запросы из Ruf не пройдут.
-- Импорт по URL тоже зависит от CORS.
-- В импорте поддерживаются локальные `$ref` вида `#/...`. Внешние `$ref` (файлы/URL) не подтягиваются.
-
 ## Быстрый старт
-
-Требования: Node.js + npm.
-
-```bash
-npm install
-npm run dev
-```
-
-Открой `http://localhost:5173` (порт может отличаться — Vite покажет в консоли).
 
 ## Desktop (Tauri)
 
@@ -72,9 +57,6 @@ npm run tauri:build
 
 ## Скрипты
 
-- `npm run dev` — dev‑сервер Vite
-- `npm run build` — TypeScript build + production build
-- `npm run preview` — локальный просмотр production build
 - `npm run lint` — ESLint
 - `npm run tauri:dev` — desktop dev (Tauri + Vite)
 - `npm run tauri:build` — сборка desktop (Tauri)

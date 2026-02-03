@@ -4,8 +4,8 @@
   "version": "0.2.6",
   "identifier": "com.ruf.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run tauri:ui:dev",
+    "beforeBuildCommand": "npm run tauri:ui:build",
     "devUrl": "http://127.0.0.1:5173",
     "frontendDist": "../dist"
   },

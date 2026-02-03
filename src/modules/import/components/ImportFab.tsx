@@ -3,7 +3,6 @@ import type { Collection } from '../../collectionTree'
 import { buildImportedCollectionFromText } from '../buildImportedCollection'
 import { fetchWithProxyFallback } from '../../../shared/utils/proxyFetch'
 import { loadAppSettings } from '../../../shared/utils/appSettings'
-import { isTauri } from '../../../shared/utils/tauri'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -156,7 +155,7 @@ export function ImportFab(props: {
       const col = await importFromText(text, u.origin)
       openNameStep({ ...col, sourceUrl: u.toString(), sourceType: 'url' })
     } catch (e: any) {
-      setUrlError(e?.message || (isTauri() ? 'Failed to load URL.' : 'Failed to load URL (check CORS).'))
+      setUrlError(e?.message || 'Failed to load URL.')
     } finally {
       setLoadingUrl(false)
     }

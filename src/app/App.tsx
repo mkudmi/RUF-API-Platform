@@ -2186,10 +2186,10 @@ export default function App() {
 
       <main className="main">
         <div className="topbar">
-          <b><span className="appTitle">Ruf</span> <span className="small">(web-only)</span></b>
+          <b><span className="appTitle">Ruf</span> <span className="small">(desktop)</span></b>
           <span className="small">OpenAPI v2/v3 import + collections</span>
           <span className="small" style={{marginLeft:'auto'}}>
-            CORS must be enabled on the API server for requests to work
+            Desktop mode: no CORS limitations
           </span>
         </div>
 
