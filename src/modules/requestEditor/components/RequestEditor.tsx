@@ -4078,13 +4078,14 @@ export function RequestEditor(props: {
             icon={<CloseIcon size={18} />}
           />
         </summary>
-        <VariableAutocompleteField
-          as="textarea"
-          ref={bodyTextareaRef as any}
-          className="mono editorTextarea"
-          value={bodyText}
-          suggestions={variableSuggestions}
-          onChangeValue={setBodyText}
+          <VariableAutocompleteField
+            as="textarea"
+            ref={bodyTextareaRef as any}
+            className="mono editorTextarea"
+            value={bodyText}
+            spellCheck={false}
+            suggestions={variableSuggestions}
+            onChangeValue={setBodyText}
           onKeyDown={e => {
             if (e.ctrlKey || e.metaKey || e.altKey) return
             if (e.key === 'Tab') {
