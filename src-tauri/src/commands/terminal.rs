@@ -4,6 +4,9 @@ use std::process::Command as StdCommand;
 use std::time::Duration;
 use tokio::time::timeout;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Deserialize)]
 pub struct TerminalExecArgs {
     pub command: String,
@@ -85,7 +88,9 @@ fn resolve_dir(cwd: Option<String>, target: String) -> Result<PathBuf, String> {
 
 #[cfg(windows)]
 fn has_on_path(exe: &str) -> bool {
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     StdCommand::new("where")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(exe)
         .output()
         .map(|o| o.status.success() && !o.stdout.is_empty())
@@ -94,7 +99,12 @@ fn has_on_path(exe: &str) -> bool {
 
 #[cfg(windows)]
 fn parse_where_first_path(exe: &str) -> Option<PathBuf> {
-    let out = StdCommand::new("where").arg(exe).output().ok()?;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let out = StdCommand::new("where")
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg(exe)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
