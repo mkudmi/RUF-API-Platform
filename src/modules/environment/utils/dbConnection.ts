@@ -156,7 +156,7 @@ export async function runDbSql(opts: { type: string; connectionString: string; s
   const caCertsPem = loadAppSettings().caCertificates.map(c => c.pem)
 
   if (isTauri()) {
-    const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number; rowsJson?: string }>('db_exec', {
+    const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number; rowsJson?: string; columns?: string[] }>('db_exec', {
       args: {
         type: opts.type,
         connectionString: opts.connectionString,
@@ -176,9 +176,9 @@ export async function runDbSql(opts: { type: string; connectionString: string; s
         return null
       }
     })()
-    return { ok: !!result.ok, message: msg, durationMs, rowsAffected: result.rowsAffected, rows: rowsFromJson }
+    return { ok: !!result.ok, message: msg, durationMs, rowsAffected: result.rowsAffected, rows: rowsFromJson, columns: result.columns ?? null }
   }
 
   const durationMs = Math.max(0, Math.round(performance.now() - started))
-  return { ok: false, message: 'Database commands are available only in the desktop (Tauri) build.', durationMs, rowsAffected: undefined, rows: null }
+  return { ok: false, message: 'Database commands are available only in the desktop (Tauri) build.', durationMs, rowsAffected: undefined, rows: null, columns: null }
 }

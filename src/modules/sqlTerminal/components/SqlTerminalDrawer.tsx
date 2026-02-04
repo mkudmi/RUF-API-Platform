@@ -102,6 +102,33 @@ function makeTableAlias(tableName: string): string {
   return alias || raw.slice(0, 1).toLowerCase() || 't'
 }
 
+function stripQuotes(ident: string) {
+  return (ident || '').replaceAll('"', '').trim()
+}
+
+function parseFromAndJoinAliases(sql: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  const re = /\b(from|join)\s+([a-zA-Z0-9_".]+)\s*(?:as\s+)?([a-zA-Z0-9_"]+)?/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sql)) !== null) {
+    const tableRef = (m[2] ?? '').trim()
+    if (!tableRef || tableRef.startsWith('(')) continue
+    const aliasRaw = (m[3] ?? '').trim()
+    const tableName = stripQuotes(tableRef.split('.').pop() ?? tableRef)
+    if (!tableName) continue
+    const alias = stripQuotes(aliasRaw)
+    if (alias && !/^(on|where|group|order|limit|inner|left|right|full|cross|join)$/i.test(alias)) out[alias] = tableName
+    // Also allow referencing by the table name itself.
+    out[tableName] = tableName
+  }
+  return out
+}
+
+function clampHistory<T>(arr: T[], max: number): T[] {
+  if (arr.length <= max) return arr
+  return arr.slice(arr.length - max)
+}
+
 function formatTime(d: Date) {
   const pad2 = (n: number) => String(n).padStart(2, '0')
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
@@ -154,14 +181,19 @@ export function SqlTerminalDrawer(props: {
   const [sql, setSql] = useState(() => safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '')
   const [output, setOutput] = useState<OutputEntry[]>([])
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>> | null>(null)
+  const [resultColumns, setResultColumns] = useState<string[] | null>(null)
   const [resultHint, setResultHint] = useState<string | null>(null)
   const [splitLeftFraction, setSplitLeftFraction] = useState<number>(() => safeLoadFraction(SQL_TERMINAL_SPLIT_KEY) ?? 0.42)
   const [schemas, setSchemas] = useState<string[]>([])
   const [selectedSchema, setSelectedSchema] = useState<string>(() => safeLoadString(SQL_TERMINAL_SCHEMA_KEY) ?? '')
   const [tables, setTables] = useState<string[]>([])
+  const [columnsByTableKey, setColumnsByTableKey] = useState<Record<string, string[]>>({})
   const [cursorPos, setCursorPos] = useState<number>(0)
   const [tableSuggestOpen, setTableSuggestOpen] = useState(false)
+  const [suggestMode, setSuggestMode] = useState<'table' | 'column'>('table')
   const [tableSuggestKind, setTableSuggestKind] = useState<'from' | 'into'>('from')
+  const [columnTargetTableKey, setColumnTargetTableKey] = useState<string | null>(null)
+  const [columnLoading, setColumnLoading] = useState(false)
   const [tableSuggestPrefix, setTableSuggestPrefix] = useState<string>('')
   const [tableSuggestReplaceRange, setTableSuggestReplaceRange] = useState<{ start: number; end: number } | null>(null)
 
@@ -172,6 +204,12 @@ export function SqlTerminalDrawer(props: {
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const runRef = useRef<(() => void) | null>(null)
   const sectionRef = useRef<HTMLElement | null>(null)
+  const pendingCaretRef = useRef<number | null>(null)
+  const editHistoryRef = useRef<{ stack: Array<{ text: string; caret: number }>; index: number; applying: boolean }>({
+    stack: [{ text: safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '', caret: 0 }],
+    index: 0,
+    applying: false,
+  })
 
   const connOptions = useMemo(() => buildDbConnOptions(props.collections, props.environmentsByCollection), [props.collections, props.environmentsByCollection])
   const selectedConn = useMemo(() => connOptions.find(c => c.id === selectedConnId) ?? null, [connOptions, selectedConnId])
@@ -184,6 +222,18 @@ export function SqlTerminalDrawer(props: {
   useEffect(() => {
     runRef.current = () => void run()
   })
+
+  useEffect(() => {
+    const pending = pendingCaretRef.current
+    if (pending == null) return
+    pendingCaretRef.current = null
+    const ta = sqlRef.current
+    if (!ta) return
+    ta.focus()
+    ta.selectionStart = pending
+    ta.selectionEnd = pending
+    setCursorPos(pending)
+  }, [sql])
 
   useEffect(() => {
     if (!open) return
@@ -344,6 +394,7 @@ export function SqlTerminalDrawer(props: {
     if (!selectedConn) return
     void loadSchemas(selectedConn)
     setTables([])
+    setColumnsByTableKey({})
   }, [open, selectedConnId])
 
   useEffect(() => {
@@ -352,6 +403,28 @@ export function SqlTerminalDrawer(props: {
     if (selectedConn.type !== 'postgres') return
     void loadTables(selectedConn, selectedSchema)
   }, [open, selectedConnId, selectedSchema])
+
+  async function loadColumnsForTable(conn: DbConnOption, schema: string, tableName: string) {
+    if (conn.type !== 'postgres') return
+    if (!schema || !tableName) return
+    const key = `${schema}.${tableName}`
+    if (columnsByTableKey[key]) return
+
+    setColumnLoading(true)
+    try {
+      const sql = `select column_name as name from information_schema.columns where table_schema = ${quoteSqlStringLiteral(schema)} and table_name = ${quoteSqlStringLiteral(tableName)} order by ordinal_position`
+      const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql, timeoutMs: 15_000 })
+      const rows = r.ok ? (r.rows ?? null) : null
+      const names = rows
+        ? rows
+            .map(x => (x && typeof x === 'object' && 'name' in x ? String((x as Record<string, unknown>).name ?? '') : ''))
+            .filter(Boolean)
+        : []
+      setColumnsByTableKey(prev => ({ ...prev, [key]: names }))
+    } finally {
+      setColumnLoading(false)
+    }
+  }
 
   function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
@@ -418,19 +491,28 @@ export function SqlTerminalDrawer(props: {
     window.addEventListener('pointerup', onUp, { once: true })
   }
 
-  const resultColumns = useMemo(() => {
+  const effectiveResultColumns = useMemo(() => {
+    if (resultColumns?.length) return resultColumns
     const rows = resultRows
     if (!rows || !rows.length) return []
     const first = rows[0] ?? {}
-    const keys = Object.keys(first)
-    return keys
-  }, [resultRows])
+    return Object.keys(first)
+  }, [resultColumns, resultRows])
 
   const tableSuggestions = useMemo(() => {
     const p = (tableSuggestPrefix || '').toLowerCase()
     if (!p) return tables.slice(0, 80)
     return tables.filter(t => t.toLowerCase().includes(p)).slice(0, 80)
   }, [tables, tableSuggestPrefix])
+
+  const columnSuggestions = useMemo(() => {
+    const key = columnTargetTableKey
+    if (!key) return []
+    const cols = columnsByTableKey[key] ?? []
+    const p = (tableSuggestPrefix || '').toLowerCase()
+    if (!p) return cols.slice(0, 120)
+    return cols.filter(c => c.toLowerCase().includes(p)).slice(0, 120)
+  }, [columnsByTableKey, columnTargetTableKey, tableSuggestPrefix])
 
   useEffect(() => {
     if (!open) return
@@ -439,30 +521,47 @@ export function SqlTerminalDrawer(props: {
 
     const pos = cursorPos
     const before = sql.slice(0, pos)
-    const m = before.match(/(?:^|[\s(])(from|into)(?:\s+([a-zA-Z0-9_".]*))?$/i)
-    if (!m) {
-      setTableSuggestOpen(false)
-      setTableSuggestReplaceRange(null)
-      setTableSuggestPrefix('')
-      return
+
+    // Column suggestion: <alias_or_table>.<prefix>
+    const colMatch = before.match(/(?:^|[^a-zA-Z0-9_"])([a-zA-Z0-9_"]+)\.([a-zA-Z0-9_"]*)$/i)
+    if (colMatch) {
+      const token = stripQuotes(colMatch[1] ?? '')
+      const colPrefix = stripQuotes(colMatch[2] ?? '')
+      const aliases = parseFromAndJoinAliases(sql)
+      const tableName = aliases[token]
+      if (tableName && selectedConn?.type === 'postgres' && selectedSchema) {
+        const key = `${selectedSchema}.${tableName}`
+        setSuggestMode('column')
+        setColumnTargetTableKey(key)
+        setTableSuggestPrefix(colPrefix)
+        setTableSuggestReplaceRange({ start: pos - (colMatch[2] ?? '').length, end: pos })
+        void loadColumnsForTable(selectedConn, selectedSchema, tableName)
+        setTableSuggestOpen(true)
+        return
+      }
     }
-    if (!tables.length) {
+
+    // Table suggestion: FROM/INTO ...<prefix>
+    const tableMatch = before.match(/(?:^|[\s(])(from|into)(?:\s+([a-zA-Z0-9_".]*))?$/i)
+    if (!tableMatch || !tables.length) {
       setTableSuggestOpen(false)
       setTableSuggestReplaceRange(null)
       setTableSuggestPrefix('')
+      setColumnTargetTableKey(null)
       return
     }
 
-    const kind = (m[1] || 'from').toLowerCase() === 'into' ? 'into' : 'from'
-    const prefix = m[2] ?? ''
+    const kind = (tableMatch[1] || 'from').toLowerCase() === 'into' ? 'into' : 'from'
+    const prefix = tableMatch[2] ?? ''
     const start = pos - prefix.length
     const end = pos
+    setSuggestMode('table')
     setTableSuggestKind(kind)
     setTableSuggestPrefix(prefix.replaceAll('"', ''))
     setTableSuggestReplaceRange({ start, end })
-
+    setColumnTargetTableKey(null)
     setTableSuggestOpen(true)
-  }, [open, sql, cursorPos, tables.length])
+  }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
 
   async function run() {
     if (busy) return
@@ -481,6 +580,7 @@ export function SqlTerminalDrawer(props: {
     const startedAt = new Date()
     pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type})` }])
     setResultRows(null)
+    setResultColumns(null)
     setResultHint(null)
 
     setBusy(true)
@@ -501,11 +601,20 @@ export function SqlTerminalDrawer(props: {
       const prefix = r.ok ? 'OK' : 'ERROR'
       pushOutput([{ kind: r.ok ? 'out' : 'err', text: `${prefix}: ${r.message || ''} (${r.durationMs}ms)` }])
       const rows = r.rows ?? null
-      if (r.ok && rows && rows.length && typeof rows[0] === 'object' && rows[0] != null && !Array.isArray(rows[0])) {
-        setResultRows(rows as Array<Record<string, unknown>>)
-        setResultHint(`${rows.length} row(s)`)
-      } else if (r.ok && rows && !rows.length) {
-        setResultHint('0 row(s)')
+      if (r.ok && Array.isArray(r.columns) && r.columns.length) {
+        setResultColumns(r.columns)
+      }
+
+      if (r.ok && Array.isArray(rows)) {
+        if (rows.length && typeof rows[0] === 'object' && rows[0] != null && !Array.isArray(rows[0])) {
+          setResultRows(rows as Array<Record<string, unknown>>)
+          setResultHint(`${rows.length} row(s)`)
+        } else if (!rows.length && (r.columns?.length ?? 0) > 0) {
+          setResultRows([])
+          setResultHint('0 row(s)')
+        } else if (!rows.length) {
+          setResultHint('0 row(s)')
+        }
       } else if (r.ok && typeof r.rowsAffected === 'number') {
         setResultHint(`${r.rowsAffected} affected`)
       }
@@ -611,6 +720,7 @@ export function SqlTerminalDrawer(props: {
               onClick={() => {
                 setOutput([])
                 setResultRows(null)
+                setResultColumns(null)
                 setResultHint(null)
                 setSql('')
                 requestAnimationFrame(() => sqlRef.current?.focus())
@@ -705,13 +815,70 @@ export function SqlTerminalDrawer(props: {
                 value={sql}
                 disabled={!open || busy}
                 onChange={e => {
-                  setSql(e.target.value)
+                  const nextText = e.target.value
+                  const caret = e.target.selectionStart ?? 0
+
+                  const hist = editHistoryRef.current
+                  if (!hist.applying) {
+                    const current = hist.stack[hist.index]?.text ?? ''
+                    if (current !== nextText) {
+                      const nextEntry = { text: nextText, caret }
+                      const base = hist.stack.slice(0, hist.index + 1)
+                      const nextStack = clampHistory([...base, nextEntry], 20)
+                      const nextIndex = nextStack.length - 1
+                      editHistoryRef.current = { stack: nextStack, index: nextIndex, applying: false }
+                    }
+                  }
+
+                  setSql(nextText)
                   requestAnimationFrame(() => setCursorPos(sqlRef.current?.selectionStart ?? 0))
                 }}
                 onKeyUp={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
                 onClick={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
                 onSelect={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
                 onKeyDown={e => {
+                  const isUndo = (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'z') || (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z')
+                  const isRedo =
+                    (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'y') ||
+                    (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'z') ||
+                    (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')
+
+                  if (isUndo) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const hist = editHistoryRef.current
+                    if (hist.index > 0) {
+                      const nextIndex = hist.index - 1
+                      const entry = hist.stack[nextIndex]
+                      editHistoryRef.current = { ...hist, index: nextIndex, applying: true }
+                      pendingCaretRef.current = entry.caret
+                      setSql(entry.text)
+                      requestAnimationFrame(() => {
+                        const h = editHistoryRef.current
+                        editHistoryRef.current = { ...h, applying: false }
+                      })
+                    }
+                    return
+                  }
+
+                  if (isRedo) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const hist = editHistoryRef.current
+                    if (hist.index < hist.stack.length - 1) {
+                      const nextIndex = hist.index + 1
+                      const entry = hist.stack[nextIndex]
+                      editHistoryRef.current = { ...hist, index: nextIndex, applying: true }
+                      pendingCaretRef.current = entry.caret
+                      setSql(entry.text)
+                      requestAnimationFrame(() => {
+                        const h = editHistoryRef.current
+                        editHistoryRef.current = { ...h, applying: false }
+                      })
+                    }
+                    return
+                  }
+
                   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                     e.preventDefault()
                     e.stopPropagation()
@@ -735,40 +902,75 @@ export function SqlTerminalDrawer(props: {
                     e.stopPropagation()
                   }}
                 >
-                  {tableSuggestions.length ? (
-                    tableSuggestions.map(t => (
-                      <button
-                        key={t}
-                        type="button"
-                        className="selectMenuItem"
-                        role="option"
-                        onClick={() => {
-                          const range = tableSuggestReplaceRange
-                          if (!range) return
-                          const needsLeadingSpace = /(from|into)$/i.test(sql.slice(0, range.start))
-                          const tableRef = tableSuggestKind === 'from' ? `${t} ${makeTableAlias(t)}` : t
-                          const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
-                          const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
-                          setSql(next)
-                          setTableSuggestOpen(false)
-                          requestAnimationFrame(() => {
-                            const ta = sqlRef.current
-                            if (!ta) return
-                            const newPos = range.start + insert.length
-                            ta.focus()
-                            ta.selectionStart = newPos
-                            ta.selectionEnd = newPos
-                            setCursorPos(newPos)
-                          })
-                        }}
-                      >
-                        <span className="mono">{t}</span>
-                      </button>
-                    ))
+                  {suggestMode === 'column' ? (
+                    columnSuggestions.length ? (
+                      columnSuggestions.map(c => (
+                        <button
+                          key={c}
+                          type="button"
+                          className="selectMenuItem"
+                          role="option"
+                          onClick={() => {
+                            const range = tableSuggestReplaceRange
+                            if (!range) return
+                            const next = `${sql.slice(0, range.start)}${c}${sql.slice(range.end)}`
+                            setSql(next)
+                            setTableSuggestOpen(false)
+                            requestAnimationFrame(() => {
+                              const ta = sqlRef.current
+                              if (!ta) return
+                              const newPos = range.start + c.length
+                              ta.focus()
+                              ta.selectionStart = newPos
+                              ta.selectionEnd = newPos
+                              setCursorPos(newPos)
+                            })
+                          }}
+                        >
+                          <span className="mono">{c}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="selectMenuItem" style={{ cursor: 'default', opacity: 0.75 }}>
+                        {columnLoading ? 'Loading columns…' : 'No matches'}
+                      </div>
+                    )
                   ) : (
-                    <div className="selectMenuItem" style={{ cursor: 'default', opacity: 0.75 }}>
-                      No matches
-                    </div>
+                    tableSuggestions.length ? (
+                      tableSuggestions.map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          className="selectMenuItem"
+                          role="option"
+                          onClick={() => {
+                            const range = tableSuggestReplaceRange
+                            if (!range) return
+                            const needsLeadingSpace = /(from|into)$/i.test(sql.slice(0, range.start))
+                            const tableRef = tableSuggestKind === 'from' ? `${t} ${makeTableAlias(t)}` : t
+                            const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
+                            const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
+                            setSql(next)
+                            setTableSuggestOpen(false)
+                            requestAnimationFrame(() => {
+                              const ta = sqlRef.current
+                              if (!ta) return
+                              const newPos = range.start + insert.length
+                              ta.focus()
+                              ta.selectionStart = newPos
+                              ta.selectionEnd = newPos
+                              setCursorPos(newPos)
+                            })
+                          }}
+                        >
+                          <span className="mono">{t}</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="selectMenuItem" style={{ cursor: 'default', opacity: 0.75 }}>
+                        No matches
+                      </div>
+                    )
                   )}
                 </div>
               ) : null}
@@ -787,12 +989,12 @@ export function SqlTerminalDrawer(props: {
               aria-live="polite"
               onPointerDown={() => sqlRef.current?.focus()}
             >
-              {resultRows && resultColumns.length ? (
+              {effectiveResultColumns.length ? (
                 <div className="sqlTerminalTableWrap">
                   <table className="sqlTerminalTable">
                     <thead>
                       <tr>
-                        {resultColumns.map(c => (
+                        {effectiveResultColumns.map(c => (
                           <th key={c} className="mono" title={c}>
                             {c}
                           </th>
@@ -800,9 +1002,9 @@ export function SqlTerminalDrawer(props: {
                       </tr>
                     </thead>
                     <tbody>
-                      {resultRows.slice(0, 500).map((row, idx) => (
+                      {(resultRows ?? []).slice(0, 500).map((row, idx) => (
                         <tr key={idx}>
-                          {resultColumns.map(c => {
+                          {effectiveResultColumns.map(c => {
                             const v = (row as Record<string, unknown>)[c]
                             const text = v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v)
                             return (
@@ -815,7 +1017,7 @@ export function SqlTerminalDrawer(props: {
                       ))}
                     </tbody>
                   </table>
-                  {resultRows.length > 500 ? (
+                  {(resultRows?.length ?? 0) > 500 ? (
                     <div className="terminalLine terminalLine_sys" style={{ marginTop: 8 }}>
                       Showing first 500 rows.
                     </div>

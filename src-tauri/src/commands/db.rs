@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
+use sqlx::Column;
 use sqlx::Connection;
+use sqlx::Executor;
 use std::str::FromStr;
 use std::time::Duration;
 use tauri::Manager;
@@ -62,6 +64,8 @@ pub struct DbExecResult {
     pub rows_affected: Option<u64>,
     #[serde(rename = "rowsJson", skip_serializing_if = "Option::is_none")]
     pub rows_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns: Option<Vec<String>>,
 }
 
 fn clamp_ms(value: u64, min: u64, max: u64) -> u64 {
@@ -260,7 +264,7 @@ async fn db_exec_postgres(
     options: sqlx::postgres::PgConnectOptions,
     sql: &str,
     timeout_ms: u64,
-) -> Result<(u64, Option<String>), DbError> {
+) -> Result<(u64, Option<String>, Option<Vec<String>>), DbError> {
     let mut conn = timeout(
         Duration::from_millis(timeout_ms),
         sqlx::postgres::PgConnection::connect_with(&options),
@@ -281,6 +285,15 @@ async fn db_exec_postgres(
 
         if looks_like_select {
             let cleaned = stmt.trim_end_matches(';').trim();
+
+            let columns = timeout(Duration::from_millis(timeout_ms), conn.describe(cleaned))
+                .await
+                .map_err(|_| DbError::QueryTimeout)?
+                .map_err(|e| DbError::Sqlx(e.to_string()))?
+                .columns()
+                .iter()
+                .map(|c| c.name().to_string())
+                .collect::<Vec<String>>();
             let wrapped = format!(
                 "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)::text AS rows_json FROM ({}) t",
                 cleaned
@@ -300,7 +313,7 @@ async fn db_exec_postgres(
                 .and_then(|v| v.as_array().map(|a| a.len() as u64))
                 .unwrap_or(0);
 
-            return Ok((row_count, Some(rows_json)));
+            return Ok((row_count, Some(rows_json), Some(columns)));
         }
     }
 
@@ -317,7 +330,7 @@ async fn db_exec_postgres(
         total = total.saturating_add(done.rows_affected());
     }
 
-    Ok((total, None))
+    Ok((total, None, None))
 }
 
 async fn db_exec_mysql(conn_str: &str, sql: &str, timeout_ms: u64) -> Result<u64, DbError> {
@@ -436,28 +449,30 @@ pub async fn db_exec(app: tauri::AppHandle, args: DbExecArgs) -> DbExecResult {
         "postgres" => match postgres_options {
             Some(Ok(opts)) => db_exec_postgres(opts, &args.sql, timeout_ms)
                 .await
-                .map(|(rows, rows_json)| (rows, rows_json)),
+                .map(|(rows, rows_json, columns)| (rows, rows_json, columns)),
             Some(Err(e)) => Err(e),
             None => Err(DbError::Sqlx("missing postgres options".to_string())),
         },
         "mysql" => db_exec_mysql(&args.connection_string, &args.sql, timeout_ms)
             .await
-            .map(|rows| (rows, None)),
+            .map(|rows| (rows, None, None)),
         other => Err(DbError::InvalidType(other.to_string())),
     };
 
     match result {
-        Ok((rows, rows_json)) => DbExecResult {
+        Ok((rows, rows_json, columns)) => DbExecResult {
             ok: true,
             message: None,
             rows_affected: Some(rows),
             rows_json,
+            columns,
         },
         Err(e) => DbExecResult {
             ok: false,
             message: Some(e.to_string()),
             rows_affected: None,
             rows_json: None,
+            columns: None,
         },
     }
 }
