@@ -24,6 +24,7 @@ export type RequestDraft = {
   bodyFormat?: 'auto' | 'json' | 'xml' | 'yaml' | 'text'
   fileFieldName?: string
   fileFieldNames?: string[]
+  fileRows?: Array<{ fieldName?: string, isActive?: boolean }>
   baseUrlKey?: string
   urlTemplateOverride?: string
 }

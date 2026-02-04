@@ -118,6 +118,22 @@ function normalizeDraftRows(raw: unknown, prefix: 'qrow' | 'hrow'): DraftRow[] {
   return out
 }
 
+type FileRow = { id: string, fieldName: string, file: File | null, isActive: boolean }
+type DraftFileRow = { fieldName: string, isActive: boolean }
+
+function normalizeDraftFileRows(raw: unknown): DraftFileRow[] {
+  if (!Array.isArray(raw)) return []
+  const out: DraftFileRow[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as { fieldName?: unknown, isActive?: unknown }
+    const fieldName = typeof row.fieldName === 'string' ? row.fieldName : ''
+    const isActive = typeof row.isActive === 'boolean' ? row.isActive : true
+    out.push({ fieldName, isActive })
+  }
+  return out
+}
+
 function setFlagForKey(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
   const key = keyRaw.trim()
   if (!key) return prev
@@ -1434,8 +1450,8 @@ export function RequestEditor(props: {
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
   const [enumMenuOpenId, setEnumMenuOpenId] = useState<string | null>(null)
   const [enumMenuAnchor, setEnumMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
-  const [fileRows, setFileRows] = useState<Array<{ id: string, fieldName: string, file: File | null }>>(() => (
-    [{ id: uid('frow'), fieldName: '', file: null }]
+  const [fileRows, setFileRows] = useState<FileRow[]>(() => (
+    [{ id: uid('frow'), fieldName: '', file: null, isActive: true }]
   ))
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [showBaseUrlPicker, setShowBaseUrlPicker] = useState(false)
@@ -2103,10 +2119,12 @@ export function RequestEditor(props: {
     setIsEditingUrl(false)
     setUrlDraftText('')
     setFileRows(() => {
+      const storedRows = normalizeDraftFileRows(draft?.fileRows)
+      if (storedRows.length) return storedRows.map(r => ({ id: uid('frow'), fieldName: r.fieldName, file: null, isActive: r.isActive }))
       const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
       const names = (rawList ?? []).filter(x => typeof x === 'string')
       const seed = names.length ? names : ['']
-      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null }))
+      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null, isActive: true }))
     })
     setShowBaseUrlPicker(false)
     setPreSqlScript(draft?.preSqlScript ?? '')
@@ -2240,10 +2258,12 @@ export function RequestEditor(props: {
     setIsEditingUrl(false)
     setUrlDraftText('')
     setFileRows(() => {
+      const storedRows = normalizeDraftFileRows(draft?.fileRows)
+      if (storedRows.length) return storedRows.map(r => ({ id: uid('frow'), fieldName: r.fieldName, file: null, isActive: r.isActive }))
       const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
       const names = (rawList ?? []).filter(x => typeof x === 'string')
       const seed = names.length ? names : ['']
-      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null }))
+      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null, isActive: true }))
     })
     setShowBaseUrlPicker(false)
     setPreSqlScript(draft?.preSqlScript ?? '')
@@ -2270,6 +2290,14 @@ export function RequestEditor(props: {
       fileFieldNames: Array.isArray(draft?.fileFieldNames)
         ? draft!.fileFieldNames!.filter(x => typeof x === 'string')
         : undefined,
+      fileRows: (() => {
+        const stored = normalizeDraftFileRows(draft?.fileRows)
+        if (stored.length) return stored
+        const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
+        const names = (rawList ?? []).filter(x => typeof x === 'string')
+        const seed = names.length ? names : ['']
+        return seed.map(fieldName => ({ fieldName, isActive: true }))
+      })(),
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
     })
@@ -2294,15 +2322,16 @@ export function RequestEditor(props: {
         headerKeyOrder,
         disabledHeaderNames,
         inactiveHeaderNames,
-        bodyText,
-        bodyFormat,
-        fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
-        fileFieldNames: fileRows.map(r => r.fieldName),
-        baseUrlKey,
-        urlTemplateOverride,
-      })
-    }, 200)
-    return () => {
+         bodyText,
+         bodyFormat,
+         fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
+         fileFieldNames: fileRows.map(r => r.fieldName),
+         fileRows: fileRows.map(r => ({ fieldName: r.fieldName, isActive: r.isActive })),
+         baseUrlKey,
+         urlTemplateOverride,
+       })
+     }, 200)
+     return () => {
       if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
       draftSaveTimerRef.current = null
     }
@@ -2638,7 +2667,8 @@ export function RequestEditor(props: {
       return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
     })()
 
-    const hasAnyFileInput = supportsFileSend && fileRows.some(r => !!r.file)
+    const activeFileRows = fileRows.filter(r => r.isActive)
+    const hasAnyFileInput = supportsFileSend && activeFileRows.some(r => !!r.file)
     const hasAnyBodyInput =
       !!bodyText.trim() ||
       hasAnyFileInput ||
@@ -2696,14 +2726,14 @@ export function RequestEditor(props: {
       : undefined
 
     const filesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-      ? fileRows
+      ? activeFileRows
         .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
         .filter((x): x is { fieldName: string, file: File } => !!x.file)
       : undefined
-    const firstFileForOctetStream = fileRows.find(r => r.file)?.file ?? null
+    const firstFileForOctetStream = activeFileRows.find(r => r.file)?.file ?? null
     const fileForOctetStream = supportsFileSend ? firstFileForOctetStream : undefined
 
-    const fileFieldName = (fileRows[0]?.fieldName || 'file').trim() || 'file'
+    const fileFieldName = (activeFileRows[0]?.fieldName || fileRows[0]?.fieldName || 'file').trim() || 'file'
 
     return {
       nextHeaderOverridesForSend,
@@ -2752,13 +2782,14 @@ export function RequestEditor(props: {
           inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
           preSqlScript,
           postSqlScript,
-          bodyText,
-          bodyFormat,
-          fileFieldName: snapshot.fileFieldName,
-          fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
-          baseUrlKey,
-          urlTemplateOverride,
-        },
+           bodyText,
+           bodyFormat,
+           fileFieldName: snapshot.fileFieldName,
+           fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
+           fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), isActive: r.isActive })),
+           baseUrlKey,
+           urlTemplateOverride,
+         },
       })
 
       const preSql = preSqlScript.trim()
@@ -3032,7 +3063,7 @@ export function RequestEditor(props: {
         {fileRows.map(row => (
           <div key={row.id} className="formRow">
             <input
-              className="mono"
+              className={`mono ${row.isActive ? '' : 'rowInactive'}`.trim()}
               value={row.fieldName}
               onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: e.target.value } : r)))}
               placeholder="Key"
@@ -3041,7 +3072,7 @@ export function RequestEditor(props: {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="chooseFileBtn"
+                className={`chooseFileBtn ${row.isActive ? '' : 'rowInactive'}`.trim()}
                 title={row.file ? row.file.name : 'Choose file'}
                 style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={() => {
@@ -3053,6 +3084,17 @@ export function RequestEditor(props: {
               </button>
 
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <label className="checkRow rowCheck" title={row.isActive ? 'Active' : 'Inactive'}>
+                  <input
+                    type="checkbox"
+                    className="checkInput"
+                    checked={row.isActive}
+                    aria-label={`Toggle file row ${row.fieldName.trim() || row.file?.name || ''}`.trim()}
+                    onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: e.target.checked } : r)))}
+                    onClick={e => e.stopPropagation()}
+                  />
+                  <span className="checkBox" aria-hidden="true" />
+                </label>
                 <ConfirmIconButton
                   className="rowDeleteBtn"
                   disabled={false}
@@ -4269,15 +4311,15 @@ export function RequestEditor(props: {
               aria-label="Add file"
               title={isMultipartForm ? 'Add file' : 'Add file (multiple files are only sent for multipart/form-data)'}
               onPointerDown={e => e.stopPropagation()}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                setIsFileOpen(true)
-                setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null }])
-              }}
-            >
-              <span className="addRowGlyph">+</span>
-            </button>
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsFileOpen(true)
+                  setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, isActive: true }])
+                }}
+              >
+                <span className="addRowGlyph">+</span>
+              </button>
           </summary>
           {renderFilePicker()}
         </details>
