@@ -34,7 +34,6 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Editor for uploaded/sent files??
 // Rework request history
 // Active/inactive SQL script
-// Active/inactive file
 // Add environment variables to the picker via braces
 
 function clamp(n: number, min: number, max: number) {
