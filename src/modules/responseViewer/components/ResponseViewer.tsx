@@ -624,7 +624,7 @@ export function ResponseViewer(props: {
                 >
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="mono" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div className="mono" style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {item.method} {item.url}
                       </div>
                       <div className="small" style={{ opacity: 0.75 }}>
@@ -664,7 +664,7 @@ export function ResponseViewer(props: {
       ) : tab === 'body' ? (
         <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0, flex: 1 }}>
           <div style={{ overflow: 'auto', height: '100%' }}>
-            <div className="codeWithGutterRows" style={{ fontSize: 14 }}>
+            <div className="codeWithGutterRows" style={{ fontSize: 13 }}>
               {bodyLines.map((line, idx) => (
                 <div key={idx} className="codeRow">
                   <div className="mono codeRowGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
@@ -693,7 +693,7 @@ export function ResponseViewer(props: {
             <div className="small" style={{ opacity: 0.85, marginBottom: 6 }}>
               Request Headers
             </div>
-            <div className="codeWithGutterRows" style={{ fontSize: 12 }}>
+            <div className="codeWithGutterRows" style={{ fontSize: 13 }}>
               {requestHeadersLines.map((line, idx) => (
                 <div key={idx} className="codeRow">
                   <div className="mono codeRowGutter" style={{ width: `${requestHeadersGutterWidthCh}ch` }} aria-hidden="true">
@@ -707,7 +707,7 @@ export function ResponseViewer(props: {
             <div className="small" style={{ opacity: 0.85, marginTop: 12, marginBottom: 6 }}>
               Response Headers
             </div>
-            <div className="codeWithGutterRows" style={{ fontSize: 12 }}>
+            <div className="codeWithGutterRows" style={{ fontSize: 13 }}>
               {responseHeadersLines.map((line, idx) => (
                 <div key={idx} className="codeRow">
                   <div className="mono codeRowGutter" style={{ width: `${responseHeadersGutterWidthCh}ch` }} aria-hidden="true">

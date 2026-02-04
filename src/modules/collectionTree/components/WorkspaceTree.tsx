@@ -262,6 +262,7 @@ export function WorkspaceTree(props: {
                   <input
                     ref={editInputRef}
                     className="treeFolderName treeNameEditing"
+                    spellCheck={false}
                     value={draftName}
                     onChange={e => setDraftName(e.target.value)}
                     onClick={e => e.stopPropagation()}

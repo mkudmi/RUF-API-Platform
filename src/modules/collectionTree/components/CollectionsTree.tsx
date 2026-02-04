@@ -472,6 +472,7 @@ export function CollectionsTree(props: {
                   ref={nameEditableRef as any}
                   className="treeFolderName treeNameEditing"
                   contentEditable
+                  spellCheck={false}
                   suppressContentEditableWarning
                   onClick={e => e.stopPropagation()}
                   onPointerDown={e => e.stopPropagation()}
@@ -733,6 +734,7 @@ export function CollectionsTree(props: {
                       ref={nameEditableRef as any}
                       className="treeItemName treeNameEditing"
                       contentEditable
+                      spellCheck={false}
                       suppressContentEditableWarning
                       onClick={e => e.stopPropagation()}
                       onPointerDown={e => e.stopPropagation()}
@@ -977,6 +979,7 @@ export function CollectionsTree(props: {
                           ref={nameEditableRef as any}
                           className="treeCollectionName treeCollectionNameEditing"
                           contentEditable
+                          spellCheck={false}
                           suppressContentEditableWarning
                           onClick={e => e.stopPropagation()}
                           onPointerDown={e => e.stopPropagation()}
@@ -1308,6 +1311,7 @@ export function CollectionsTree(props: {
                           ref={nameEditableRef as any}
                           className="treeItemName treeNameEditing"
                         contentEditable
+                        spellCheck={false}
                         suppressContentEditableWarning
                         onClick={e => e.stopPropagation()}
                         onPointerDown={e => e.stopPropagation()}
