@@ -60,25 +60,79 @@ function shouldDefaultOpenFileTab(method: HttpMethod, contentType: string | unde
 
 
 function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
-  let out = url
+  let out = ''
+  for (let i = 0; i < url.length; i++) {
+    const ch = url[i]
+    if (ch !== '{') {
+      out += ch
+      continue
+    }
 
-  out = out.replaceAll(/\/\{([^}]+)\}/g, (m: string, key: string) => {
+    const next = url[i + 1] ?? ''
+    if (next === '{') {
+      const close = url.indexOf('}}', i + 2)
+      if (close >= 0) {
+        out += url.slice(i, close + 2)
+        i = close + 1
+        continue
+      }
+      out += ch
+      continue
+    }
+
+    const close = url.indexOf('}', i + 1)
+    if (close < 0) {
+      out += ch
+      continue
+    }
+
+    const key = url.slice(i + 1, close).trim()
+    i = close
+
     const v = (values[key] ?? '').trim()
-    if (!v) return ''
-    return m
-  })
+    out += v ? v : `{${key}}`
+  }
 
-  out = out.replaceAll(/\{([^}]+)\}/g, (_m: string, key: string) => {
-    const v = (values[key] ?? '').trim()
-    return v
-  })
-
-  out = out.replaceAll(/\/{2,}/g, '/')
   return out
 }
 
 function applyVariablesForDisplay(text: string, vars: Record<string, string>) {
   return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
+}
+
+function extractPathParamNamesFromTemplate(template: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+
+  for (let i = 0; i < template.length; i++) {
+    const ch = template[i]
+    if (ch !== '{') continue
+
+    const next = template[i + 1] ?? ''
+    if (next === '{') {
+      // Skip {{variables}}
+      const close = template.indexOf('}}', i + 2)
+      if (close >= 0) i = close + 1
+      continue
+    }
+
+    const close = template.indexOf('}', i + 1)
+    if (close < 0) continue
+    if (template[close + 1] === '}') continue // ignore "}}"
+
+    const name = template.slice(i + 1, close).trim()
+    i = close
+
+    if (!name) continue
+    if (name.includes('{') || name.includes('}')) continue
+    if (name.includes('/') || name.includes('?') || name.includes('#')) continue
+
+    if (seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
+  }
+
+  return out
 }
 
 function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
@@ -1825,6 +1879,48 @@ export function RequestEditor(props: {
     return next
   }, [queryDraftRows, queryParams])
 
+  const urlEditorText = useMemo(() => {
+    const override = urlTemplateOverride.trim()
+    const baseTemplate =
+      override
+        ? (isAbsoluteUrl(override) || override.startsWith('//'))
+          ? override
+          : baseUrl
+            ? joinUrlParts(baseUrl, override)
+            : override
+        : baseUrl
+          ? joinUrlParts(baseUrl, props.request.path)
+          : props.request.urlTemplate
+
+    const inactiveDraftKeys = new Set(queryDraftRows.filter(r => !r.isActive).map(r => r.name.trim()).filter(Boolean))
+    const pairs: string[] = []
+    for (const [k, v] of Object.entries(effectiveQueryParams)) {
+      if (inactiveQueryParamNames[k]) continue
+      if (inactiveDraftKeys.has(k)) continue
+      if (!k) continue
+      if (v === '') continue
+      pairs.push(`${k}=${v}`)
+    }
+    if (!pairs.length) return baseTemplate
+    return baseTemplate + (baseTemplate.includes('?') ? '&' : '?') + pairs.join('&')
+  }, [baseUrl, effectiveQueryParams, inactiveQueryParamNames, props.request.path, props.request.urlTemplate, queryDraftRows, urlTemplateOverride])
+
+  const derivedPathParamNames = useMemo(() => {
+    const raw = isEditingUrl ? urlDraftText : urlEditorText
+    const parsed = parseUrlInput(raw)
+    return extractPathParamNamesFromTemplate(parsed.template || '')
+  }, [isEditingUrl, urlDraftText, urlEditorText])
+
+  const pathParamsList = useMemo(() => {
+    const spec = props.request.params.filter(p => p.in === 'path')
+    const specNames = new Set(spec.map(p => p.name))
+    const extras = derivedPathParamNames
+      .filter(n => !specNames.has(n))
+      .map(n => ({ name: n, in: 'path' as const, required: false }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return [...spec, ...extras]
+  }, [derivedPathParamNames, props.request.params])
+
   const envHeaders = (props.environment?.headers ?? {}) as Record<string, string>
   const requestBaseHeaders = (props.request.headers ?? {}) as Record<string, string>
 
@@ -3218,8 +3314,8 @@ export function RequestEditor(props: {
 
   function startUrlEdit() {
     setShowBaseUrlPicker(false)
-    urlEditStartRef.current = displayUrl.trim()
-    setUrlDraftText(displayUrl)
+    urlEditStartRef.current = urlEditorText.trim()
+    setUrlDraftText(urlEditorText)
     setIsEditingUrl(true)
     window.setTimeout(() => urlInputRef.current?.focus(), 0)
   }
@@ -3229,15 +3325,53 @@ export function RequestEditor(props: {
     setUrlDraftText('')
   }
 
-  function commitUrlEdit() {
-    const raw = urlDraftText.trim()
+  function commitUrlEdit(nextValue?: string) {
+    const raw = (nextValue ?? urlInputRef.current?.value ?? urlDraftText).trim()
     setIsEditingUrl(false)
     if (raw === urlEditStartRef.current) return
     if (!raw) return
     const parsed = parseUrlInput(raw)
-    if (parsed.template) setUrlTemplateOverride(parsed.template)
+
+    const baseNorm = baseUrl.replace(/\/+$/, '')
+    const parsedTemplate = parsed.template.trim()
+    const parsedNorm = parsedTemplate.replace(/\/+$/, '')
+
+    const defaultAbsolute = (baseUrl ? joinUrlParts(baseUrl, props.request.path) : props.request.urlTemplate).trim()
+    const defaultAbsoluteNorm = defaultAbsolute.replace(/\/+$/, '')
+
+    const nextOverride = (() => {
+      if (!parsedTemplate) return ''
+      if (!baseNorm) return parsedTemplate
+      if (parsedNorm === defaultAbsoluteNorm) return ''
+
+      if (parsedNorm.startsWith(baseNorm)) {
+        const rest = parsedTemplate.slice(baseNorm.length)
+        const relative = rest.startsWith('/') ? rest : `/${rest}`
+        return relative.trim() === props.request.path.trim() ? '' : relative
+      }
+
+      return parsedTemplate
+    })()
+
+    setUrlTemplateOverride(nextOverride)
+
+    const specPathNames = props.request.params.filter(p => p.in === 'path').map(p => p.name).filter(Boolean)
+    const nextPathNames = new Set<string>([...specPathNames, ...extractPathParamNamesFromTemplate(parsed.template || '')])
+    setPathParams(prev => {
+      let changed = false
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (nextPathNames.has(key)) continue
+        delete next[key]
+        changed = true
+      }
+      return changed ? next : prev
+    })
+
     if (parsed.hasQuery) {
       setQueryParams(parsed.query)
+      setQueryKeyOrder(Object.keys(parsed.query))
+      setInactiveQueryParamNames({})
       setQueryParamKeyOverrides({})
       setDisabledQueryParamNames({})
       setQueryDraftRows([])
@@ -3449,7 +3583,7 @@ export function RequestEditor(props: {
               onChangeValue={setUrlDraftText}
               onClick={e => e.stopPropagation()}
               onKeyDown={e => {
-                if (e.key === 'Enter') commitUrlEdit()
+                if (e.key === 'Enter') commitUrlEdit((e.currentTarget as HTMLInputElement).value)
                 if (e.key === 'Escape') cancelUrlEdit()
               }}
               onBlur={() => {
@@ -3457,7 +3591,7 @@ export function RequestEditor(props: {
                   ignoreNextUrlBlurCommitRef.current = false
                   return
                 }
-                commitUrlEdit()
+                commitUrlEdit(urlInputRef.current?.value)
               }}
               style={{ flex: 1, minWidth: 0 }}
             />
@@ -3863,10 +3997,10 @@ export function RequestEditor(props: {
             <span className="addRowGlyph">+</span>
           </button>
         </summary>
-        {grouped.path.length > 0 && (
+        {pathParamsList.length > 0 && (
           <div className="section">
             <div className="sectionTitle">Path</div>
-            {grouped.path.map(p => ( 
+            {pathParamsList.map(p => ( 
               <ParamRow 
                 key={p.name} 
                 param={p} 
