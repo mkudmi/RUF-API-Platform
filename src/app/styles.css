@@ -143,6 +143,8 @@ a { color: inherit; }
 .settingsBtn > .iconGlyph { display: block; }
 .terminalBtn { font-size: 14px; line-height: 1; }
 .terminalBtn > .iconGlyph { display: block; transform: translateY(-1px); }
+.treeToggleBtn { font-size: 14px; line-height: 1; }
+.treeToggleBtn > .iconGlyph { display: block; transform: translateY(-1px); }
 
 .sidebarVersion {
   font-size: 12px;

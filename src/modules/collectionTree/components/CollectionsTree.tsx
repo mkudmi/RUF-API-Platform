@@ -90,6 +90,7 @@ export function CollectionsTree(props: {
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
+  treeOpenCommand?: { action: 'expand' | 'collapse', nonce: number } | null
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -128,6 +129,36 @@ export function CollectionsTree(props: {
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
+
+  useEffect(() => {
+    const cmd = props.treeOpenCommand
+    if (!cmd) return
+
+    setOpenMenuCollectionId(null)
+    setOpenMenuFolderId(null)
+    setOpenMenuRequestId(null)
+    setEditing(null)
+    setDraftName('')
+
+    if (cmd.action === 'collapse') {
+      setOpenCollections(new Set())
+      setOpenFolders(new Set())
+      return
+    }
+
+    const nextCollections = new Set(props.collections.map(c => c.id))
+    const folderIds: string[] = []
+    function visit(folder: Folder) {
+      folderIds.push(folder.id)
+      for (const child of folder.folders ?? []) visit(child)
+    }
+    for (const col of props.collections) {
+      for (const folder of col.folders ?? []) visit(folder)
+    }
+
+    setOpenCollections(nextCollections)
+    setOpenFolders(new Set(folderIds))
+  }, [props.treeOpenCommand?.nonce])
 
   async function exportCollection(col: Collection) {
     const env = props.environmentsByCollection[col.id]

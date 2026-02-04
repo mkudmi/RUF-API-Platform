@@ -185,6 +185,7 @@ export default function App() {
   const sidebarWidthRef = useRef(sidebarWidth)
   const editorWidthRef = useRef(editorWidth)
   const viewportWidthRef = useRef(0)
+  const treeCommandNonceRef = useRef(0)
   const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers' | 'history'>>(() => {
     const parsed = safeParseJson<any>(localStorage.getItem(RESPONSE_TAB_BY_REQUEST_KEY))
     if (!parsed || typeof parsed !== 'object') return {}
@@ -198,6 +199,8 @@ export default function App() {
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [treeAllExpanded, setTreeAllExpanded] = useState(false)
+  const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: 'expand' | 'collapse', nonce: number } | null>(null)
   const {
     updateBusy,
     updateTask,
@@ -2123,6 +2126,7 @@ export default function App() {
             environmentsByCollection={envByCollection}
             activeRequestId={activeRequestId}
             inFlightCountByRequestId={inFlightCountByRequestId}
+            treeOpenCommand={treeOpenCommand}
             onPickRequest={pick}
             onOpenEnv={setEnvModalCollectionId}
             onUpdateCollectionFromUrl={updateCollectionFromUrl}
@@ -2169,6 +2173,19 @@ export default function App() {
               title="Terminal"
             >
               <span className="iconGlyph">&gt;_</span>
+            </button>
+            <button
+              className="iconBtn treeToggleBtn"
+              onClick={() => {
+                const nextAction = treeAllExpanded ? 'collapse' : 'expand'
+                treeCommandNonceRef.current += 1
+                setTreeAllExpanded(nextAction === 'expand')
+                setTreeOpenCommand({ action: nextAction, nonce: treeCommandNonceRef.current })
+              }}
+              aria-label={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
+              title={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
+            >
+              <span className="iconGlyph">{treeAllExpanded ? '⊟' : '⊞'}</span>
             </button>
           </div>
           <div className="sidebarVersion mono">

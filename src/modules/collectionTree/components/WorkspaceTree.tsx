@@ -28,6 +28,7 @@ export function WorkspaceTree(props: {
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
+  treeOpenCommand?: { action: 'expand' | 'collapse', nonce: number } | null
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -103,6 +104,28 @@ export function WorkspaceTree(props: {
   useEffect(() => {
     saveWorkspaceOpenIds(Array.from(openWorkspaceFolders))
   }, [openWorkspaceFolders])
+
+  useEffect(() => {
+    const cmd = props.treeOpenCommand
+    if (!cmd) return
+
+    setOpenMenuWorkspaceFolderId(null)
+    setEditingFolderId(null)
+    setDraftName('')
+
+    if (cmd.action === 'collapse') {
+      setOpenWorkspaceFolders(new Set())
+      return
+    }
+
+    const ids: string[] = []
+    function visit(folder: WorkspaceFolder) {
+      ids.push(folder.id)
+      for (const child of folder.folders ?? []) visit(child)
+    }
+    for (const folder of props.workspace.folders) visit(folder)
+    setOpenWorkspaceFolders(new Set(ids))
+  }, [props.treeOpenCommand?.nonce])
 
   useEffect(() => {
     if (!openMenuWorkspaceFolderId) return
@@ -350,6 +373,7 @@ export function WorkspaceTree(props: {
             environmentsByCollection={props.environmentsByCollection}
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
+            treeOpenCommand={props.treeOpenCommand}
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
             onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
@@ -403,6 +427,7 @@ export function WorkspaceTree(props: {
           environmentsByCollection={props.environmentsByCollection}
           activeRequestId={props.activeRequestId}
           inFlightCountByRequestId={props.inFlightCountByRequestId}
+          treeOpenCommand={props.treeOpenCommand}
           onPickRequest={props.onPickRequest}
           onOpenEnv={props.onOpenEnv}
           onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
