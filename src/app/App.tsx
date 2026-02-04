@@ -24,12 +24,10 @@ import { useAppUpdater } from './useAppUpdater'
 import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 
 //TODO:
-// Remove red underline in body
 // Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
 // "Reload" button: restore headers/params from the initial import; re-add missing ones
 // On reload from URL/file, also restore headers/params if they are missing
 // Undo after deleting a param/header via Ctrl+Z
-// Imported headers: make key editable/removable (rework everything related to importing headers/params: keep a trailing empty row by default; show delete icons everywhere; active/inactive states; allow pasting headers directly into fields while keeping an empty row for the next header)
 // Response search history: is it recorded after every change?? mouse clicks??
 // Send a series of requests with an iteration count input??
 // Editor for uploaded/sent files??
