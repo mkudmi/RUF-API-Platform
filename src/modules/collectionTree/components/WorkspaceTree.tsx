@@ -62,6 +62,44 @@ export function WorkspaceTree(props: {
   const [draftName, setDraftName] = useState('')
   const editInputRef = useRef<HTMLInputElement | null>(null)
 
+  function applyMenuPosition(panel: HTMLDivElement | null) {
+    if (!panel) return
+    requestAnimationFrame(() => {
+      const wrap = panel.parentElement
+      const btn = wrap?.querySelector('button.treeMenuBtn') as HTMLButtonElement | null
+      if (!btn) return
+
+      panel.style.visibility = 'hidden'
+      panel.style.position = 'fixed'
+      panel.style.zIndex = '3000'
+      panel.style.right = 'auto'
+      panel.style.bottom = 'auto'
+      panel.style.left = '0px'
+      panel.style.top = '0px'
+
+      const margin = 8
+      const vw = document.documentElement.clientWidth
+      const vh = document.documentElement.clientHeight
+      const btnRect = btn.getBoundingClientRect()
+      const panelRect = panel.getBoundingClientRect()
+
+      let left = btnRect.right - panelRect.width
+      if (left < margin) left = btnRect.left
+      left = Math.min(Math.max(margin, left), vw - margin - panelRect.width)
+
+      let top = btnRect.bottom + 4
+      if (top + panelRect.height > vh - margin) {
+        const topUp = btnRect.top - 4 - panelRect.height
+        if (topUp >= margin) top = topUp
+        else top = Math.min(Math.max(margin, top), vh - margin - panelRect.height)
+      }
+
+      panel.style.left = `${Math.round(left)}px`
+      panel.style.top = `${Math.round(top)}px`
+      panel.style.visibility = 'visible'
+    })
+  }
+
   useEffect(() => {
     saveWorkspaceOpenIds(Array.from(openWorkspaceFolders))
   }, [openWorkspaceFolders])
@@ -78,6 +116,20 @@ export function WorkspaceTree(props: {
     }
     window.addEventListener('pointerdown', onPointerDown)
     return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [openMenuWorkspaceFolderId])
+
+  useEffect(() => {
+    if (!openMenuWorkspaceFolderId) return
+    const wrap = menuWrapRef.current
+    const scroller = (wrap?.closest?.('.sidebarTreeWrap') as HTMLElement | null) ?? null
+    if (!scroller) return
+
+    function onScroll() {
+      setOpenMenuWorkspaceFolderId(null)
+    }
+
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => scroller.removeEventListener('scroll', onScroll)
   }, [openMenuWorkspaceFolderId])
 
   useEffect(() => {
@@ -241,6 +293,7 @@ export function WorkspaceTree(props: {
                 <div
                   className="treeMenuPanel"
                   role="menu"
+                  ref={applyMenuPosition}
                   onPointerDown={e => {
                     e.preventDefault()
                     e.stopPropagation()

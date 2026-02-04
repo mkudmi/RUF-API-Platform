@@ -137,29 +137,41 @@ export function CollectionsTree(props: {
     await saveTextWithSuggestedName({ suggestedName: fileName, text })
   }
 
-  function applyMenuAutoFlip(panel: HTMLDivElement | null) {
+  function applyMenuPosition(panel: HTMLDivElement | null) {
     if (!panel) return
     requestAnimationFrame(() => {
-      panel.classList.remove('treeMenuPanelFlipX', 'treeMenuPanelFlipY')
+      const wrap = panel.parentElement
+      const btn = wrap?.querySelector('button.treeMenuBtn') as HTMLButtonElement | null
+      if (!btn) return
 
-      const rect = panel.getBoundingClientRect()
+      panel.style.visibility = 'hidden'
+      panel.style.position = 'fixed'
+      panel.style.zIndex = '3000'
+      panel.style.right = 'auto'
+      panel.style.bottom = 'auto'
+      panel.style.left = '0px'
+      panel.style.top = '0px'
+
+      const margin = 8
       const vw = document.documentElement.clientWidth
       const vh = document.documentElement.clientHeight
-      const margin = 8
+      const btnRect = btn.getBoundingClientRect()
+      const panelRect = panel.getBoundingClientRect()
 
-      let flipX = rect.left < margin
-      if (flipX) {
-        panel.classList.add('treeMenuPanelFlipX')
-        const rect2 = panel.getBoundingClientRect()
-        if (rect2.right > vw - margin && rect.right <= vw - margin) {
-          panel.classList.remove('treeMenuPanelFlipX')
-          flipX = false
-        }
-}
+      let left = btnRect.right - panelRect.width
+      if (left < margin) left = btnRect.left
+      left = Math.min(Math.max(margin, left), vw - margin - panelRect.width)
 
-      const flipY = rect.bottom > vh - margin && rect.height < vh - margin * 2
+      let top = btnRect.bottom + 4
+      if (top + panelRect.height > vh - margin) {
+        const topUp = btnRect.top - 4 - panelRect.height
+        if (topUp >= margin) top = topUp
+        else top = Math.min(Math.max(margin, top), vh - margin - panelRect.height)
+      }
 
-      if (flipY) panel.classList.add('treeMenuPanelFlipY')
+      panel.style.left = `${Math.round(left)}px`
+      panel.style.top = `${Math.round(top)}px`
+      panel.style.visibility = 'visible'
     })
   }
 
@@ -263,6 +275,23 @@ export function CollectionsTree(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [openMenuRequestId])
+
+  useEffect(() => {
+    if (!openMenuCollectionId && !openMenuFolderId && !openMenuRequestId) return
+
+    const anchor = collectionMenuWrapRef.current ?? folderMenuWrapRef.current ?? requestMenuWrapRef.current
+    const scroller = (anchor?.closest?.('.sidebarTreeWrap') as HTMLElement | null) ?? null
+    if (!scroller) return
+
+    function onScroll() {
+      setOpenMenuCollectionId(null)
+      setOpenMenuFolderId(null)
+      setOpenMenuRequestId(null)
+    }
+
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    return () => scroller.removeEventListener('scroll', onScroll)
+  }, [openMenuCollectionId, openMenuFolderId, openMenuRequestId])
 
   function displayMethod(m: string) {
     if (m === 'DELETE') return 'DEL'
@@ -505,7 +534,7 @@ export function CollectionsTree(props: {
                 <div
                   className="treeMenuPanel"
                   role="menu"
-                  ref={applyMenuAutoFlip}
+                  ref={applyMenuPosition}
                   onPointerDown={e => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -746,7 +775,7 @@ export function CollectionsTree(props: {
                     <div
                       className="treeMenuPanel"
                       role="menu"
-                      ref={applyMenuAutoFlip}
+                      ref={applyMenuPosition}
                       onPointerDown={e => {
                         e.preventDefault()
                         e.stopPropagation()
@@ -1015,7 +1044,7 @@ export function CollectionsTree(props: {
                         <div
                           className="treeMenuPanel"
                           role="menu"
-                          ref={applyMenuAutoFlip}
+                          ref={applyMenuPosition}
                           onPointerDown={e => {
                             e.preventDefault()
                             e.stopPropagation()
@@ -1321,7 +1350,7 @@ export function CollectionsTree(props: {
                     <div
                       className="treeMenuPanel"
                       role="menu"
-                      ref={applyMenuAutoFlip}
+                      ref={applyMenuPosition}
                       onPointerDown={e => {
                         e.preventDefault()
                         e.stopPropagation()
