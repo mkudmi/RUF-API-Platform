@@ -36,8 +36,6 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Active/inactive SQL script
 // Active/inactive file
 // Add environment variables to the picker via braces
-// Если в запросе sql ничего не вернулось возвращать пустую таблицу с колонками
-// при вводе элиаса\таблицы выводить попап с вариантами колонок
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
