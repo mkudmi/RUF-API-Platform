@@ -3487,7 +3487,7 @@ export function RequestEditor(props: {
           <span className="editorRequestName">{props.request.name}</span>
         </div>
         <button
-          className={isSending ? 'editorSendBtnCancel' : undefined}
+          className={`editorSendBtn ${isSending ? 'editorSendBtnCancel' : ''}`.trim()}
           onPointerDown={() => {
             if (!isSending) commitFocusedValueFieldToState()
           }}
