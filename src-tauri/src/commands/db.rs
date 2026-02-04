@@ -60,6 +60,8 @@ pub struct DbExecResult {
     pub message: Option<String>,
     #[serde(rename = "rowsAffected", skip_serializing_if = "Option::is_none")]
     pub rows_affected: Option<u64>,
+    #[serde(rename = "rowsJson", skip_serializing_if = "Option::is_none")]
+    pub rows_json: Option<String>,
 }
 
 fn clamp_ms(value: u64, min: u64, max: u64) -> u64 {
@@ -258,7 +260,7 @@ async fn db_exec_postgres(
     options: sqlx::postgres::PgConnectOptions,
     sql: &str,
     timeout_ms: u64,
-) -> Result<u64, DbError> {
+) -> Result<(u64, Option<String>), DbError> {
     let mut conn = timeout(
         Duration::from_millis(timeout_ms),
         sqlx::postgres::PgConnection::connect_with(&options),
@@ -268,6 +270,40 @@ async fn db_exec_postgres(
     .map_err(|e| DbError::Sqlx(e.to_string()))?;
 
     let statements = split_sql_statements(sql);
+
+    // For a single SELECT/WITH statement, also return rows as JSON for display in the UI.
+    if statements.len() == 1 {
+        let stmt = statements[0].trim();
+        let lower = stmt
+            .trim_start_matches(|c: char| c.is_whitespace())
+            .to_ascii_lowercase();
+        let looks_like_select = lower.starts_with("select") || lower.starts_with("with");
+
+        if looks_like_select {
+            let cleaned = stmt.trim_end_matches(';').trim();
+            let wrapped = format!(
+                "SELECT COALESCE(json_agg(row_to_json(t)), '[]'::json)::text AS rows_json FROM ({}) t",
+                cleaned
+            );
+
+            let rows_json: String = timeout(
+                Duration::from_millis(timeout_ms),
+                sqlx::query_scalar(&wrapped).fetch_one(&mut conn),
+            )
+            .await
+            .map_err(|_| DbError::QueryTimeout)?
+            .map_err(|e| DbError::Sqlx(e.to_string()))?;
+
+            // Try to estimate rows as array length (best-effort, used only for UI hints).
+            let row_count = serde_json::from_str::<serde_json::Value>(&rows_json)
+                .ok()
+                .and_then(|v| v.as_array().map(|a| a.len() as u64))
+                .unwrap_or(0);
+
+            return Ok((row_count, Some(rows_json)));
+        }
+    }
+
     let mut total: u64 = 0;
     for stmt in statements {
         let done = timeout(
@@ -281,7 +317,7 @@ async fn db_exec_postgres(
         total = total.saturating_add(done.rows_affected());
     }
 
-    Ok(total)
+    Ok((total, None))
 }
 
 async fn db_exec_mysql(conn_str: &str, sql: &str, timeout_ms: u64) -> Result<u64, DbError> {
@@ -398,24 +434,30 @@ pub async fn db_exec(app: tauri::AppHandle, args: DbExecArgs) -> DbExecResult {
 
     let result = match args.db_type.as_str() {
         "postgres" => match postgres_options {
-            Some(Ok(opts)) => db_exec_postgres(opts, &args.sql, timeout_ms).await,
+            Some(Ok(opts)) => db_exec_postgres(opts, &args.sql, timeout_ms)
+                .await
+                .map(|(rows, rows_json)| (rows, rows_json)),
             Some(Err(e)) => Err(e),
             None => Err(DbError::Sqlx("missing postgres options".to_string())),
         },
-        "mysql" => db_exec_mysql(&args.connection_string, &args.sql, timeout_ms).await,
+        "mysql" => db_exec_mysql(&args.connection_string, &args.sql, timeout_ms)
+            .await
+            .map(|rows| (rows, None)),
         other => Err(DbError::InvalidType(other.to_string())),
     };
 
     match result {
-        Ok(rows) => DbExecResult {
+        Ok((rows, rows_json)) => DbExecResult {
             ok: true,
             message: None,
             rows_affected: Some(rows),
+            rows_json,
         },
         Err(e) => DbExecResult {
             ok: false,
             message: Some(e.to_string()),
             rows_affected: None,
+            rows_json: None,
         },
     }
 }

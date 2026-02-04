@@ -143,6 +143,8 @@ a { color: inherit; }
 .settingsBtn > .iconGlyph { display: block; }
 .terminalBtn { font-size: 14px; line-height: 1; }
 .terminalBtn > .iconGlyph { display: block; transform: translateY(-1px); }
+.sqlTerminalBtn { font-size: 12px; letter-spacing: .3px; }
+.sqlTerminalBtn > .iconGlyph { display: block; transform: translateY(-0.5px); }
 .treeToggleBtn { font-size: 14px; line-height: 1; }
 .treeToggleBtn > .iconGlyph { display: block; transform: translateY(-1px); }
 
@@ -678,6 +680,143 @@ button:hover { background: rgba(255,255,255,.10); }
   line-height: 1.45;
 }
 .terminalInput:focus-visible { outline: none; }
+
+.sqlTerminalDrawer {
+  grid-template-rows: 10px auto 1fr;
+}
+
+.sqlTerminalBody {
+  display: grid;
+  min-height: 0;
+}
+
+.sqlTerminalPane {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sqlTerminalPaneSql { position: relative; }
+
+.sqlTerminalDivider {
+  width: 8px;
+  cursor: col-resize;
+  position: relative;
+}
+.sqlTerminalDivider::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,.10);
+}
+
+.sqlTerminalPaneTitle {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  color: rgba(255,255,255,.75);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sqlTerminalPaneTitleLeft { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sqlTerminalSchemaMenu { min-width: 160px; }
+
+.sqlTerminalTableSuggest {
+  position: absolute;
+  z-index: 1200;
+  min-width: 180px;
+  max-width: 240px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border-radius: 10px;
+  right: 10px;
+  top: 10px;
+  left: auto;
+}
+.sqlTerminalTableSuggest .selectMenuItem { padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+
+.sqlTerminalEditorWrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sqlTerminalEditorWrap > .sqlTerminalEditor {
+  height: 100%;
+}
+
+.sqlTerminalEditor {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: rgba(255,255,255,.92);
+  padding: 10px;
+  resize: none;
+  outline: none;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.sqlTerminalOutput {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sqlTerminalTableWrap { width: 100%; overflow: auto; }
+.sqlTerminalTable {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.sqlTerminalTable th, .sqlTerminalTable td {
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sqlTerminalTable th {
+  position: sticky;
+  top: 0;
+  background: rgb(12, 14, 22);
+  z-index: 1;
+  color: rgba(255,255,255,.80);
+}
+
+.sqlTerminalConnMenu { min-width: min(420px, 58vw); }
+
+.sqlTerminalPlayBtn {
+  width: 34px;
+  height: 28px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.03);
+  font-size: 14px;
+}
+.sqlTerminalPlayBtn:hover { background: rgba(255,255,255,.06); }
+.sqlTerminalPlayBtn:disabled { opacity: 0.55; cursor: default; }
 
 
 .fabIcon {

@@ -7,6 +7,7 @@ import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
 import { EnvironmentSettings } from '../modules/environment'
 import { TerminalDrawer } from '../modules/terminal'
+import { SqlTerminalDrawer } from '../modules/sqlTerminal'
 import type { Environment } from '../shared/types/environment'
 import { DEFAULT_ENVIRONMENT } from '../shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from '../shared/utils/storage'
@@ -35,6 +36,8 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Active/inactive SQL script
 // Active/inactive file
 // Add environment variables to the picker via braces
+// Если в запросе sql ничего не вернулось возвращать пустую таблицу с колонками
+// при вводе элиаса\таблицы выводить попап с вариантами колонок
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
@@ -209,6 +212,7 @@ export default function App() {
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [sqlTerminalOpen, setSqlTerminalOpen] = useState(false)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: 'expand' | 'collapse', nonce: number } | null>(null)
   const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
@@ -2122,11 +2126,25 @@ export default function App() {
             </button>
             <button
               className="iconBtn"
-              onClick={() => setTerminalOpen(v => !v)}
+              onClick={() => {
+                setTerminalOpen(v => !v)
+                setSqlTerminalOpen(false)
+              }}
               aria-label="Terminal"
               title="Terminal"
             >
               &gt;_
+            </button>
+            <button
+              className="iconBtn terminalBtn sqlTerminalBtn"
+              onClick={() => {
+                setSqlTerminalOpen(v => !v)
+                setTerminalOpen(false)
+              }}
+              aria-label="SQL Terminal"
+              title="SQL Terminal"
+            >
+              <span className="iconGlyph">SQL</span>
             </button>
           </div>
         </div>
@@ -2180,11 +2198,25 @@ export default function App() {
             </button>
             <button
               className="iconBtn terminalBtn"
-              onClick={() => setTerminalOpen(v => !v)}
+              onClick={() => {
+                setTerminalOpen(v => !v)
+                setSqlTerminalOpen(false)
+              }}
               aria-label="Terminal"
               title="Terminal"
             >
               <span className="iconGlyph">&gt;_</span>
+            </button>
+            <button
+              className="iconBtn terminalBtn sqlTerminalBtn"
+              onClick={() => {
+                setSqlTerminalOpen(v => !v)
+                setTerminalOpen(false)
+              }}
+              aria-label="SQL Terminal"
+              title="SQL Terminal"
+            >
+              <span className="iconGlyph">SQL</span>
             </button>
             <button
               className="iconBtn treeToggleBtn"
@@ -2627,6 +2659,12 @@ export default function App() {
       </dialog>
 
       <TerminalDrawer open={terminalOpen} onClose={() => setTerminalOpen(false)} />
+      <SqlTerminalDrawer
+        open={sqlTerminalOpen}
+        onClose={() => setSqlTerminalOpen(false)}
+        collections={collections}
+        environmentsByCollection={envByCollection}
+      />
 
       {showUpdateToast && hasPendingUpdate ? (
         <div className="updateToast" role="dialog" aria-label="Update available">
