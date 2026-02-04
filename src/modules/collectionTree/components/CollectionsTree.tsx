@@ -265,7 +265,10 @@ export function CollectionsTree(props: {
   }, [openMenuRequestId])
 
   function displayMethod(m: string) {
-    return m === 'DELETE' ? 'DEL' : m
+    if (m === 'DELETE') return 'DEL'
+    if (m === 'PATCH') return 'PAT'
+    if (m === 'OPTIONS') return 'OPT'
+    return m
   }
 
   function inFlightMethodClass(requestId: string, method: string): string {

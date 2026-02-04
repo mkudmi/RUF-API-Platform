@@ -823,17 +823,17 @@ button:hover { background: rgba(255,255,255,.10); }
   border-left: 1px solid rgba(90,120,255,.18);
 }
 .treeWorkspaceFolderInner > .treeSummary {
-  padding: 1px 8px;
+  padding: 1px 10px;
   border-radius: var(--radius);
 }
 .treeWorkspaceFolderInner > .treeSummary:hover { background: rgba(255,255,255,.05); }
 .treeGroupInner > .treeSummary {
-  padding: 1px 8px;
+  padding: 1px 10px;
   border-radius: var(--radius);
 }
 .treeGroupInner > .treeSummary:hover { background: rgba(255,255,255,.05); }
 .treeGroup > .treeSummary {
-  padding: 1px 8px;
+  padding: 1px 10px;
   border-radius: var(--radius);
 }
 .treeSummary {
@@ -857,7 +857,7 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .treeSummary::-webkit-details-marker { display: none; }
 .treeSummaryFolder { cursor: pointer; }
-.treeSummaryWorkspaceFolder { cursor: pointer; padding: 1px 8px; border-radius: var(--radius); }
+.treeSummaryWorkspaceFolder { cursor: pointer; padding: 1px 10px; border-radius: var(--radius); }
 .treeWorkspaceFolder[open] > .treeSummaryWorkspaceFolder { margin-bottom: 5px; }
 .treeWorkspaceFolderInner[open] > .treeSummaryWorkspaceFolder { margin-bottom: 5px; }
 .treeWorkspaceFolder { background: rgba(90,120,255,.06); border-color: rgba(90,120,255,.18); }
@@ -930,10 +930,23 @@ button:hover { background: rgba(255,255,255,.10); }
   cursor: pointer;
   font: inherit;
   font-size: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.treeSummaryDnd:hover .treeMenuBtn,
+.treeSummaryDnd:focus-within .treeMenuBtn,
+.treeItem:hover .treeMenuBtn,
+.treeItem:focus-within .treeMenuBtn {
+  opacity: 1;
+  pointer-events: auto;
 }
 .treeMenuBtn::before { content: '⋯'; font-size: 18px; line-height: 1; }
 .treeMenuBtn:hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
-.treeMenuBtn:disabled { opacity: .6; cursor: default; }
+.treeSummaryDnd:hover .treeMenuBtn:disabled,
+.treeSummaryDnd:focus-within .treeMenuBtn:disabled,
+.treeItem:hover .treeMenuBtn:disabled,
+.treeItem:focus-within .treeMenuBtn:disabled { opacity: .6; cursor: default; }
 .treeMenuBtn:disabled:hover { background: transparent; color: rgba(255,255,255,.75); }
 .treeMenuPanel {
   position: absolute;
