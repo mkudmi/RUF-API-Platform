@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { CloseIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
-import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem } from '../modules/collectionTree'
+import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
@@ -42,6 +42,7 @@ function clamp(n: number, min: number, max: number) {
 
 const ACTIVE_SELECTION_KEY = 'ruf_active_request_v1'
 const RESPONSE_TAB_BY_REQUEST_KEY = 'ruf_response_tab_by_request_v1'
+const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
@@ -69,6 +70,15 @@ function saveActiveSelection(sel: SavedActiveSelection) {
 
 function clearActiveSelection() {
   localStorage.removeItem(ACTIVE_SELECTION_KEY)
+}
+
+function loadTreeSortMode(): TreeSortMode {
+  const raw = localStorage.getItem(TREE_SORT_MODE_KEY)
+  return raw === 'asc' || raw === 'desc' || raw === 'none' ? raw : 'none'
+}
+
+function saveTreeSortMode(mode: TreeSortMode) {
+  localStorage.setItem(TREE_SORT_MODE_KEY, mode)
 }
 
 function findRequestByIds(collections: Collection[], collectionId: string, requestId: string) {
@@ -201,6 +211,7 @@ export default function App() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: 'expand' | 'collapse', nonce: number } | null>(null)
+  const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
   const {
     updateBusy,
     updateTask,
@@ -2123,6 +2134,7 @@ export default function App() {
           <WorkspaceTree
             workspace={workspace}
             collections={collections}
+            sortMode={treeSortMode}
             environmentsByCollection={envByCollection}
             activeRequestId={activeRequestId}
             inFlightCountByRequestId={inFlightCountByRequestId}
@@ -2186,6 +2198,22 @@ export default function App() {
               title={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
             >
               <span className="iconGlyph">{treeAllExpanded ? '⊟' : '⊞'}</span>
+            </button>
+            <button
+              className="iconBtn treeSortBtn"
+              onClick={() => {
+                setTreeSortMode(prev => {
+                  const next = prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'
+                  saveTreeSortMode(next)
+                  return next
+                })
+              }}
+              aria-label={treeSortMode === 'none' ? 'Sort folders and requests (A-Z)' : treeSortMode === 'asc' ? 'Sort folders and requests (Z-A)' : 'Turn off alphabetical sort'}
+              title={treeSortMode === 'none' ? 'Sort A-Z' : treeSortMode === 'asc' ? 'Sort Z-A' : 'Sort off'}
+            >
+              <span className="iconGlyph" style={{ fontSize: 11, opacity: treeSortMode === 'none' ? 0.7 : 1 }}>
+                {treeSortMode === 'none' ? 'AZ' : treeSortMode === 'asc' ? 'A-Z' : 'Z-A'}
+              </span>
             </button>
           </div>
           <div className="sidebarVersion mono">

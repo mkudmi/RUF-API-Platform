@@ -1,5 +1,7 @@
 export type HttpMethod = 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'|'HEAD'|'OPTIONS'
 
+export type TreeSortMode = 'none' | 'asc' | 'desc'
+
 export type Collection = {
   id: string
   name: string

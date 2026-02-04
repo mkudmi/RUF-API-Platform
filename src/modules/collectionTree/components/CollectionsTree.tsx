@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import type { Collection, Folder, RequestItem } from '../types'
+import type { Collection, Folder, RequestItem, TreeSortMode } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import { copyText } from '../../../shared/utils/clipboard'
 import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
@@ -87,6 +87,7 @@ async function saveTextWithSuggestedName(args: { suggestedName: string, text: st
 
 export function CollectionsTree(props: {
   collections: Collection[]
+  sortMode?: TreeSortMode
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
@@ -114,6 +115,35 @@ export function CollectionsTree(props: {
   onDeleteCollection: (collectionId: string) => void
 }) {
   type EditingTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
+
+  const sortMode = props.sortMode ?? 'none'
+  const sortedCollections = useMemo(() => {
+    if (sortMode === 'none') return props.collections
+
+    const dir = sortMode === 'asc' ? 1 : -1
+    const compareName = (aName: string, bName: string) => dir * aName.localeCompare(bName, undefined, { sensitivity: 'base' })
+
+    const sortRequests = (reqs: RequestItem[] | undefined) => {
+      if (!reqs?.length) return reqs ?? []
+      return [...reqs].sort((a, b) => compareName(a.name, b.name))
+    }
+
+    const sortFoldersDeep = (folders: Folder[] | undefined): Folder[] => {
+      if (!folders?.length) return []
+      const next = [...folders].sort((a, b) => compareName(a.name, b.name))
+      return next.map(f => ({
+        ...f,
+        requests: sortRequests(f.requests),
+        folders: f.folders?.length ? sortFoldersDeep(f.folders) : f.folders,
+      }))
+    }
+
+    return props.collections.map(col => ({
+      ...col,
+      requests: sortRequests(col.requests),
+      folders: sortFoldersDeep(col.folders),
+    }))
+  }, [props.collections, sortMode])
 
   const [editing, setEditing] = useState<EditingTarget>(null)
   const [draftName, setDraftName] = useState('')
@@ -863,7 +893,7 @@ export function CollectionsTree(props: {
 
   return (
     <div className="tree">
-      {props.collections.map(col => (
+      {sortedCollections.map(col => (
         <details
           key={col.id}
           className="treeGroup"

@@ -1,4 +1,4 @@
-export type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from './types'
+export type { Collection, Folder, HttpMethod, RequestItem, RequestParam, TreeSortMode } from './types'
 
 export { CollectionsTree } from './components/CollectionsTree'
 export { WorkspaceTree } from './components/WorkspaceTree'

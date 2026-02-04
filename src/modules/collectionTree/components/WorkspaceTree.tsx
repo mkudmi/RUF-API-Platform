@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Collection, RequestItem } from '../types'
+import type { Collection, RequestItem, TreeSortMode } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace'
 import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
@@ -25,6 +25,7 @@ function saveWorkspaceOpenIds(ids: string[]) {
 export function WorkspaceTree(props: {
   workspace: Workspace
   collections: Collection[]
+  sortMode?: TreeSortMode
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
@@ -370,6 +371,7 @@ export function WorkspaceTree(props: {
         {cols.length ? (
           <CollectionsTree
             collections={cols}
+            sortMode={props.sortMode}
             environmentsByCollection={props.environmentsByCollection}
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
@@ -424,6 +426,7 @@ export function WorkspaceTree(props: {
 
         <CollectionsTree
           collections={rootCollections}
+          sortMode={props.sortMode}
           environmentsByCollection={props.environmentsByCollection}
           activeRequestId={props.activeRequestId}
           inFlightCountByRequestId={props.inFlightCountByRequestId}
