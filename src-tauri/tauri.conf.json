@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ruf",
   "version": "0.2.91",
-  "identifier": "com.ruf.app",
+  "identifier": "com.ruf.desktop",
   "build": {
     "beforeDevCommand": "npm run tauri:ui:dev",
     "beforeBuildCommand": "npm run tauri:ui:build",
