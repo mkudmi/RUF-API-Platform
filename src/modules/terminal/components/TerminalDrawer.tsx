@@ -49,7 +49,7 @@ function sanitizeGitBashCommand(cmd: string): string {
 
 type TerminalTab = {
   id: string
-  shellId: 'powershell' | 'gitbash'
+  shellId: string
   label: string
   cwd: string | null
   entries: TerminalEntry[]
@@ -92,8 +92,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
 
   const prompt = useMemo(() => {
     const shown = activeTab?.cwd ?? ''
-    const shellId = activeTab?.shellId ?? 'powershell'
-    const prefix = shellId === 'gitbash' ? '$' : 'PS'
+    const shellId = activeTab?.shellId ?? ''
+    const prefix = shellId === 'powershell' ? 'PS' : '$'
     if (!shown) return prefix === 'PS' ? 'PS>' : `${prefix} `
     return prefix === 'PS' ? `PS ${shown}>` : `${prefix} `
   }, [activeTab?.cwd, activeTab?.shellId])
@@ -198,15 +198,14 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     if (!open) return
     if (tabs.length) return
     if (!shells) return
-    const gitAvailable = shells.find(s => s.id === 'gitbash')?.available ?? false
-    const psAvailable = shells.find(s => s.id === 'powershell')?.available ?? true
-    if (!gitAvailable && !psAvailable) return
+    const firstAvailable = shells.find(s => s.available)
+    if (!firstAvailable) return
     const id = makeTabId()
     setTabs([
       {
         id,
-        shellId: gitAvailable ? 'gitbash' : 'powershell',
-        label: gitAvailable ? 'Git Bash' : 'PowerShell',
+        shellId: firstAvailable.id,
+        label: firstAvailable.label,
         cwd: null,
         entries: [],
         input: '',
@@ -217,10 +216,9 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     setActiveTabId(id)
   }, [open, tabs.length, shells])
 
-  function addTab(shellId: 'powershell' | 'gitbash') {
-    const label = shellId === 'gitbash' ? 'Git Bash' : 'PowerShell'
+  function addTab(shell: TerminalShellInfo) {
     const id = makeTabId()
-    setTabs(prev => [...prev, { id, shellId, label, cwd: activeTab?.cwd ?? null, entries: [], input: '', history: [], historyIndex: null }])
+    setTabs(prev => [...prev, { id, shellId: shell.id, label: shell.label, cwd: activeTab?.cwd ?? null, entries: [], input: '', history: [], historyIndex: null }])
     setActiveTabId(id)
   }
 
@@ -427,25 +425,22 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
                 </button>
                 {showAddMenu ? (
                   <div className="terminalAddMenu" role="menu">
-                    {(['powershell', 'gitbash'] as const).map(id => {
-                      const info = shells?.find(s => s.id === id) ?? null
-                      const label = id === 'gitbash' ? 'Git Bash' : 'PowerShell'
-                      const available = info?.available ?? (id === 'powershell')
+                    {(shells ?? []).map(shell => {
                       return (
                         <button
-                          key={id}
+                          key={shell.id}
                           type="button"
                           className="terminalAddMenuItem"
                           role="menuitem"
-                          disabled={!available}
+                          disabled={!shell.available}
                           onClick={() => {
                             setShowAddMenu(false)
-                            addTab(id)
+                            addTab(shell)
                             requestAnimationFrame(() => inputRef.current?.focus())
                           }}
                         >
-                          {label}
-                          {!available ? <span className="terminalAddMenuHint"> (not found)</span> : null}
+                          {shell.label}
+                          {!shell.available ? <span className="terminalAddMenuHint"> (not found)</span> : null}
                         </button>
                       )
                     })}

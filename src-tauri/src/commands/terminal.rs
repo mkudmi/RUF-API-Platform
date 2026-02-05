@@ -48,6 +48,12 @@ fn home_dir_guess() -> Option<PathBuf> {
 
 #[cfg(not(windows))]
 fn home_dir_guess() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("HOME") {
+        let trimmed = p.trim();
+        if !trimmed.is_empty() {
+            return Some(PathBuf::from(trimmed));
+        }
+    }
     None
 }
 
@@ -97,6 +103,16 @@ fn has_on_path(exe: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(not(windows))]
+fn has_on_path(exe: &str) -> bool {
+    StdCommand::new("sh")
+        .arg("-lc")
+        .arg(format!("command -v {} >/dev/null 2>&1", exe))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 #[cfg(windows)]
 fn parse_where_first_path(exe: &str) -> Option<PathBuf> {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -116,7 +132,6 @@ fn parse_where_first_path(exe: &str) -> Option<PathBuf> {
     Some(PathBuf::from(first))
 }
 
-#[cfg(windows)]
 fn existing_file(path: &Path) -> bool {
     std::fs::metadata(path)
         .map(|m| m.is_file())
@@ -174,6 +189,29 @@ fn find_git_bash() -> Option<PathBuf> {
     }
 }
 
+#[cfg(not(windows))]
+fn find_git_bash() -> Option<PathBuf> {
+    if !has_on_path("git") {
+        return None;
+    }
+
+    for p in [
+        PathBuf::from("/bin/bash"),
+        PathBuf::from("/usr/local/bin/bash"),
+        PathBuf::from("/opt/homebrew/bin/bash"),
+    ] {
+        if existing_file(&p) {
+            return Some(p);
+        }
+    }
+
+    if has_on_path("bash") {
+        return Some(PathBuf::from("bash"));
+    }
+
+    None
+}
+
 #[tauri::command]
 pub async fn terminal_list_shells() -> Vec<TerminalShellInfo> {
     #[cfg(windows)]
@@ -193,6 +231,23 @@ pub async fn terminal_list_shells() -> Vec<TerminalShellInfo> {
     }
 
     #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            TerminalShellInfo {
+                id: "macos".to_string(),
+                label: "macOS Terminal".to_string(),
+                available: true,
+            },
+            TerminalShellInfo {
+                id: "gitbash".to_string(),
+                label: "Git Bash".to_string(),
+                available: find_git_bash().is_some(),
+            },
+        ]
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Vec::new()
     }
@@ -204,7 +259,6 @@ pub async fn terminal_resolve_cwd(args: TerminalResolveCwdArgs) -> Result<String
     Ok(path.to_string_lossy().to_string())
 }
 
-#[cfg(windows)]
 fn current_dir_from_args(cwd: Option<String>) -> Result<Option<PathBuf>, String> {
     if let Some(cwd) = cwd {
         let trimmed = cwd.trim();
@@ -287,9 +341,49 @@ pub async fn terminal_exec(args: TerminalExecArgs) -> Result<TerminalExecResult,
         })
     }
 
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let shell_id = args.shell_id.as_deref().unwrap_or("macos");
+        let current_dir = current_dir_from_args(args.cwd)?;
+
+        let mut proc = match shell_id {
+            "macos" => {
+                let mut p = tokio::process::Command::new("zsh");
+                p.arg("-lc").arg(cmd);
+                p
+            }
+            "gitbash" => {
+                let bash = find_git_bash().ok_or_else(|| "Git Bash not found".to_string())?;
+                let mut p = tokio::process::Command::new(bash);
+                p.arg("-lc").arg(cmd);
+                p
+            }
+            other => return Err(format!("unknown shellId: {other}")),
+        };
+
+        if let Some(dir) = current_dir {
+            proc.current_dir(dir);
+        }
+
+        let output = timeout(Duration::from_secs(120), proc.output())
+            .await
+            .map_err(|_| "command timeout".to_string())?
+            .map_err(|e| e.to_string())?;
+
+        let status = output.status.code().unwrap_or(-1);
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        Ok(TerminalExecResult {
+            stdout,
+            stderr,
+            status,
+        })
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = args;
-        Err("terminal is only implemented for Windows".to_string())
+        Err("terminal is only implemented for Windows and macOS desktop".to_string())
     }
 }
