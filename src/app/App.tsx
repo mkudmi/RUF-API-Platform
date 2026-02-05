@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
-import { CloseIcon, MaximizeIcon, MinimizeIcon } from '../shared/icons'
+import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon, SqlIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -2490,7 +2490,7 @@ export default function App() {
               aria-label="SQL Terminal"
               title="SQL Terminal"
             >
-              <span className="iconGlyph">SQL</span>
+              <span className="iconGlyph"><SqlIcon size={16} /></span>
             </button>
             <button
               className="iconBtn treeToggleBtn"
@@ -2503,7 +2503,9 @@ export default function App() {
               aria-label={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
               title={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
             >
-              <span className="iconGlyph">{treeAllExpanded ? '⊟' : '⊞'}</span>
+              <span className="iconGlyph">
+                {treeAllExpanded ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
+              </span>
             </button>
             <button
               className="iconBtn treeSortBtn"
@@ -2517,8 +2519,12 @@ export default function App() {
               aria-label={treeSortMode === 'none' ? 'Sort folders and requests (A-Z)' : treeSortMode === 'asc' ? 'Sort folders and requests (Z-A)' : 'Turn off alphabetical sort'}
               title={treeSortMode === 'none' ? 'Sort A-Z' : treeSortMode === 'asc' ? 'Sort Z-A' : 'Sort off'}
             >
-              <span className="iconGlyph" style={{ fontSize: 11, opacity: treeSortMode === 'none' ? 0.7 : 1 }}>
-                {treeSortMode === 'none' ? 'AZ' : treeSortMode === 'asc' ? 'A-Z' : 'Z-A'}
+              <span className="iconGlyph" style={{ opacity: treeSortMode === 'none' ? 0.75 : 1 }}>
+                {treeSortMode === 'none'
+                  ? <SortNeutralIcon size={16} />
+                  : treeSortMode === 'asc'
+                    ? <SortAscIcon size={16} />
+                    : <SortDescIcon size={16} />}
               </span>
             </button>
           </div>
@@ -3275,3 +3281,4 @@ export default function App() {
     </div>
   )
 }
+

@@ -244,10 +244,10 @@ a { color: inherit; }
 .settingsBtn > .iconGlyph { display: block; }
 .terminalBtn { font-size: 14px; line-height: 1; }
 .terminalBtn > .iconGlyph { display: block; transform: translateY(-1px); }
-.sqlTerminalBtn { font-size: 12px; letter-spacing: .3px; }
-.sqlTerminalBtn > .iconGlyph { display: block; transform: translateY(-0.5px); }
+.sqlTerminalBtn > .iconGlyph { display: inline-flex; align-items: center; justify-content: center; transform: none; }
 .treeToggleBtn { font-size: 14px; line-height: 1; }
-.treeToggleBtn > .iconGlyph { display: block; transform: translateY(-1px); }
+.treeToggleBtn > .iconGlyph { display: inline-flex; align-items: center; justify-content: center; transform: none; }
+.treeSortBtn > .iconGlyph { display: inline-flex; align-items: center; justify-content: center; transform: none; }
 
 .sidebarVersion {
   font-size: 12px;
