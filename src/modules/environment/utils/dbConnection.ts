@@ -1,5 +1,5 @@
 import type { Environment } from '../../../shared/types/environment'
-import { isTauri, tauriInvoke } from '../../../shared/utils/tauri'
+import { tauriInvoke } from '../../../shared/utils/tauri'
 import { loadAppSettings } from '../../../shared/utils/appSettings'
 
 export type DbType = 'postgres' | 'mysql'
@@ -135,50 +135,40 @@ export async function runDbConnectionTest(opts: { type: string; connectionString
   const started = performance.now()
   const caCertsPem = loadAppSettings().caCertificates.map(c => c.pem)
 
-  if (isTauri()) {
-    const result = await tauriInvoke<{ ok: boolean; message?: string }>('db_test', {
-      args: {
-        type: opts.type,
-        connectionString: opts.connectionString,
-        caCertsPem,
-      },
-    })
-    const durationMs = Math.max(0, Math.round(performance.now() - started))
-    return { ok: !!result.ok, message: result.message || (result.ok ? 'OK' : 'Failed'), durationMs }
-  }
-
+  const result = await tauriInvoke<{ ok: boolean; message?: string }>('db_test', {
+    args: {
+      type: opts.type,
+      connectionString: opts.connectionString,
+      caCertsPem,
+    },
+  })
   const durationMs = Math.max(0, Math.round(performance.now() - started))
-  return { ok: false, message: 'Database commands are available only in the desktop (Tauri) build.', durationMs }
+  return { ok: !!result.ok, message: result.message || (result.ok ? 'OK' : 'Failed'), durationMs }
 }
 
 export async function runDbSql(opts: { type: string; connectionString: string; sql: string; timeoutMs?: number }) {
   const started = performance.now()
   const caCertsPem = loadAppSettings().caCertificates.map(c => c.pem)
 
-  if (isTauri()) {
-    const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number; rowsJson?: string; columns?: string[] }>('db_exec', {
-      args: {
-        type: opts.type,
-        connectionString: opts.connectionString,
-        sql: opts.sql,
-        timeoutMs: opts.timeoutMs,
-        caCertsPem,
-      },
-    })
-    const durationMs = Math.max(0, Math.round(performance.now() - started))
-    const msg = result.message || (result.ok ? `OK${typeof result.rowsAffected === 'number' ? ` (${result.rowsAffected})` : ''}` : 'Failed')
-    const rowsFromJson = (() => {
-      if (!result.rowsJson) return null
-      try {
-        const parsed = JSON.parse(result.rowsJson) as unknown
-        return Array.isArray(parsed) ? parsed : null
-      } catch {
-        return null
-      }
-    })()
-    return { ok: !!result.ok, message: msg, durationMs, rowsAffected: result.rowsAffected, rows: rowsFromJson, columns: result.columns ?? null }
-  }
-
+  const result = await tauriInvoke<{ ok: boolean; message?: string; rowsAffected?: number; rowsJson?: string; columns?: string[] }>('db_exec', {
+    args: {
+      type: opts.type,
+      connectionString: opts.connectionString,
+      sql: opts.sql,
+      timeoutMs: opts.timeoutMs,
+      caCertsPem,
+    },
+  })
   const durationMs = Math.max(0, Math.round(performance.now() - started))
-  return { ok: false, message: 'Database commands are available only in the desktop (Tauri) build.', durationMs, rowsAffected: undefined, rows: null, columns: null }
+  const msg = result.message || (result.ok ? `OK${typeof result.rowsAffected === 'number' ? ` (${result.rowsAffected})` : ''}` : 'Failed')
+  const rowsFromJson = (() => {
+    if (!result.rowsJson) return null
+    try {
+      const parsed = JSON.parse(result.rowsJson) as unknown
+      return Array.isArray(parsed) ? parsed : null
+    } catch {
+      return null
+    }
+  })()
+  return { ok: !!result.ok, message: msg, durationMs, rowsAffected: result.rowsAffected, rows: rowsFromJson, columns: result.columns ?? null }
 }

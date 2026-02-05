@@ -1,4 +1,3 @@
-import { isTauri } from './tauri'
 import { tauriInvoke } from './tauri'
 
 function getUrlString(input: RequestInfo | URL): string | null {
@@ -113,15 +112,14 @@ export async function platformFetch(
     throw new DOMException('Aborted', 'AbortError')
   }
 
-  if (isTauri()) {
-    const urlString = getUrlString(input)
-    const normalizedNetworkUrl = urlString ? normalizeHttpUrlLoose(urlString) : null
-    const isNetworkUrl = !!normalizedNetworkUrl
+  const urlString = getUrlString(input)
+  const normalizedNetworkUrl = urlString ? normalizeHttpUrlLoose(urlString) : null
+  const isNetworkUrl = !!normalizedNetworkUrl
 
-    try {
-      if (normalizedNetworkUrl) {
-        const url = normalizedNetworkUrl
-        const method = (init?.method || 'GET').toUpperCase()
+  try {
+    if (normalizedNetworkUrl) {
+      const url = normalizedNetworkUrl
+      const method = (init?.method || 'GET').toUpperCase()
 
         const headers: [string, string][] = []
         const h = init?.headers
@@ -147,67 +145,66 @@ export async function platformFetch(
           if (!hasContentType) headers.push(['Content-Type', inferredContentType])
         }
 
-        type HttpRequestResult = {
-          ok: boolean
-          status: number
-          statusText: string
-          headers: [string, string][]
-          bodyBase64: string
-        }
+      type HttpRequestResult = {
+        ok: boolean
+        status: number
+        statusText: string
+        headers: [string, string][]
+        bodyBase64: string
+      }
 
-        const requestPromise = tauriInvoke<HttpRequestResult>('http_request', {
-          args: {
-            url,
-            method,
-            headers,
-            bodyBase64,
-            insecureTls: !!opts?.insecureTls,
-            caCertsPem: opts?.caCertsPem,
-          },
-        })
+      const requestPromise = tauriInvoke<HttpRequestResult>('http_request', {
+        args: {
+          url,
+          method,
+          headers,
+          bodyBase64,
+          insecureTls: !!opts?.insecureTls,
+          caCertsPem: opts?.caCertsPem,
+        },
+      })
 
-        const result: HttpRequestResult = await (signal
-          ? new Promise<HttpRequestResult>((resolve, reject) => {
-            let settled = false
-            const onAbort = () => {
+      const result: HttpRequestResult = await (signal
+        ? new Promise<HttpRequestResult>((resolve, reject) => {
+          let settled = false
+          const onAbort = () => {
+            if (settled) return
+            settled = true
+            reject(new DOMException('Aborted', 'AbortError'))
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
+          requestPromise.then(
+            v => {
               if (settled) return
               settled = true
-              reject(new DOMException('Aborted', 'AbortError'))
-            }
-            signal.addEventListener('abort', onAbort, { once: true })
-            requestPromise.then(
-              v => {
-                if (settled) return
-                settled = true
-                signal.removeEventListener('abort', onAbort)
-                resolve(v)
-              },
-              err => {
-                if (settled) return
-                settled = true
-                signal.removeEventListener('abort', onAbort)
-                reject(err)
-              },
-            )
-          })
-          : requestPromise)
-
-        const binary = atob(result.bodyBase64 || '')
-        const bytes = new Uint8Array(binary.length)
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-
-        return new Response(bytes, {
-          status: result.status,
-          statusText: result.statusText || '',
-          headers: new Headers(result.headers || []),
+              signal.removeEventListener('abort', onAbort)
+              resolve(v)
+            },
+            err => {
+              if (settled) return
+              settled = true
+              signal.removeEventListener('abort', onAbort)
+              reject(err)
+            },
+          )
         })
-      }
-    } catch (e: any) {
-      if (isNetworkUrl) {
-        if (e?.name === 'AbortError') throw e
-        const msg = e?.message ? String(e.message) : String(e)
-        throw new Error(`Backend http_request failed: ${msg}`)
-      }
+        : requestPromise)
+
+      const binary = atob(result.bodyBase64 || '')
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+
+      return new Response(bytes, {
+        status: result.status,
+        statusText: result.statusText || '',
+        headers: new Headers(result.headers || []),
+      })
+    }
+  } catch (e: any) {
+    if (isNetworkUrl) {
+      if (e?.name === 'AbortError') throw e
+      const msg = e?.message ? String(e.message) : String(e)
+      throw new Error(`Backend http_request failed: ${msg}`)
     }
   }
 

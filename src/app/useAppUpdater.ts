@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DownloadEvent } from '@tauri-apps/plugin-updater'
-import { isTauri } from '../shared/utils/tauri'
 
 type PendingUpdate = {
   version: string
@@ -95,11 +94,6 @@ export function useAppUpdater() {
   }
 
   async function checkForUpdates(opts?: { showNoUpdateMessage?: boolean, showToastIfUpdate?: boolean }) {
-    if (!isTauri()) {
-      if (opts?.showNoUpdateMessage) setUpdateHintTransient('Updates are only available in the desktop app.', 2000)
-      return null
-    }
-
     try {
       const [{ check }] = await Promise.all([import('@tauri-apps/plugin-updater')])
       const update = await check()
@@ -143,7 +137,6 @@ export function useAppUpdater() {
   }
 
   useEffect(() => {
-    if (!isTauri()) return
     const t = window.setTimeout(() => {
       void checkForUpdates({ showToastIfUpdate: true })
     }, 900)
@@ -151,7 +144,7 @@ export function useAppUpdater() {
   }, [])
 
   async function onUpdateNow() {
-    if (!isTauri() || !pendingUpdate) return
+    if (!pendingUpdate) return
 
     setShowUpdateToast(true)
     if (updateDownloaded) {
@@ -219,7 +212,7 @@ export function useAppUpdater() {
   }
 
   async function onRestartToUpdate() {
-    if (!isTauri() || !pendingUpdate || !updateDownloaded) return
+    if (!pendingUpdate || !updateDownloaded) return
 
     setUpdateBusy(true)
     setUpdateTask('installing')

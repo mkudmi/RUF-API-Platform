@@ -36,7 +36,7 @@ import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHis
 import { loadAppSettings, saveAppSettings, type CaCertificate } from '../shared/utils/appSettings'
 import { fetchWithProxyFallback } from '../shared/utils/proxyFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
-import { isTauri, tauriInvoke } from '../shared/utils/tauri'
+import { tauriInvoke } from '../shared/utils/tauri'
 import { useAppUpdater } from './useAppUpdater'
 import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 
@@ -414,34 +414,32 @@ export default function App() {
           ...(sha256 ? { sha256 } : {}),
         }
 
-        if (isTauri()) {
-          try {
-            const inspected = await tauriInvoke<{
-              ok: boolean
-              message?: string
-              sha256?: string
-              subject?: string
-              issuer?: string
-              notBefore?: string
-              notAfter?: string
-            }>('cert_inspect', { args: { pem } })
+        try {
+          const inspected = await tauriInvoke<{
+            ok: boolean
+            message?: string
+            sha256?: string
+            subject?: string
+            issuer?: string
+            notBefore?: string
+            notAfter?: string
+          }>('cert_inspect', { args: { pem } })
 
-            if (inspected?.ok) {
-              const next: CaCertificate = {
-                ...base,
-                ...(typeof inspected.sha256 === 'string' ? { sha256: inspected.sha256 } : null),
-                ...(typeof inspected.subject === 'string' ? { subject: inspected.subject } : null),
-                ...(typeof inspected.issuer === 'string' ? { issuer: inspected.issuer } : null),
-                ...(typeof inspected.notBefore === 'string' ? { notBefore: inspected.notBefore } : null),
-                ...(typeof inspected.notAfter === 'string' ? { notAfter: inspected.notAfter } : null),
-              }
-              added.push(next)
-              if (next.sha256) existingBySha.add(next.sha256.toLowerCase())
-              continue
+          if (inspected?.ok) {
+            const next: CaCertificate = {
+              ...base,
+              ...(typeof inspected.sha256 === 'string' ? { sha256: inspected.sha256 } : null),
+              ...(typeof inspected.subject === 'string' ? { subject: inspected.subject } : null),
+              ...(typeof inspected.issuer === 'string' ? { issuer: inspected.issuer } : null),
+              ...(typeof inspected.notBefore === 'string' ? { notBefore: inspected.notBefore } : null),
+              ...(typeof inspected.notAfter === 'string' ? { notAfter: inspected.notAfter } : null),
             }
-          } catch {
-            // ignore
+            added.push(next)
+            if (next.sha256) existingBySha.add(next.sha256.toLowerCase())
+            continue
           }
+        } catch {
+          // ignore
         }
 
         added.push(base)
@@ -568,7 +566,6 @@ export default function App() {
   }, [sqlConnDeleteArmedId])
 
   useEffect(() => {
-    if (!isTauri()) return
     void (async () => {
       try {
         const { getVersion } = await import('@tauri-apps/api/app')
@@ -2391,7 +2388,6 @@ export default function App() {
   const isWorkspaceEmpty = collections.length === 0 && workspace.folders.length === 0
 
   async function withCurrentWindow(action: (windowHandle: { minimize: () => Promise<void>, toggleMaximize: () => Promise<void>, close: () => Promise<void> }) => Promise<void>) {
-    if (!isTauri()) return
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     await action(getCurrentWindow())
   }

@@ -2,7 +2,6 @@ import type { RequestItem } from '../collectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'
-import { isTauri } from '../../shared/utils/tauri'
 import { platformFetch } from '../../shared/utils/platformFetch'
 
 export type RunResult = {
@@ -81,21 +80,7 @@ function estimateBodyBytes(body: BodyInit | null | undefined): number {
   return 0
 }
 
-function maybeProxyUrl(url: string, opts: { insecureTls?: boolean }) {
-  if (isTauri()) return url
-  const insecureTls = !!opts.insecureTls
-  try {
-    const u = new URL(url)
-    if (typeof location !== 'undefined' && u.origin !== location.origin) {
-      if (!import.meta.env.DEV && !insecureTls) return url
-      const qs = new URLSearchParams()
-      qs.set('url', u.toString())
-      if (insecureTls) qs.set('insecure', '1')
-      return `/__ruf_proxy?${qs.toString()}`
-    }
-  } catch {
-    // ignore
-  }
+function maybeProxyUrl(url: string) {
   return url
 }
 
@@ -383,7 +368,7 @@ export async function runRequest(args: {
 
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
-  const finalUrl = maybeProxyUrl(url, { insecureTls: !validateCertificates })
+  const finalUrl = maybeProxyUrl(url)
   const caCertsPem = getCaCertsPem()
   const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)

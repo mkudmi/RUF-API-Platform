@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isTauri, tauriInvoke } from '../../../shared/utils/tauri'
+import { tauriInvoke } from '../../../shared/utils/tauri'
 
 type TerminalEntry =
   | { kind: 'in'; text: string }
@@ -134,7 +134,6 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
 
   useEffect(() => {
     if (!open) return
-    if (!isTauri()) return
     let cancelled = false
     async function loadShells() {
       try {
@@ -154,7 +153,6 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     let cancelled = false
     async function init() {
-      if (!isTauri()) return
       try {
         const { homeDir } = await import('@tauri-apps/api/path')
         const dir = await homeDir()
@@ -263,17 +261,6 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
   }
 
   async function runCommand(raw: string) {
-    if (!isTauri()) {
-      setTabs(prev => {
-        if (!activeTabId) return prev
-        return prev.map(t =>
-          t.id === activeTabId ? { ...t, entries: [...t.entries, { kind: 'sys', text: 'Terminal is available only in the desktop (Tauri) build.' }] } : t,
-        )
-      })
-      focusInputSoon()
-      return
-    }
-
     const cmd = raw.trim()
     if (!cmd) {
       focusInputSoon()
