@@ -31,12 +31,6 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
       - name: Build (Windows MSI)
         if: matrix.platform == 'windows-latest'
         uses: tauri-apps/tauri-action@v0
