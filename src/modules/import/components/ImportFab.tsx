@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
 import { buildImportedCollectionFromText } from '../buildImportedCollection'
-import { fetchWithProxyFallback } from '../../../shared/utils/proxyFetch'
-import { loadAppSettings } from '../../../shared/utils/appSettings'
+import { loadSpecFromUrl } from '../loadSpecFromUrl'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -143,17 +142,14 @@ export function ImportFab(props: {
         setUrlError('Enter a URL.')
         return
       }
-      const u = new URL(raw)
-      const { validateCertificates, caCertificates } = loadAppSettings()
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: (caCertificates || []).map(c => c.pem) })
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
-      const text = await res.text()
+      const loaded = await loadSpecFromUrl(raw)
+      const text = loaded.text
       if (!text.trim()) {
         setUrlError('Empty response.')
         return
       }
-      const col = await importFromText(text, u.origin)
-      openNameStep({ ...col, sourceUrl: u.toString(), sourceType: 'url' })
+      const col = await importFromText(text, loaded.origin)
+      openNameStep({ ...col, sourceUrl: loaded.url, sourceType: 'url' })
     } catch (e: any) {
       setUrlError(e?.message || 'Failed to load URL.')
     } finally {

@@ -34,7 +34,7 @@ import { uid } from '../shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
 import { loadAppSettings, saveAppSettings, type CaCertificate } from '../shared/utils/appSettings'
-import { fetchWithProxyFallback } from '../shared/utils/proxyFetch'
+import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
 import { useAppUpdater } from './useAppUpdater'
@@ -798,7 +798,7 @@ export default function App() {
 
     try {
       const u = new URL(rawUrl)
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
+      const res = await platformFetch(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) throw new Error('Response is empty.')

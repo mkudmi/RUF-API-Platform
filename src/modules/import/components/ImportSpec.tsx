@@ -1,8 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Collection } from '../../collectionTree'
 import { buildImportedCollectionFromText } from '../buildImportedCollection'
-import { fetchWithProxyFallback } from '../../../shared/utils/proxyFetch'
-import { loadAppSettings } from '../../../shared/utils/appSettings'
+import { loadSpecFromUrl } from '../loadSpecFromUrl'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -96,15 +95,10 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
         return
       }
 
-      const u = new URL(url)
-      const { validateCertificates, caCertificates } = loadAppSettings()
-      const res = await fetchWithProxyFallback(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: (caCertificates || []).map(c => c.pem) })
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status} ${res.statusText}`)
-      }
-      const text = await res.text()
+      const loaded = await loadSpecFromUrl(url)
+      const text = loaded.text
       setPasteText(text)
-      setSourceOrigin(u.origin)
+      setSourceOrigin(loaded.origin)
       if (!text.trim()) setPasteError('Response is empty.')
       setTimeout(() => pasteTextareaRef.current?.focus(), 0)
     } catch (e: any) {

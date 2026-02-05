@@ -80,10 +80,6 @@ function estimateBodyBytes(body: BodyInit | null | undefined): number {
   return 0
 }
 
-function maybeProxyUrl(url: string) {
-  return url
-}
-
 function shouldValidateCertificates(): boolean {
   try {
     return loadAppSettings().validateCertificates
@@ -368,7 +364,6 @@ export async function runRequest(args: {
 
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
-  const finalUrl = maybeProxyUrl(url)
   const caCertsPem = getCaCertsPem()
   const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)
@@ -376,7 +371,7 @@ export async function runRequest(args: {
   const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
-    res = await platformFetch(finalUrl, init, { insecureTls: !validateCertificates, caCertsPem })
+    res = await platformFetch(url, init, { insecureTls: !validateCertificates, caCertsPem })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
     if (e?.name === 'AbortError') {
