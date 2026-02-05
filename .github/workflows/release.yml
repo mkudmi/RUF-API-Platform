@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build (Windows MSI)
+      - name: Build (Windows MSI + NSIS)
         if: matrix.platform == 'windows-latest'
         uses: tauri-apps/tauri-action@v0
         env:
@@ -44,7 +44,7 @@ jobs:
           releaseBody: "See the assets to download this version."
           releaseDraft: false
           prerelease: false
-          args: "--bundles msi"
+          args: "--bundles msi,nsis"
 
       - name: Build (macOS)
         if: matrix.platform == 'macos-latest'
