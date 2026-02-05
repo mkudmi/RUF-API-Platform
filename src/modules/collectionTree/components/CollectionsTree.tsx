@@ -1158,7 +1158,6 @@ export function CollectionsTree(props: {
                             onClick={() => {
                               setOpenMenuCollectionId(null)
                               void exportCollection(col).catch(e => {
-                                // eslint-disable-next-line no-console
                                 console.error(e)
                                 alert((e as Error | null)?.message || 'Export failed')
                               })

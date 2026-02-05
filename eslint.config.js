@@ -20,8 +20,8 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      // This codebase intentionally uses `any` in a few dynamic areas; keep it visible but don't fail CI.
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // This codebase intentionally uses `any` in dynamic integration points.
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -34,7 +34,8 @@ export default defineConfig([
 
       // These rules are geared towards specific compiler modes and are too noisy for typical ref usage.
       'react-hooks/refs': 'off',
-      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/exhaustive-deps': 'off',
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
 ])

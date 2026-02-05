@@ -285,7 +285,21 @@ export function ResponseViewer(props: {
     setResponseSearchHistoryAnchor(null)
   }
 
+  function toggleResponseSearch() {
+    setResponseSearchOpen(prev => {
+      if (prev) {
+        recordResponseSearchHistory(bodyQuery)
+        closeResponseSearchHistoryMenu()
+      }
+      return !prev
+    })
+  }
+
   function toggleResponseSearchHistoryMenu(anchorEl: HTMLElement) {
+    if (!isJson) {
+      closeResponseSearchHistoryMenu()
+      return
+    }
     if (responseSearchHistoryOpen) {
       closeResponseSearchHistoryMenu()
       return
@@ -420,21 +434,19 @@ export function ResponseViewer(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const statusLine = inFlightCount > 0 ? 'Sending...' : 'Run a request to see the response.'
 
-  useEffect(() => {
-    if (tab === 'body') return
-    setResponseSearchOpen(false)
-    closeResponseSearchHistoryMenu()
-  }, [tab])
+  function handleTabChange(nextTab: 'body' | 'headers' | 'history') {
+    if (nextTab !== 'body') {
+      setResponseSearchOpen(false)
+      closeResponseSearchHistoryMenu()
+    }
+    props.onTabChange(nextTab)
+  }
 
   useEffect(() => {
     if (!responseSearchOpen || tab !== 'body') return
     const t = window.setTimeout(() => responseSearchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(t)
   }, [responseSearchOpen, tab])
-
-  useEffect(() => {
-    if (!responseSearchOpen) closeResponseSearchHistoryMenu()
-  }, [responseSearchOpen])
 
   useEffect(() => {
     if (!responseSearchHistoryOpen) return
@@ -458,10 +470,6 @@ export function ResponseViewer(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [responseSearchHistoryOpen])
-
-  useEffect(() => {
-    if (!isJson) closeResponseSearchHistoryMenu()
-  }, [isJson])
 
   const closeSizePopover = useCallback(() => {
     if (sizePopoverCloseTimerRef.current !== null) {
@@ -597,13 +605,13 @@ export function ResponseViewer(props: {
         : null}
 
       <div className="tabs" style={{ marginTop: 10 }}>
-        <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('body')}>
+        <button className={`tab ${tab === 'body' ? 'tabActive' : ''}`} onClick={() => handleTabChange('body')}>
           Body
         </button>
-        <button className={`tab ${tab === 'headers' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('headers')}>
+        <button className={`tab ${tab === 'headers' ? 'tabActive' : ''}`} onClick={() => handleTabChange('headers')}>
           Headers
         </button>
-        <button className={`tab ${tab === 'history' ? 'tabActive' : ''}`} onClick={() => props.onTabChange('history')}>
+        <button className={`tab ${tab === 'history' ? 'tabActive' : ''}`} onClick={() => handleTabChange('history')}>
           History
         </button>
       </div>
@@ -880,10 +888,7 @@ export function ResponseViewer(props: {
               <button
                 type="button"
                 className="iconBtn"
-                onClick={() => {
-                  if (responseSearchOpen) recordResponseSearchHistory(bodyQuery)
-                  setResponseSearchOpen(v => !v)
-                }}
+                onClick={toggleResponseSearch}
                 disabled={!result || tab !== 'body'}
                 title="Search"
                 aria-label="Search"
