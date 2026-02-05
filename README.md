@@ -1,34 +1,96 @@
-# Ruf — “Вызов”
+# Ruf API Platform
 
-Ruf — desktop‑приложение (Tauri) для работы с API (в духе Postman/Insomnia) с импортом OpenAPI/Swagger и запуском запросов прямо из UI.
+Ruf API Platform — desktop-приложение для тестирования API, импорта коллекций и работы с SQL/терминалом в одном интерфейсе.
 
-## Возможности
+## Что умеет приложение
 
-- Импорт OpenAPI v2/v3:
-  - из файла (`.json/.yaml/.yml`)
-  - вставкой JSON/YAML
-  - по URL
-- Дерево коллекций:
-  - коллекции и “контроллеры”
-  - кнопка `env` для окружения каждой коллекции
-- Окружение на коллекцию:
-  - `Base URL`
-  - дефолтные headers
-- Редактор запроса:
-  - секции Headers / Params / Body
-  - автоподстановка `Body` из `example` (или из `schema` → `properties.*.example`, если прямого `example` нет)
+- Импорт API-коллекций из:
+  - OpenAPI / Swagger (`.json`, `.yaml`, `.yml`)
+  - WSDL (`.wsdl`, `.xml`)
+  - Postman Collection
+  - Insomnia Export
+  - собственного формата `.rufcollection`
+- Импорт из файла, текста или URL.
+- Дерево Workspace:
+  - коллекции и вложенные папки
+  - drag-and-drop
+  - дублирование/переименование/удаление
+  - сортировка и быстрое раскрытие/сворачивание
+- Полноценный редактор HTTP-запросов:
+  - method + URL
+  - query params
+  - headers
+  - body (JSON, form-data, raw и т.д.)
+  - генерация `curl`
 - Просмотр ответа:
-  - вкладки `Body` / `Headers`
-  - подсветка статусов (2xx/3xx/4xx/5xx)
-  - `⏱` время ответа
+  - Body / Headers / History
+  - поиск по ответу
+  - JsonPath-поиск
+  - копирование и сохранение
+- Окружения (Environment) на коллекцию:
+  - переменные
+  - базовый URL
+  - общие headers
+- SQL-инструменты:
+  - настройки подключений PostgreSQL / MySQL
+  - тест подключения
+  - SQL Terminal
+- Встроенный терминал команд:
+  - Windows: PowerShell + Git Bash (если установлен)
+  - macOS: macOS Terminal (zsh) + Git Bash (если найден)
+- Обновления приложения из GitHub Releases (in-app updater).
+- Кастомный заголовок окна с нативными кнопками управления.
+
+## Для кого
+
+Ruf подходит для:
+
+- backend/frontend-разработчиков
+- QA / manual testers
+- DevOps / SRE, которым нужен быстрый API и SQL workflow
+- команд, которым важно хранить API-коллекции локально и без облачной привязки
+
+## Поддерживаемые платформы
+
+- Windows
+- macOS
+
+Приложение ориентировано на desktop-сценарий (Tauri).
+
+## Установка
+
+1. Откройте страницу Releases репозитория.
+2. Скачайте установщик под вашу ОС.
+3. Установите приложение.
 
 ## Быстрый старт
 
-## Desktop (Tauri)
+1. Запустите приложение.
+2. Нажмите `+` или `Add` в пустом workspace.
+3. Импортируйте спецификацию (файл/текст/URL).
+4. Выберите запрос в дереве слева.
+5. Настройте Environment (base URL, переменные, headers).
+6. Нажмите `Send`.
+7. Анализируйте ответ во вкладках Body / Headers / History.
+
+## Где хранятся данные
+
+Данные хранятся локально в `localStorage` текущего desktop-приложения:
+
+- коллекции
+- окружения
+- история запросов
+- настройки интерфейса
+
+Приложение не требует облачного аккаунта.
+
+## Разработка (локально)
 
 Требования:
-- Node.js + npm
-- Rust toolchain (plugin-http требует Rust ≥ 1.77.2)
+
+- Node.js 20+
+- npm
+- Rust toolchain (stable)
 
 Запуск в dev-режиме:
 
@@ -37,39 +99,24 @@ npm install
 npm run tauri:dev
 ```
 
+Сборка UI:
+
+```bash
+npm run tauri:ui:build
+```
+
 Сборка desktop-приложения:
 
 ```bash
 npm run tauri:build
 ```
 
-## Использование
+Проверка линтером:
 
-1. Нажми `+` (внизу справа) → импортируй OpenAPI:
-   - `Выбрать файл`
-   - `Импорт из json` (вставь JSON/YAML)
-   - `Импорт из url` (введи URL спеки)
-2. В левом дереве открой коллекцию → контроллер → выбери запрос.
-3. Нажми `env` рядом с коллекцией и укажи:
-   - `Base URL` (например `https://petstore3.swagger.io`)
-   - headers (например `Authorization: Bearer ...`)
-4. В редакторе заполни Params/Headers/Body при необходимости и нажми `Send`.
+```bash
+npm run lint
+```
 
-## Скрипты
+## Релизы и автообновления
 
-- `npm run lint` — ESLint
-- `npm run tauri:dev` — desktop dev (Tauri + Vite)
-- `npm run tauri:build` — сборка desktop (Tauri)
-
-## Хранение данных
-
-Данные сохраняются в `localStorage`:
-- коллекции
-- окружения на коллекцию
-- размеры панелей
-
-## Технологии
-
-- React + TypeScript
-- Vite
-- `yaml` для YAML/JSON импорта
+Подробная инструкция по релизам и ключам обновления: `RELEASING.md`.
