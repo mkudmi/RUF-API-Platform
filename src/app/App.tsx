@@ -120,6 +120,22 @@ function findRequestByIds(collections: Collection[], collectionId: string, reque
   return null
 }
 
+function mergeHistoryItemsById(preferred: RequestHistoryItem[], fallback: RequestHistoryItem[]) {
+  const seen = new Set<string>()
+  const out: RequestHistoryItem[] = []
+  for (const item of preferred) {
+    if (!item?.id || seen.has(item.id)) continue
+    seen.add(item.id)
+    out.push(item)
+  }
+  for (const item of fallback) {
+    if (!item?.id || seen.has(item.id)) continue
+    seen.add(item.id)
+    out.push(item)
+  }
+  return out
+}
+
 export default function App() {
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
   const importOpenRef = useRef<{
@@ -155,17 +171,21 @@ export default function App() {
   const [reloadFromFileSummary, setReloadFromFileSummary] = useState<ReturnType<typeof summarizeCollectionDiff> | null>(null)
   const [reloadFromFileSelectedName, setReloadFromFileSelectedName] = useState('')
 
-  const [collections, setCollections] = useState<Collection[]>(() => loadCollections())
-  const [workspace, setWorkspace] = useState<Workspace>(() => loadWorkspace())
-  const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => {
+  const initialBootstrap = useMemo(() => {
+    const collections = loadCollections()
+    const workspace = loadWorkspace()
+    const envByCollection = loadEnvironmentsByCollection()
     const saved = loadActiveSelection()
-    if (!saved) return null
-    const cols = loadCollections()
-    return findRequestByIds(cols, saved.collectionId, saved.requestId)
-  })
+    const active = saved ? findRequestByIds(collections, saved.collectionId, saved.requestId) : null
+    return { collections, workspace, envByCollection, active }
+  }, [])
+
+  const [collections, setCollections] = useState<Collection[]>(() => initialBootstrap.collections)
+  const [workspace, setWorkspace] = useState<Workspace>(() => initialBootstrap.workspace)
+  const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => initialBootstrap.active)
   const [resultByRequestId, setResultByRequestId] = useState<Record<string, RunResult | null>>({})
   const [inFlightCountByRequestId, setInFlightCountByRequestId] = useState<Record<string, number>>({})
-  const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => loadEnvironmentsByCollection())
+  const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => initialBootstrap.envByCollection)
   const [envModalCollectionId, setEnvModalCollectionId] = useState<string | null>(null)
   const createProjectDialogRef = useRef<HTMLDialogElement | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -238,7 +258,7 @@ export default function App() {
     }
     return out
   })
-  const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>(() => loadRequestHistoryByRequestId())
+  const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>({})
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [terminalOpen, setTerminalOpen] = useState(false)
@@ -557,6 +577,48 @@ export default function App() {
         setAppVersion(null)
       }
     })()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    let idleHandle: number | null = null
+    let timeoutHandle: number | null = null
+
+    const hydrateHistory = () => {
+      if (cancelled) return
+      const loaded = loadRequestHistoryByRequestId()
+      setHistoryByRequestId(prev => {
+        if (!Object.keys(prev).length) return loaded
+        const next: Record<string, RequestHistoryItem[]> = { ...loaded }
+        for (const [requestId, currentItems] of Object.entries(prev)) {
+          const loadedItems = next[requestId] ?? []
+          const merged = mergeHistoryItemsById(currentItems, loadedItems)
+          if (merged.length) next[requestId] = merged
+          else delete next[requestId]
+        }
+        return next
+      })
+    }
+
+    const windowWithIdle = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+    const requestIdle = windowWithIdle.requestIdleCallback
+    if (typeof requestIdle === 'function') {
+      idleHandle = requestIdle(hydrateHistory, { timeout: 1200 })
+    } else {
+      timeoutHandle = window.setTimeout(hydrateHistory, 0)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleHandle !== null) {
+        const cancelIdle = windowWithIdle.cancelIdleCallback
+        if (typeof cancelIdle === 'function') cancelIdle(idleHandle)
+      }
+      if (timeoutHandle !== null) window.clearTimeout(timeoutHandle)
+    }
   }, [])
 
   function onRequestSendStart(requestId: string) {
