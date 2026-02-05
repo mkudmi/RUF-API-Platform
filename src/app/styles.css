@@ -44,11 +44,86 @@ a { color: inherit; }
 
 .appTitle { font-family: var(--font-brand); letter-spacing: .2px; }
 
+.windowShell {
+  display: grid;
+  grid-template-rows: 38px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+
+.windowTitlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 0;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  background: rgba(11,12,16,.96);
+}
+
+.windowBrandArea {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+}
+
+.windowTitle {
+  font-size: 13px;
+  letter-spacing: .2px;
+  opacity: .92;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.windowControls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.windowControlBtn {
+  width: 30px;
+  height: 26px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,.88);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.windowControlBtn:hover {
+  border-color: rgba(255,255,255,.16);
+  background: rgba(255,255,255,.08);
+}
+.windowControlBtnClose:hover {
+  border-color: rgba(255, 90, 90, .35);
+  background: rgba(255, 90, 90, .18);
+  color: #fff;
+}
+
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] textarea,
+[data-tauri-drag-region] select {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 420px 8px 1fr;
   grid-template-rows: 1fr;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -97,11 +172,37 @@ a { color: inherit; }
 }
 .sidebarPlusBtn:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
 
+.sidebarEmptyState {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.sidebarAddWrap {
+  margin-left: 0;
+}
+
+.sidebarAddBtn {
+  width: auto;
+  min-width: 88px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .2px;
+  border-color: rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+}
+.sidebarAddBtn:hover {
+  border-color: rgba(255,255,255,.26);
+  background: rgba(255,255,255,.12);
+}
+
 .sidebarPlusMenu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
+  position: fixed;
   min-width: 220px;
+  max-width: calc(100vw - 16px);
   background: rgb(16,18,28);
   border: 1px solid rgba(255,255,255,.14);
   border-radius: 12px;

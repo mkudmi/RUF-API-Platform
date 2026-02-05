@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
-import { CloseIcon } from '../shared/icons'
+import { CloseIcon, MaximizeIcon, MinimizeIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -2326,15 +2326,42 @@ export default function App() {
     localStorage.setItem('ruf_editor_width_v1', String(next))
   }
 
+  const isWorkspaceEmpty = collections.length === 0 && workspace.folders.length === 0
+
+  async function withCurrentWindow(action: (windowHandle: { minimize: () => Promise<void>, toggleMaximize: () => Promise<void>, close: () => Promise<void> }) => Promise<void>) {
+    if (!isTauri()) return
+    const { getCurrentWindow } = await import('@tauri-apps/api/window')
+    await action(getCurrentWindow())
+  }
+
+  async function minimizeWindow() {
+    try {
+      await withCurrentWindow(windowHandle => windowHandle.minimize())
+    } catch {
+      // ignore window API errors
+    }
+  }
+
+  async function toggleWindowMaximize() {
+    try {
+      await withCurrentWindow(windowHandle => windowHandle.toggleMaximize())
+    } catch {
+      // ignore window API errors
+    }
+  }
+
+  async function closeWindow() {
+    try {
+      await withCurrentWindow(windowHandle => windowHandle.close())
+    } catch {
+      // ignore window API errors
+    }
+  }
+
   return (
-    <div
-      className="layout"
-      style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}
-      onDragOver={onAppDragOver}
-      onDrop={onAppDrop}
-    >
-      <aside className="sidebar">
-        <div className="sidebarBrand">
+    <div className="windowShell">
+      <header className="windowTitlebar" data-tauri-drag-region>
+        <div className="windowBrandArea">
           <div className="sidebarBrandRow">
             <span className="appTitle">Ruf</span> <span className="small">API Platofrm</span>
             <SidebarCreateMenu
@@ -2343,76 +2370,95 @@ export default function App() {
               onCreateFolder={openCreateWorkspaceFolder}
             />
             <ImportFab onImported={addCollection} openRef={importOpenRef} showTrigger={false} />
-            <button
-              className="iconBtn"
-              style={{ marginLeft: 'auto' }}
-              onClick={openSettings}
-              aria-label="Settings"
-              title="Settings"
-            >
-              ⚙
-            </button>
-            <button
-              className="iconBtn"
-              onClick={() => {
-                setTerminalOpen(v => !v)
-                setSqlTerminalOpen(false)
-              }}
-              aria-label="Terminal"
-              title="Terminal"
-            >
-              &gt;_
-            </button>
-            <button
-              className="iconBtn terminalBtn sqlTerminalBtn"
-              onClick={() => {
-                setSqlTerminalOpen(v => !v)
-                setTerminalOpen(false)
-              }}
-              aria-label="SQL Terminal"
-              title="SQL Terminal"
-            >
-              <span className="iconGlyph">SQL</span>
-            </button>
           </div>
         </div>
-        <div className="sidebarTreeWrap">
-          <WorkspaceTree
-            workspace={workspace}
-            collections={collections}
-            sortMode={treeSortMode}
-            environmentsByCollection={envByCollection}
-            activeRequestId={activeRequestId}
-            inFlightCountByRequestId={inFlightCountByRequestId}
-            treeOpenCommand={treeOpenCommand}
-            onPickRequest={pick}
-            onOpenEnv={setEnvModalCollectionId}
-            onUpdateCollectionFromUrl={updateCollectionFromUrl}
-            onReloadCollectionFromFile={openReloadFromFile}
-            onAddRequest={addRequestToCollection}
-            onAddFolder={addFolderToCollection}
-            onAddRequestToFolder={addRequestToFolder}
-            onAddFolderToFolder={addFolderToFolder}
-            onRenameCollection={renameCollection}
-            onRenameFolder={renameFolder}
-            onRenameRequest={renameRequest}
-            onDuplicateCollection={duplicateCollection}
-            onDuplicateFolder={duplicateFolder}
-            onDuplicateRequest={duplicateRequest}
-            onMoveFolder={moveFolder}
-            onMoveRequest={moveRequest}
-            onMoveFolderToCollection={moveFolderToCollection}
-            onMoveRequestToCollection={moveRequestToCollection}
-            onDeleteFolder={deleteFolder}
-            onDeleteRequest={deleteRequest}
-            onDeleteCollection={requestDeleteCollection}
-            onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
-            onMoveWorkspaceFolder={moveWorkspaceFolder}
-            onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
-            onRenameWorkspaceFolder={renameWorkspaceFolder}
-            onDeleteWorkspaceFolder={deleteWorkspaceFolder}
-          />
+        <div className="windowControls">
+          <button
+            type="button"
+            className="windowControlBtn"
+            onClick={() => { void minimizeWindow() }}
+            aria-label="Minimize window"
+            title="Minimize"
+          >
+            <MinimizeIcon size={14} />
+          </button>
+          <button
+            type="button"
+            className="windowControlBtn"
+            onClick={() => { void toggleWindowMaximize() }}
+            aria-label="Toggle maximize window"
+            title="Maximize / Restore"
+          >
+            <MaximizeIcon size={12} />
+          </button>
+          <button
+            type="button"
+            className="windowControlBtn windowControlBtnClose"
+            onClick={() => { void closeWindow() }}
+            aria-label="Close window"
+            title="Close"
+          >
+            <CloseIcon size={14} />
+          </button>
         </div>
+      </header>
+      <div
+        className="layout"
+        style={{ gridTemplateColumns: `${sidebarWidth}px 8px 1fr` }}
+        onDragOver={onAppDragOver}
+        onDrop={onAppDrop}
+      >
+        <aside className="sidebar">
+          <div className="sidebarTreeWrap">
+            {isWorkspaceEmpty ? (
+              <div className="sidebarEmptyState">
+                <SidebarCreateMenu
+                  onImport={() => importOpenRef.current?.openMenu()}
+                  onCreateCollection={openCreateProject}
+                  onCreateFolder={openCreateWorkspaceFolder}
+                  triggerLabel="Add"
+                  triggerClassName="sidebarAddBtn"
+                  wrapClassName="sidebarAddWrap"
+                />
+              </div>
+            ) : (
+              <WorkspaceTree
+                workspace={workspace}
+                collections={collections}
+                sortMode={treeSortMode}
+                environmentsByCollection={envByCollection}
+                activeRequestId={activeRequestId}
+                inFlightCountByRequestId={inFlightCountByRequestId}
+                treeOpenCommand={treeOpenCommand}
+                onPickRequest={pick}
+                onOpenEnv={setEnvModalCollectionId}
+                onUpdateCollectionFromUrl={updateCollectionFromUrl}
+                onReloadCollectionFromFile={openReloadFromFile}
+                onAddRequest={addRequestToCollection}
+                onAddFolder={addFolderToCollection}
+                onAddRequestToFolder={addRequestToFolder}
+                onAddFolderToFolder={addFolderToFolder}
+                onRenameCollection={renameCollection}
+                onRenameFolder={renameFolder}
+                onRenameRequest={renameRequest}
+                onDuplicateCollection={duplicateCollection}
+                onDuplicateFolder={duplicateFolder}
+                onDuplicateRequest={duplicateRequest}
+                onMoveFolder={moveFolder}
+                onMoveRequest={moveRequest}
+                onMoveFolderToCollection={moveFolderToCollection}
+                onMoveRequestToCollection={moveRequestToCollection}
+                onDeleteFolder={deleteFolder}
+                onDeleteRequest={deleteRequest}
+                onDeleteCollection={requestDeleteCollection}
+                onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
+                onMoveWorkspaceFolder={moveWorkspaceFolder}
+                onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
+                onRenameWorkspaceFolder={renameWorkspaceFolder}
+                onDeleteWorkspaceFolder={deleteWorkspaceFolder}
+              />
+            )}
+          </div>
 
         <div className="sidebarBottom">
           <div className="sidebarBottomLeft">
@@ -2480,7 +2526,7 @@ export default function App() {
             v{appVersion ?? '—'}
           </div>
         </div>
-      </aside>
+        </aside>
       <div
         className="resizer"
         onPointerDown={onSidebarResizePointerDown}
@@ -3225,6 +3271,7 @@ export default function App() {
         </div>
       ) : null}
 
+      </div>
     </div>
   )
 }
