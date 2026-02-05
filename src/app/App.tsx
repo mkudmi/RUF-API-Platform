@@ -6,10 +6,26 @@ import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
 import { EnvironmentSettings } from '../modules/environment'
+import {
+  buildDbConnectionString,
+  getDbConnectionStringPreview,
+  runDbConnectionTest,
+  type DbType,
+  type PgSslMode,
+} from '../modules/environment'
+import {
+  addGlobalSqlConnectionItem,
+  applyGlobalSqlToEnvironment,
+  createInitialGlobalSqlConnections,
+  getPrimaryGlobalSqlSettings,
+  removeGlobalSqlConnectionItem,
+  setConnectionTypeAndMaybeDefaultPort as setConnectionTypeAndMaybeDefaultPortItem,
+  updateGlobalSqlConnectionItem,
+} from '../modules/environment/utils/globalSqlConnections'
 import { TerminalDrawer } from '../modules/terminal'
 import { SqlTerminalDrawer } from '../modules/sqlTerminal'
-import type { Environment } from '../shared/types/environment'
-import { DEFAULT_ENVIRONMENT } from '../shared/types/environment'
+import type { Environment, GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../shared/types/environment'
+import { DEFAULT_ENVIRONMENT, DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS } from '../shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from '../shared/utils/storage'
 import type { Workspace, WorkspaceFolder } from '../shared/types/workspace'
 import { loadWorkspace, saveWorkspace } from '../shared/utils/workspaceStorage'
@@ -45,6 +61,8 @@ const RESPONSE_TAB_BY_REQUEST_KEY = 'ruf_response_tab_by_request_v1'
 const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 
 type SavedActiveSelection = { collectionId: string, requestId: string }
+
+type SettingsTab = 'certificates' | 'update' | 'sql'
 
 function safeParseJson<T>(raw: string | null): T | null {
   try {
@@ -111,11 +129,26 @@ export default function App() {
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
   const initialAppSettings = useMemo(() => loadAppSettings(), [])
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('certificates')
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => initialAppSettings.validateCertificates)
   const [caCertificates, setCaCertificates] = useState<CaCertificate[]>(() => initialAppSettings.caCertificates)
   const [caCertInput, setCaCertInput] = useState('')
   const [caCertError, setCaCertError] = useState<string | null>(null)
   const [caCertBusy, setCaCertBusy] = useState(false)
+  const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
+    createInitialGlobalSqlConnections(
+      initialAppSettings.globalSqlConnections ?? [],
+      initialAppSettings.globalSql,
+      uid,
+    )
+  ))
+  const [sqlConnTypeMenuOpenId, setSqlConnTypeMenuOpenId] = useState<string | null>(null)
+  const [sqlConnSslMenuOpenId, setSqlConnSslMenuOpenId] = useState<string | null>(null)
+  const [sqlConnDeleteArmedId, setSqlConnDeleteArmedId] = useState<string | null>(null)
+  const [sqlConnShowPasswordById, setSqlConnShowPasswordById] = useState<Record<string, boolean>>({})
+  const [sqlConnTestById, setSqlConnTestById] = useState<Record<string, { inFlight: boolean, error: string | null, log: string | null, okMs: number | null }>>({})
+  const sqlConnTestTimerByIdRef = useRef<Record<string, number>>({})
+  const sqlConnDeleteArmTimerRef = useRef<number | null>(null)
   const [reloadFromFileCollectionId, setReloadFromFileCollectionId] = useState<string | null>(null)
   const [reloadFromFileError, setReloadFromFileError] = useState<string | null>(null)
   const [reloadFromFilePending, setReloadFromFilePending] = useState<Collection | null>(null)
@@ -219,6 +252,7 @@ export default function App() {
     updateHint,
     updateErrorLog,
     hasPendingUpdate,
+    pendingUpdateVersion,
     updateDownloaded,
     updateDownloadPct,
     showUpdateToast,
@@ -228,12 +262,107 @@ export default function App() {
     onUpdateLater,
   } = useAppUpdater()
 
+  const primaryGlobalSqlSettings = useMemo<GlobalSqlConnectionSettings | null>(
+    () => getPrimaryGlobalSqlSettings(globalSqlConnections),
+    [globalSqlConnections],
+  )
+
   function openSettings() {
+    setSettingsTab('certificates')
     settingsDialogRef.current?.showModal()
   }
 
   function closeSettings() {
     settingsDialogRef.current?.close()
+  }
+
+  function updateGlobalSqlConnection(connectionId: string, updater: (prev: GlobalSqlConnectionItem) => GlobalSqlConnectionItem) {
+    setGlobalSqlConnections(prev => updateGlobalSqlConnectionItem(prev, connectionId, updater))
+  }
+
+  function addGlobalSqlConnection() {
+    setGlobalSqlConnections(prev => addGlobalSqlConnectionItem(prev, uid))
+  }
+
+  function deleteGlobalSqlConnection(connectionId: string) {
+    setGlobalSqlConnections(prev => removeGlobalSqlConnectionItem(prev, connectionId))
+    setSqlConnShowPasswordById(prev => {
+      if (!(connectionId in prev)) return prev
+      const next = { ...prev }
+      delete next[connectionId]
+      return next
+    })
+    setSqlConnTestById(prev => {
+      if (!(connectionId in prev)) return prev
+      const next = { ...prev }
+      delete next[connectionId]
+      return next
+    })
+    const t = sqlConnTestTimerByIdRef.current[connectionId]
+    if (typeof t === 'number') {
+      window.clearTimeout(t)
+      delete sqlConnTestTimerByIdRef.current[connectionId]
+    }
+    if (sqlConnTypeMenuOpenId === connectionId) setSqlConnTypeMenuOpenId(null)
+    if (sqlConnSslMenuOpenId === connectionId) setSqlConnSslMenuOpenId(null)
+    if (sqlConnDeleteArmedId === connectionId) setSqlConnDeleteArmedId(null)
+  }
+
+  function setConnectionTypeAndMaybeDefaultPort(connectionId: string, nextType: DbType) {
+    updateGlobalSqlConnection(connectionId, prev => setConnectionTypeAndMaybeDefaultPortItem(prev, nextType))
+  }
+
+  function onSqlConnectionDeleteClick(connectionId: string) {
+    if (sqlConnDeleteArmedId === connectionId) {
+      if (sqlConnDeleteArmTimerRef.current) {
+        window.clearTimeout(sqlConnDeleteArmTimerRef.current)
+        sqlConnDeleteArmTimerRef.current = null
+      }
+      setSqlConnDeleteArmedId(null)
+      deleteGlobalSqlConnection(connectionId)
+      return
+    }
+    setSqlConnDeleteArmedId(connectionId)
+    if (sqlConnDeleteArmTimerRef.current) window.clearTimeout(sqlConnDeleteArmTimerRef.current)
+    sqlConnDeleteArmTimerRef.current = window.setTimeout(() => {
+      setSqlConnDeleteArmedId(prev => (prev === connectionId ? null : prev))
+      sqlConnDeleteArmTimerRef.current = null
+    }, 5500)
+  }
+
+  async function testSqlConnection(connectionId: string) {
+    const conn = globalSqlConnections.find(x => x.id === connectionId)
+    if (!conn) return
+
+    setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: false, error: null, log: null, okMs: null } }))
+    const t = sqlConnTestTimerByIdRef.current[connectionId]
+    if (typeof t === 'number') {
+      window.clearTimeout(t)
+      delete sqlConnTestTimerByIdRef.current[connectionId]
+    }
+
+    const connectionString = buildDbConnectionString(conn).trim()
+    if (!connectionString) {
+      setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: false, error: 'Connection failed', log: 'Fill host/port/database/user/password to build connection string.', okMs: null } }))
+      return
+    }
+
+    setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: true, error: null, log: null, okMs: null } }))
+    try {
+      const { ok, message, durationMs } = await runDbConnectionTest({ type: conn.type, connectionString })
+      if (ok) {
+        setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: false, error: null, log: null, okMs: durationMs } }))
+        sqlConnTestTimerByIdRef.current[connectionId] = window.setTimeout(() => {
+          setSqlConnTestById(prev => ({ ...prev, [connectionId]: { ...(prev[connectionId] ?? { inFlight: false, error: null, log: null, okMs: null }), okMs: null } }))
+          delete sqlConnTestTimerByIdRef.current[connectionId]
+        }, 2500)
+      } else {
+        setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: false, error: 'Connection failed', log: message || null, okMs: null } }))
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Network error'
+      setSqlConnTestById(prev => ({ ...prev, [connectionId]: { inFlight: false, error: 'Connection failed', log: message, okMs: null } }))
+    }
   }
 
   async function addCaCertificatesFromInput() {
@@ -316,8 +445,107 @@ export default function App() {
   }
 
   useEffect(() => {
-    saveAppSettings({ validateCertificates, caCertificates })
-  }, [validateCertificates, caCertificates])
+    saveAppSettings({
+      validateCertificates,
+      caCertificates,
+      globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
+      globalSqlConnections,
+    })
+  }, [caCertificates, globalSqlConnections, primaryGlobalSqlSettings, validateCertificates])
+
+  useEffect(() => {
+    if (!primaryGlobalSqlSettings) return
+    setEnvByCollection(prev => {
+      let changed = false
+      const nextEnvs: Record<string, Environment> = {}
+
+      for (const [collectionId, env] of Object.entries(prev)) {
+        const nextEnv = applyGlobalSqlToEnvironment(env, primaryGlobalSqlSettings)
+        nextEnvs[collectionId] = nextEnv
+        if (nextEnv !== env) changed = true
+      }
+
+      if (!changed) return prev
+      saveEnvironmentsByCollection(nextEnvs)
+      return nextEnvs
+    })
+  }, [primaryGlobalSqlSettings])
+
+  useEffect(() => {
+    return () => {
+      for (const timerId of Object.values(sqlConnTestTimerByIdRef.current)) {
+        window.clearTimeout(timerId)
+      }
+      sqlConnTestTimerByIdRef.current = {}
+      if (sqlConnDeleteArmTimerRef.current) {
+        window.clearTimeout(sqlConnDeleteArmTimerRef.current)
+        sqlConnDeleteArmTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sqlConnTypeMenuOpenId) return
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement | null
+      if (target?.closest(`[data-sql-type-wrap="${sqlConnTypeMenuOpenId}"]`)) return
+      setSqlConnTypeMenuOpenId(null)
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSqlConnTypeMenuOpenId(null)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [sqlConnTypeMenuOpenId])
+
+  useEffect(() => {
+    if (!sqlConnSslMenuOpenId) return
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement | null
+      if (target?.closest(`[data-sql-ssl-wrap="${sqlConnSslMenuOpenId}"]`)) return
+      setSqlConnSslMenuOpenId(null)
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSqlConnSslMenuOpenId(null)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [sqlConnSslMenuOpenId])
+
+  useEffect(() => {
+    if (!sqlConnDeleteArmedId) return
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement | null
+      if (target?.closest(`[data-sql-delete-btn="${sqlConnDeleteArmedId}"]`)) return
+      setSqlConnDeleteArmedId(null)
+      if (sqlConnDeleteArmTimerRef.current) {
+        window.clearTimeout(sqlConnDeleteArmTimerRef.current)
+        sqlConnDeleteArmTimerRef.current = null
+      }
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      setSqlConnDeleteArmedId(null)
+      if (sqlConnDeleteArmTimerRef.current) {
+        window.clearTimeout(sqlConnDeleteArmTimerRef.current)
+        sqlConnDeleteArmTimerRef.current = null
+      }
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [sqlConnDeleteArmedId])
 
   useEffect(() => {
     if (!isTauri()) return
@@ -445,7 +673,9 @@ export default function App() {
         ...(importedEnv?.variables ?? {}),
         [baseUrlKey]: seededBaseUrl || ((importedEnv?.variables ?? col.variables)?.[baseUrlKey] ?? ''),
       }
-      const nextEnvs = { ...prev, [col.id]: { baseUrlKey, variables: seededVariables, headers: DEFAULT_ENVIRONMENT.headers } }
+      const seededEnv: Environment = { baseUrlKey, variables: seededVariables, headers: DEFAULT_ENVIRONMENT.headers }
+      const nextEnv = primaryGlobalSqlSettings ? applyGlobalSqlToEnvironment(seededEnv, primaryGlobalSqlSettings) : seededEnv
+      const nextEnvs = { ...prev, [col.id]: nextEnv }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     }
@@ -608,7 +838,8 @@ export default function App() {
 
   function saveEnvForCollection(collectionId: string, next: Environment) {
     setEnvByCollection(prev => {
-      const nextEnvs = { ...prev, [collectionId]: next }
+      const nextEnv = primaryGlobalSqlSettings ? applyGlobalSqlToEnvironment(next, primaryGlobalSqlSettings) : next
+      const nextEnvs = { ...prev, [collectionId]: nextEnv }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     })
@@ -2488,117 +2719,128 @@ export default function App() {
       >
         <div className="modalHeader" style={{ marginBottom: 0 }}>
           <b>Settings</b>
-          <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close">✕</button>
+          <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close"><CloseIcon size={18} /></button>
         </div>
         <hr className="modalDivider" />
 
-        <label className="checkRow">
-          <input
-            type="checkbox"
-            className="checkInput"
-            checked={validateCertificates}
-            onChange={e => setValidateCertificates(e.target.checked)}
-          />
-          <span className="checkBox" aria-hidden="true" />
-          <span className="checkText">Validate certificates</span>
-        </label>
+        <div className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
+          <button className={`tab ${settingsTab === 'certificates' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('certificates')}>Certificates</button>
+          <button className={`tab ${settingsTab === 'update' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('update')}>Update</button>
+          <button className={`tab ${settingsTab === 'sql' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('sql')}>SQL</button>
+        </div>
 
-        <details className="accordion" style={{ marginTop: 10 }}>
-          <summary>
-            <span style={{ flex: 1 }}>CA certificates</span>
-            <span className="badge">{caCertificates.length}</span>
-          </summary>
-          <div className="section">
-
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div className="small">Paste PEM certificate(s)</div>
-              <textarea
-                className="mono"
-                value={caCertInput}
-                onChange={e => setCaCertInput(e.target.value)}
-                placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
-                spellCheck={false}
-                style={{
-                  width: '100%',
-                  minHeight: 120,
-                  resize: 'vertical',
-                  padding: 10,
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,.12)',
-                  background: 'rgba(255,255,255,.04)',
-                  color: 'inherit',
-                }}
+        {settingsTab === 'certificates' ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <label className="checkRow">
+              <input
+                type="checkbox"
+                className="checkInput"
+                checked={validateCertificates}
+                onChange={e => setValidateCertificates(e.target.checked)}
               />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
-                  {caCertBusy ? 'Adding…' : 'Add'}
-                </button>
-              </div>
-              {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
-            </div>
+              <span className="checkBox" aria-hidden="true" />
+              <span className="checkText">Validate certificates</span>
+            </label>
 
-            {caCertificates.length ? (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {caCertificates.map(cert => {
-                  const title = cert.subject || 'Certificate'
-                  const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
-                  return (
-                    <div
-                      key={cert.id}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto',
-                        gap: 10,
-                        alignItems: 'center',
-                        padding: 10,
-                        borderRadius: 10,
-                        border: '1px solid rgba(255,255,255,.12)',
-                        background: 'rgba(255,255,255,.03)',
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-                        {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
-                        {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
-                      </div>
-                      <button
-                        type="button"
-                        className="headerDeleteBtn"
-                        onClick={() => deleteCaCertificate(cert.id)}
-                        aria-label="Delete certificate"
-                        title="Delete"
-                      >
-                        <CloseIcon size={18} />
-                      </button>
-                    </div>
-                  )
-                })}
+            <details className="accordion" open>
+              <summary>
+                <span style={{ flex: 1 }}>CA certificates</span>
+                <span className="badge">{caCertificates.length}</span>
+              </summary>
+              <div className="section">
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div className="small">Paste PEM certificate(s)</div>
+                  <textarea
+                    className="mono"
+                    value={caCertInput}
+                    onChange={e => setCaCertInput(e.target.value)}
+                    placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+                    spellCheck={false}
+                    style={{
+                      width: '100%',
+                      minHeight: 120,
+                      resize: 'vertical',
+                      padding: 10,
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,.12)',
+                      background: 'rgba(255,255,255,.04)',
+                      color: 'inherit',
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                    <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
+                      {caCertBusy ? 'Adding...' : 'Add'}
+                    </button>
+                  </div>
+                  {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
+                </div>
+
+                {caCertificates.length ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {caCertificates.map(cert => {
+                      const title = cert.subject || 'Certificate'
+                      const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
+                      return (
+                        <div
+                          key={cert.id}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            gap: 10,
+                            alignItems: 'center',
+                            padding: 10,
+                            borderRadius: 10,
+                            border: '1px solid rgba(255,255,255,.12)',
+                            background: 'rgba(255,255,255,.03)',
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+                            {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
+                            {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
+                          </div>
+                          <button
+                            type="button"
+                            className="headerDeleteBtn"
+                            onClick={() => deleteCaCertificate(cert.id)}
+                            aria-label="Delete certificate"
+                            title="Delete"
+                          >
+                            <CloseIcon size={18} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
+                )}
               </div>
-            ) : (
-              <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
-            )}
+            </details>
           </div>
-        </details>
+        ) : null}
 
-        <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+        {settingsTab === 'update' ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div className="small">App version: <span className="mono">v{appVersion ?? '-'}</span></div>
+            {pendingUpdateVersion ? <div className="small">Available: <span className="mono">v{pendingUpdateVersion}</span></div> : null}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               {hasPendingUpdate ? (
                 updateDownloaded ? (
                   <>
                     <button onClick={onRestartToUpdate} disabled={updateBusy}>
-                      {updateTask === 'installing' ? 'Restarting…' : 'Restart'}
+                      {updateTask === 'installing' ? 'Restarting...' : 'Restart'}
                     </button>
                     <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
                   </>
                 ) : (
                   <button onClick={onUpdateNow} disabled={updateBusy}>
-                    {updateTask === 'downloading' ? 'Downloading…' : 'Update'}
+                    {updateTask === 'downloading' ? 'Downloading...' : 'Update'}
                   </button>
                 )
               ) : (
                 <button onClick={onCheckUpdates} disabled={updateBusy}>
-                  {updateTask === 'checking' ? 'Checking…' : 'Check Updates'}
+                  {updateTask === 'checking' ? 'Checking...' : 'Check updates'}
                 </button>
               )}
               {updateHint && !updateErrorLog ? (
@@ -2618,7 +2860,7 @@ export default function App() {
             </div>
 
             {updateErrorLog ? (
-              <details open style={{ width: 'min(820px, calc(100vw - 80px))' }}>
+              <details open>
                 <summary className="small" style={{ cursor: 'pointer', opacity: 0.9 }}>
                   Update error log
                 </summary>
@@ -2651,7 +2893,296 @@ export default function App() {
               </details>
             ) : null}
           </div>
-          <button onClick={closeSettings} style={{ alignSelf: 'flex-start' }}>Save</button>
+        ) : null}
+
+        {settingsTab === 'sql' ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div className="small">SQL connections</div>
+
+            {!globalSqlConnections.length ? (
+              <div className="section">
+                <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {globalSqlConnections.map((conn, idx) => {
+                  const showPassword = !!sqlConnShowPasswordById[conn.id]
+                  const test = sqlConnTestById[conn.id] ?? { inFlight: false, error: null, log: null, okMs: null }
+                  const connectionString = buildDbConnectionString(conn)
+                  const connectionPreview = getDbConnectionStringPreview(connectionString, showPassword)
+                  return (
+                    <details key={conn.id} className="accordion">
+                      <summary>
+                        <span style={{ flex: 1 }}>{conn.name || `Connection ${idx + 1}`}</span>
+                        <span className="small" style={{ opacity: 0.7 }}>{conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}</span>
+                        <button
+                          type="button"
+                          data-sql-delete-btn={conn.id}
+                          className={`headerDeleteBtn ${sqlConnDeleteArmedId === conn.id ? 'confirmActionArmed' : ''}`.trim()}
+                          style={{ width: 30, height: 30, marginLeft: 6 }}
+                          onPointerDown={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                          onClick={e => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onSqlConnectionDeleteClick(conn.id)
+                          }}
+                          aria-label={sqlConnDeleteArmedId === conn.id ? `Confirm delete connection ${conn.name || idx + 1}` : `Delete connection ${conn.name || idx + 1}`}
+                          title={sqlConnDeleteArmedId === conn.id ? 'Confirm delete' : 'Delete'}
+                        >
+                          {sqlConnDeleteArmedId === conn.id ? <span className="confirmActionGlyph">!</span> : <CloseIcon size={16} />}
+                        </button>
+                      </summary>
+                      <div className="section">
+                        <div className="formRow">
+                          <div className="formLabel">Name</div>
+                          <input
+                            className="mono"
+                            value={conn.name}
+                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, name: e.target.value }))}
+                            placeholder={`Connection ${idx + 1}`}
+                          />
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">Type</div>
+                          <div className="selectMenuWrap" data-sql-type-wrap={conn.id}>
+                            <button
+                              type="button"
+                              className="selectMenuBtn"
+                              onPointerDown={e => e.stopPropagation()}
+                              onClick={e => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setSqlConnTypeMenuOpenId(prev => (prev === conn.id ? null : conn.id))
+                              }}
+                              aria-haspopup="menu"
+                              aria-expanded={sqlConnTypeMenuOpenId === conn.id}
+                              aria-label="Database type"
+                              title="Database type"
+                            >
+                              {conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+                            </button>
+                            {sqlConnTypeMenuOpenId === conn.id ? (
+                              <div
+                                className="selectMenuPanel"
+                                role="menu"
+                                onPointerDown={e => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                }}
+                                onClick={e => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className={`selectMenuItem ${conn.type === 'postgres' ? 'selectMenuItemActive' : ''}`}
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setSqlConnTypeMenuOpenId(null)
+                                    setConnectionTypeAndMaybeDefaultPort(conn.id, 'postgres')
+                                  }}
+                                >
+                                  PostgreSQL
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`selectMenuItem ${conn.type === 'mysql' ? 'selectMenuItemActive' : ''}`}
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setSqlConnTypeMenuOpenId(null)
+                                    setConnectionTypeAndMaybeDefaultPort(conn.id, 'mysql')
+                                  }}
+                                >
+                                  MySQL
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {conn.type === 'postgres' ? (
+                          <div className="formRow">
+                            <div className="formLabel">SSL mode</div>
+                            <div className="selectMenuWrap" data-sql-ssl-wrap={conn.id}>
+                              <button
+                                type="button"
+                                className="selectMenuBtn"
+                                onPointerDown={e => e.stopPropagation()}
+                                onClick={e => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setSqlConnSslMenuOpenId(prev => (prev === conn.id ? null : conn.id))
+                                }}
+                                aria-haspopup="menu"
+                                aria-expanded={sqlConnSslMenuOpenId === conn.id}
+                                aria-label="PostgreSQL SSL mode"
+                                title="PostgreSQL SSL mode"
+                              >
+                                {conn.sslmode}
+                              </button>
+                              {sqlConnSslMenuOpenId === conn.id ? (
+                                <div
+                                  className="selectMenuPanel"
+                                  role="menu"
+                                  onPointerDown={e => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                  }}
+                                  onClick={e => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                  }}
+                                >
+                                  {([
+                                    { value: 'prefer', label: 'prefer (default)' },
+                                    { value: 'require', label: 'require (encrypt, no verify)' },
+                                    { value: 'verify-ca', label: 'verify-ca' },
+                                    { value: 'verify-full', label: 'verify-full' },
+                                    { value: 'disable', label: 'disable' },
+                                    { value: 'allow', label: 'allow' },
+                                  ] as Array<{ value: PgSslMode; label: string }>).map(o => (
+                                    <button
+                                      key={o.value}
+                                      type="button"
+                                      className={`selectMenuItem ${conn.sslmode === o.value ? 'selectMenuItemActive' : ''}`}
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setSqlConnSslMenuOpenId(null)
+                                        updateGlobalSqlConnection(conn.id, prev => ({ ...prev, sslmode: o.value }))
+                                      }}
+                                    >
+                                      {o.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="formRow">
+                          <div className="formLabel">Host</div>
+                          <input className="mono" value={conn.host} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, host: e.target.value }))} placeholder="localhost" />
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">Port</div>
+                          <input
+                            className="mono"
+                            inputMode="numeric"
+                            value={conn.port}
+                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, port: e.target.value.replaceAll(/\s+/g, '') }))}
+                            placeholder={conn.type === 'mysql' ? '3306' : '5432'}
+                          />
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">Database</div>
+                          <input className="mono" value={conn.database} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, database: e.target.value }))} placeholder="mydb" />
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">Username</div>
+                          <input className="mono" value={conn.username} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, username: e.target.value }))} placeholder="postgres" />
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">Password</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                            <input
+                              className="mono"
+                              type="text"
+                              value={conn.password}
+                              onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, password: e.target.value }))}
+                              autoComplete="off"
+                              autoCorrect="off"
+                              autoCapitalize="none"
+                              spellCheck={false}
+                              style={showPassword ? undefined : ({ WebkitTextSecurity: 'disc' } as any)}
+                              placeholder="********"
+                            />
+                            <button
+                              type="button"
+                              className="headerDeleteBtn"
+                              style={{ width: 64 }}
+                              onClick={() => setSqlConnShowPasswordById(prev => ({ ...prev, [conn.id]: !prev[conn.id] }))}
+                              aria-label={showPassword ? 'Hide password' : 'Show password'}
+                              title={showPassword ? 'Hide' : 'Show'}
+                            >
+                              {showPassword ? 'Hide' : 'Show'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="formRow">
+                          <div className="formLabel">URL</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                            <div
+                              className="mono"
+                              style={{
+                                fontSize: 12,
+                                lineHeight: 1.25,
+                                opacity: connectionPreview ? 1 : 0.7,
+                                overflowWrap: 'anywhere',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'normal',
+                              }}
+                            >
+                              {connectionPreview || '-'}
+                            </div>
+                            <button
+                              type="button"
+                              className="headerDeleteBtn"
+                              style={test.okMs !== null ? { width: 64, justifySelf: 'end', background: 'rgba(80, 220, 140, .18)', borderColor: 'rgba(80, 220, 140, .45)', color: 'rgb(120, 255, 185)' } : { width: 64, justifySelf: 'end' }}
+                              onClick={() => void testSqlConnection(conn.id)}
+                              disabled={test.inFlight || !connectionString}
+                            >
+                              {test.inFlight ? 'Testing...' : test.okMs !== null ? `${test.okMs}ms` : 'Test'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {test.error ? (
+                          <div className="section" style={{ gap: 6 }}>
+                            <div className="small" style={{ color: '#ff9a9a' }}>{test.error}</div>
+                            {test.log ? (
+                              <div
+                                className="mono"
+                                style={{
+                                  fontSize: 12,
+                                  lineHeight: 1.35,
+                                  padding: 10,
+                                  borderRadius: 10,
+                                  border: '1px solid rgba(255,255,255,.12)',
+                                  background: 'rgba(255,255,255,.04)',
+                                  whiteSpace: 'pre-wrap',
+                                  overflowWrap: 'anywhere',
+                                }}
+                              >
+                                {test.log}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </details>
+                  )
+                })}
+                <div className="section" style={{ marginTop: 2 }}>
+                  <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        <div className="modalActions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+          <button onClick={closeSettings}>Save</button>
         </div>
       </dialog>
 
@@ -2661,6 +3192,7 @@ export default function App() {
         onClose={() => setSqlTerminalOpen(false)}
         collections={collections}
         environmentsByCollection={envByCollection}
+        extraConnections={globalSqlConnections.length ? [globalSqlConnections[0]] : []}
       />
 
       {showUpdateToast && hasPendingUpdate ? (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
-import type { Environment } from '../../../shared/types/environment'
+import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
 
@@ -134,9 +134,21 @@ function formatTime(d: Date) {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
-function buildDbConnOptions(collections: Collection[], envByCollection: Record<string, Environment>): DbConnOption[] {
+function buildDbConnOptions(
+  collections: Collection[],
+  envByCollection: Record<string, Environment>,
+  extraConnections: GlobalSqlConnectionItem[] | undefined,
+): DbConnOption[] {
   const byId = new Map(collections.map(c => [c.id, c]))
   const out: DbConnOption[] = []
+  const appSignatures = new Set<string>()
+
+  for (const conn of extraConnections ?? []) {
+    if (!conn) continue
+    const connectionString = buildDbConnectionString(conn)
+    if (!connectionString) continue
+    appSignatures.add(`${conn.type}|${connectionString}`)
+  }
 
   for (const [collectionId, env] of Object.entries(envByCollection)) {
     if (!env) continue
@@ -150,6 +162,7 @@ function buildDbConnOptions(collections: Collection[], envByCollection: Record<s
     const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
     const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
     if (!connectionString) continue
+    if (appSignatures.has(`${type}|${connectionString}`)) continue
 
     const connectionPreview = getDbConnectionStringPreview(connectionString, false)
     out.push({
@@ -162,6 +175,20 @@ function buildDbConnOptions(collections: Collection[], envByCollection: Record<s
     })
   }
 
+  for (const conn of (extraConnections ?? []).slice(0, 1)) {
+    if (!conn) continue
+    const connectionString = buildDbConnectionString(conn)
+    if (!connectionString) continue
+    out.push({
+      id: `app:${conn.id}`,
+      label: 'App',
+      type: conn.type,
+      connectionString,
+      connectionPreview: getDbConnectionStringPreview(connectionString, false),
+      variables: {},
+    })
+  }
+
   return out.sort((a, b) => a.label.localeCompare(b.label))
 }
 
@@ -170,6 +197,7 @@ export function SqlTerminalDrawer(props: {
   onClose: () => void
   collections: Collection[]
   environmentsByCollection: Record<string, Environment>
+  extraConnections?: GlobalSqlConnectionItem[]
 }) {
   const { open, onClose } = props
 
@@ -211,7 +239,10 @@ export function SqlTerminalDrawer(props: {
     applying: false,
   })
 
-  const connOptions = useMemo(() => buildDbConnOptions(props.collections, props.environmentsByCollection), [props.collections, props.environmentsByCollection])
+  const connOptions = useMemo(
+    () => buildDbConnOptions(props.collections, props.environmentsByCollection, props.extraConnections),
+    [props.collections, props.environmentsByCollection, props.extraConnections],
+  )
   const selectedConn = useMemo(() => connOptions.find(c => c.id === selectedConnId) ?? null, [connOptions, selectedConnId])
 
   useEffect(() => {

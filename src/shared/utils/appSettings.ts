@@ -1,3 +1,6 @@
+import type { GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../types/environment'
+import { DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS } from '../types/environment'
+
 export type CaCertificate = {
   id: string
   pem: string
@@ -12,11 +15,15 @@ export type CaCertificate = {
 export type AppSettings = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
+  globalSql: GlobalSqlConnectionSettings
+  globalSqlConnections: GlobalSqlConnectionItem[]
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
   caCertificates: [],
+  globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
+  globalSqlConnections: [],
 }
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
@@ -59,7 +66,61 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       .filter((x): x is CaCertificate => !!x)
     : DEFAULT_APP_SETTINGS.caCertificates
 
-  return { validateCertificates, caCertificates }
+  const rawGlobalSql = rec.globalSql
+  const baseSql = DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS
+  const globalSql: GlobalSqlConnectionSettings = (() => {
+    if (!rawGlobalSql || typeof rawGlobalSql !== 'object') return { ...baseSql }
+    const sqlRec = rawGlobalSql as Record<string, unknown>
+    const type = sqlRec.type === 'mysql' ? 'mysql' : 'postgres'
+    const sslRaw = typeof sqlRec.sslmode === 'string' ? sqlRec.sslmode : ''
+    const sslmode =
+      sslRaw === 'disable' || sslRaw === 'allow' || sslRaw === 'prefer' || sslRaw === 'require' || sslRaw === 'verify-ca' || sslRaw === 'verify-full'
+        ? sslRaw
+        : 'prefer'
+    const defaultPort = type === 'mysql' ? '3306' : '5432'
+    return {
+      type,
+      sslmode,
+      host: typeof sqlRec.host === 'string' ? sqlRec.host : '',
+      port: typeof sqlRec.port === 'string' ? sqlRec.port : defaultPort,
+      database: typeof sqlRec.database === 'string' ? sqlRec.database : '',
+      username: typeof sqlRec.username === 'string' ? sqlRec.username : '',
+      password: typeof sqlRec.password === 'string' ? sqlRec.password : '',
+    }
+  })()
+
+  const rawGlobalSqlConnections = rec.globalSqlConnections
+  const globalSqlConnections: GlobalSqlConnectionItem[] = Array.isArray(rawGlobalSqlConnections)
+    ? rawGlobalSqlConnections
+      .filter(x => x && typeof x === 'object')
+      .map(x => x as Record<string, unknown>)
+      .map((x): GlobalSqlConnectionItem | null => {
+        const id = typeof x.id === 'string' ? x.id.trim() : ''
+        const name = typeof x.name === 'string' ? x.name.trim() : ''
+        if (!id || !name) return null
+        const type = x.type === 'mysql' ? 'mysql' : 'postgres'
+        const sslRaw = typeof x.sslmode === 'string' ? x.sslmode : ''
+        const sslmode =
+          sslRaw === 'disable' || sslRaw === 'allow' || sslRaw === 'prefer' || sslRaw === 'require' || sslRaw === 'verify-ca' || sslRaw === 'verify-full'
+            ? sslRaw
+            : 'prefer'
+        const defaultPort = type === 'mysql' ? '3306' : '5432'
+        return {
+          id,
+          name,
+          type,
+          sslmode,
+          host: typeof x.host === 'string' ? x.host : '',
+          port: typeof x.port === 'string' ? x.port : defaultPort,
+          database: typeof x.database === 'string' ? x.database : '',
+          username: typeof x.username === 'string' ? x.username : '',
+          password: typeof x.password === 'string' ? x.password : '',
+        }
+      })
+      .filter((x): x is GlobalSqlConnectionItem => !!x)
+    : []
+
+  return { validateCertificates, caCertificates, globalSql, globalSqlConnections }
 }
 
 export function saveAppSettings(settings: AppSettings, storage: Storage = localStorage) {
