@@ -3333,7 +3333,20 @@ export function RequestEditor(props: {
     const parsed = parseUrlInput(raw)
 
     const baseNorm = baseUrl.replace(/\/+$/, '')
-    const parsedTemplate = parsed.template.trim()
+    const baseScheme = /^https:\/\//i.test(baseNorm) ? 'https' : 'http'
+    const baseWithoutScheme = baseNorm.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '')
+    let parsedTemplate = parsed.template.trim()
+    if (
+      parsedTemplate &&
+      !isAbsoluteUrl(parsedTemplate) &&
+      !parsedTemplate.startsWith('//') &&
+      baseWithoutScheme
+    ) {
+      const normalizedInput = parsedTemplate.replace(/^\/+/, '')
+      if (normalizedInput.toLowerCase().startsWith(baseWithoutScheme.toLowerCase())) {
+        parsedTemplate = `${baseScheme}://${normalizedInput}`
+      }
+    }
     const parsedNorm = parsedTemplate.replace(/\/+$/, '')
 
     const defaultAbsolute = (baseUrl ? joinUrlParts(baseUrl, props.request.path) : props.request.urlTemplate).trim()
@@ -3356,7 +3369,7 @@ export function RequestEditor(props: {
     setUrlTemplateOverride(nextOverride)
 
     const specPathNames = props.request.params.filter(p => p.in === 'path').map(p => p.name).filter(Boolean)
-    const nextPathNames = new Set<string>([...specPathNames, ...extractPathParamNamesFromTemplate(parsed.template || '')])
+    const nextPathNames = new Set<string>([...specPathNames, ...extractPathParamNamesFromTemplate(parsedTemplate || '')])
     setPathParams(prev => {
       let changed = false
       const next = { ...prev }
