@@ -161,7 +161,6 @@ export default function App() {
   const [sqlConnTypeMenuOpenId, setSqlConnTypeMenuOpenId] = useState<string | null>(null)
   const [sqlConnSslMenuOpenId, setSqlConnSslMenuOpenId] = useState<string | null>(null)
   const [sqlConnDeleteArmedId, setSqlConnDeleteArmedId] = useState<string | null>(null)
-  const [sqlConnShowPasswordById, setSqlConnShowPasswordById] = useState<Record<string, boolean>>({})
   const [sqlConnTestById, setSqlConnTestById] = useState<Record<string, { inFlight: boolean, error: string | null, log: string | null, okMs: number | null }>>({})
   const sqlConnTestTimerByIdRef = useRef<Record<string, number>>({})
   const sqlConnDeleteArmTimerRef = useRef<number | null>(null)
@@ -306,12 +305,6 @@ export default function App() {
 
   function deleteGlobalSqlConnection(connectionId: string) {
     setGlobalSqlConnections(prev => removeGlobalSqlConnectionItem(prev, connectionId))
-    setSqlConnShowPasswordById(prev => {
-      if (!(connectionId in prev)) return prev
-      const next = { ...prev }
-      delete next[connectionId]
-      return next
-    })
     setSqlConnTestById(prev => {
       if (!(connectionId in prev)) return prev
       const next = { ...prev }
@@ -2997,10 +2990,9 @@ export default function App() {
             ) : (
               <div style={{ display: 'grid', gap: 8 }}>
                 {globalSqlConnections.map((conn, idx) => {
-                  const showPassword = !!sqlConnShowPasswordById[conn.id]
                   const test = sqlConnTestById[conn.id] ?? { inFlight: false, error: null, log: null, okMs: null }
                   const connectionString = buildDbConnectionString(conn)
-                  const connectionPreview = getDbConnectionStringPreview(connectionString, showPassword)
+                  const connectionPreview = getDbConnectionStringPreview(connectionString)
                   return (
                     <details key={conn.id} className="accordion">
                       <summary>
@@ -3184,29 +3176,20 @@ export default function App() {
 
                         <div className="formRow">
                           <div className="formLabel">Password</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, alignItems: 'center' }}>
                             <input
                               className="mono"
-                              type="text"
+                              type="password"
                               value={conn.password}
                               onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, password: e.target.value }))}
                               autoComplete="off"
                               autoCorrect="off"
                               autoCapitalize="none"
                               spellCheck={false}
-                              style={showPassword ? undefined : ({ WebkitTextSecurity: 'disc' } as any)}
+                              onCopy={e => e.preventDefault()}
+                              onCut={e => e.preventDefault()}
                               placeholder="********"
                             />
-                            <button
-                              type="button"
-                              className="headerDeleteBtn"
-                              style={{ width: 64 }}
-                              onClick={() => setSqlConnShowPasswordById(prev => ({ ...prev, [conn.id]: !prev[conn.id] }))}
-                              aria-label={showPassword ? 'Hide password' : 'Show password'}
-                              title={showPassword ? 'Hide' : 'Show'}
-                            >
-                              {showPassword ? 'Hide' : 'Show'}
-                            </button>
                           </div>
                         </div>
 
@@ -3222,7 +3205,10 @@ export default function App() {
                                 overflowWrap: 'anywhere',
                                 wordBreak: 'break-word',
                                 whiteSpace: 'normal',
+                                userSelect: 'none',
                               }}
+                              onCopy={e => e.preventDefault()}
+                              onCut={e => e.preventDefault()}
                             >
                               {connectionPreview || '-'}
                             </div>

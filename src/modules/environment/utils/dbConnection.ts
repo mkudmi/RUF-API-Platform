@@ -94,8 +94,7 @@ export function buildDbConnectionString(state: DbFormState): string {
   }
 }
 
-export function getDbConnectionStringPreview(connectionString: string, showPassword: boolean): string {
-  if (showPassword) return connectionString
+export function getDbConnectionStringPreview(connectionString: string): string {
   if (!connectionString) return ''
   try {
     const u = new URL(connectionString)

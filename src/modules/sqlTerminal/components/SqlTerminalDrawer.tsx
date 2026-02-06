@@ -170,7 +170,7 @@ function buildDbConnOptions(
     const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
     if (!connectionString) continue
 
-    const connectionPreview = getDbConnectionStringPreview(connectionString, false)
+    const connectionPreview = getDbConnectionStringPreview(connectionString)
     out.push({
       id: `collection:${collectionId}`,
       label: `Collection - ${collection.name || collectionId}`,
@@ -190,7 +190,7 @@ function buildDbConnOptions(
       label: `App - ${conn.name || 'Connection'}`,
       type: conn.type,
       connectionString,
-      connectionPreview: getDbConnectionStringPreview(connectionString, false),
+      connectionPreview: getDbConnectionStringPreview(connectionString),
       variables: {},
     })
   }

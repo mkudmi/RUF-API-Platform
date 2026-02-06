@@ -65,7 +65,6 @@ export function EnvironmentSettings(props: {
   const [dbDatabase, setDbDatabase] = useState(() => initialDb.database)
   const [dbUsername, setDbUsername] = useState(() => initialDb.username)
   const [dbPassword, setDbPassword] = useState(() => initialDb.password)
-  const [dbShowPassword, setDbShowPassword] = useState(false)
   const [dbTypeMenuOpen, setDbTypeMenuOpen] = useState(false)
   const [dbSslModeMenuOpen, setDbSslModeMenuOpen] = useState(false)
   const [dbAccordionOpen, setDbAccordionOpen] = useState(() => hasDbConfigInEnv(props.env))
@@ -90,8 +89,8 @@ export function EnvironmentSettings(props: {
   )
 
   const dbConnectionStringPreview = useMemo(() => {
-    return getDbConnectionStringPreview(dbConnectionString, dbShowPassword)
-  }, [dbConnectionString, dbShowPassword])
+    return getDbConnectionStringPreview(dbConnectionString)
+  }, [dbConnectionString])
 
   const [error, setError] = useState<string | null>(null)
 
@@ -133,7 +132,6 @@ export function EnvironmentSettings(props: {
     setDbDatabase(nextDb.database)
     setDbUsername(nextDb.username)
     setDbPassword(nextDb.password)
-    setDbShowPassword(false)
     setDbAccordionOpen(hasDbConfigInEnv(props.env))
     dialogRef.current?.showModal()
   }
@@ -313,7 +311,6 @@ export function EnvironmentSettings(props: {
     setDbUsername('')
     setDbPassword('')
     setDbSslMode('prefer')
-    setDbShowPassword(false)
 
     setDbTestError(null)
     setDbTestLog(null)
@@ -690,10 +687,10 @@ export function EnvironmentSettings(props: {
 
             <div className="formRow">
               <div className="formLabel">Password</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, alignItems: 'center' }}>
                 <input
                   className="mono"
-                  type="text"
+                  type="password"
                   name="ruf_db_secret"
                   value={dbPassword}
                   onChange={e => setDbPassword(e.target.value)}
@@ -701,19 +698,10 @@ export function EnvironmentSettings(props: {
                   autoCorrect="off"
                   autoCapitalize="none"
                   spellCheck={false}
-                  style={dbShowPassword ? undefined : ({ WebkitTextSecurity: 'disc' } as any)}
+                  onCopy={e => e.preventDefault()}
+                  onCut={e => e.preventDefault()}
                   placeholder="••••••••"
                 />
-                <button
-                  type="button"
-                  className="headerDeleteBtn"
-                  style={{ width: 64 }}
-                  onClick={() => setDbShowPassword(v => !v)}
-                  aria-label={dbShowPassword ? 'Hide password' : 'Show password'}
-                  title={dbShowPassword ? 'Hide' : 'Show'}
-                >
-                  {dbShowPassword ? 'Hide' : 'Show'}
-                </button>
               </div>
             </div>
 
@@ -729,7 +717,10 @@ export function EnvironmentSettings(props: {
                     overflowWrap: 'anywhere',
                     wordBreak: 'break-word',
                     whiteSpace: 'normal',
+                    userSelect: 'none',
                   }}
+                  onCopy={e => e.preventDefault()}
+                  onCut={e => e.preventDefault()}
                 >
                   {dbConnectionStringPreview || '—'}
                 </div>
