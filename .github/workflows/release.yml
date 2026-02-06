@@ -59,3 +59,4 @@ jobs:
           releaseBody: "See the assets to download this version."
           releaseDraft: false
           prerelease: false
+          args: "--bundles app,dmg"
