@@ -61,8 +61,8 @@ export async function initPersistentLocalStorageBridge() {
 
     saveInFlight = true
     try {
-      const entriesToPersist = collectPersistedEntries(storage)
-      await tauriInvoke('storage_save', { args: { entries: entriesToPersist } })
+      const snapshot = collectPersistedEntries(storage)
+      await tauriInvoke('storage_save', { args: { entries: snapshot } })
     } catch {
       // best-effort persistence; keep app behavior unchanged on failure
     } finally {
@@ -97,6 +97,13 @@ export async function initPersistentLocalStorageBridge() {
     originalClear.call(this)
     if (hadPersistedKeys) queueSave()
   }
+
+  window.addEventListener('pagehide', () => {
+    void flush()
+  })
+  window.addEventListener('beforeunload', () => {
+    void flush()
+  })
 
   queueSave()
 }
