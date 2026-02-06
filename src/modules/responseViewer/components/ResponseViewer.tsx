@@ -66,6 +66,24 @@ function formatDateTime24(ts: number) {
   return `${dd}.${mm}.${yyyy} ${hh}:${min}`
 }
 
+function stripUrlParams(url: string): string {
+  const raw = (url || '').trim()
+  if (!raw) return ''
+  const q = raw.indexOf('?')
+  const h = raw.indexOf('#')
+  let cut = raw.length
+  if (q >= 0) cut = Math.min(cut, q)
+  if (h >= 0) cut = Math.min(cut, h)
+  return raw.slice(0, cut)
+}
+
+function getSortedRecordEntries(obj: Record<string, string> | undefined): Array<{ key: string, value: string }> {
+  if (!obj) return []
+  return Object.entries(obj)
+    .map(([key, value]) => ({ key, value: String(value ?? '') }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+}
+
 function sanitizeForLineCounting(text: string) {
   return (text || '').replaceAll('\r', '')
 }
@@ -152,9 +170,12 @@ export function ResponseViewer(props: {
   const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
   const responseSearchHistoryPanelRef = useRef<HTMLDivElement | null>(null)
+  const historyInfoPanelRef = useRef<HTMLDivElement | null>(null)
   const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>(() => loadResponseSearchHistory())
   const [responseSearchHistoryOpen, setResponseSearchHistoryOpen] = useState(false)
   const [responseSearchHistoryAnchor, setResponseSearchHistoryAnchor] = useState<{ left: number, top: number, width: number, placement: 'above' | 'below' } | null>(null)
+  const [historyInfoOpenId, setHistoryInfoOpenId] = useState<string | null>(null)
+  const [historyInfoAnchor, setHistoryInfoAnchor] = useState<{ left: number, top: number, width: number, placement: 'above' | 'below' } | null>(null)
   const sizePopoverAnchorRef = useRef<HTMLSpanElement | null>(null)
   const sizePopoverCloseTimerRef = useRef<number | null>(null)
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
@@ -204,6 +225,20 @@ export function ResponseViewer(props: {
     ? JSON.stringify({ requestHeaders: result.requestHeaders ?? {}, responseHeaders: result.responseHeaders ?? {} }, null, 2)
     : ''
   const historyItems = props.historyItems ?? []
+  const activeHistoryInfoItem = useMemo(
+    () => (historyInfoOpenId ? historyItems.find(item => item.id === historyInfoOpenId) ?? null : null),
+    [historyInfoOpenId, historyItems],
+  )
+  const historyInfoMaxHeightPx = useMemo(() => {
+    if (!historyInfoAnchor) return undefined
+    const margin = 8
+    const hardCap = 420
+    const available =
+      historyInfoAnchor.placement === 'above'
+        ? Math.max(120, historyInfoAnchor.top - margin)
+        : Math.max(120, window.innerHeight - historyInfoAnchor.top - margin)
+    return Math.max(120, Math.min(hardCap, available))
+  }, [historyInfoAnchor])
   const copyPayload = tab === 'body' ? bodyView.text : headersCopyPayload
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
@@ -295,6 +330,34 @@ export function ResponseViewer(props: {
   function closeResponseSearchHistoryMenu() {
     setResponseSearchHistoryOpen(false)
     setResponseSearchHistoryAnchor(null)
+  }
+
+  function closeHistoryInfoMenu() {
+    setHistoryInfoOpenId(null)
+    setHistoryInfoAnchor(null)
+  }
+
+  function toggleHistoryInfoMenu(itemId: string, anchorEl: HTMLElement) {
+    if (historyInfoOpenId === itemId) {
+      closeHistoryInfoMenu()
+      return
+    }
+
+    const rect = anchorEl.getBoundingClientRect()
+    const margin = 8
+    const assumedMaxHeight = 300
+    const width = 360
+    let left = rect.right - width
+    const aboveBottom = rect.top - 6
+    const canPlaceAbove = aboveBottom - assumedMaxHeight >= margin
+    const placement: 'above' | 'below' = canPlaceAbove ? 'above' : 'below'
+    const top = placement === 'above' ? aboveBottom : (rect.bottom + 6)
+
+    if (left + width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - margin - width)
+    if (left < margin) left = margin
+
+    setHistoryInfoOpenId(itemId)
+    setHistoryInfoAnchor({ left, top, width, placement })
   }
 
   function toggleResponseSearch() {
@@ -451,6 +514,7 @@ export function ResponseViewer(props: {
       setResponseSearchOpen(false)
       closeResponseSearchHistoryMenu()
     }
+    if (nextTab !== 'history') closeHistoryInfoMenu()
     props.onTabChange(nextTab)
   }
 
@@ -482,6 +546,35 @@ export function ResponseViewer(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [responseSearchHistoryOpen])
+
+  useEffect(() => {
+    if (!historyInfoOpenId) return
+    if (historyItems.some(item => item.id === historyInfoOpenId)) return
+    closeHistoryInfoMenu()
+  }, [historyInfoOpenId, historyItems])
+
+  useEffect(() => {
+    if (!historyInfoOpenId) return
+
+    function onPointerDown(e: PointerEvent) {
+      const t = e.target as HTMLElement | null
+      if (!t) return
+      if (historyInfoPanelRef.current && historyInfoPanelRef.current.contains(t)) return
+      if (t.closest?.('[data-history-info-btn]')) return
+      closeHistoryInfoMenu()
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeHistoryInfoMenu()
+    }
+
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [historyInfoOpenId])
 
   const closeSizePopover = useCallback(() => {
     if (sizePopoverCloseTimerRef.current !== null) {
@@ -543,15 +636,16 @@ export function ResponseViewer(props: {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span className={`badge ${statusClass(result.status)}`}>
+          <span className={`badge ${statusClass(result.status)}`} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             HTTP {result.status}{result.statusText ? ` ${compactStatusText(result.statusText)}` : ''}
           </span>
-          <span className="small" style={{ opacity: 0.6 }}>·</span>
-          <span className="small">{result.timeMs} ms</span>
-          <span className="small" style={{ opacity: 0.6 }}>·</span>
+          <span className="small" style={{ opacity: 0.6, whiteSpace: 'nowrap', flex: '0 0 auto' }}>·</span>
+          <span className="small" style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}>{result.timeMs} ms</span>
+          <span className="small" style={{ opacity: 0.6, whiteSpace: 'nowrap', flex: '0 0 auto' }}>·</span>
           <span
             ref={sizePopoverAnchorRef}
             className="small sizePopoverWrap"
+            style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}
             tabIndex={0}
             onMouseEnter={openSizePopover}
             onMouseLeave={scheduleCloseSizePopover}
@@ -560,7 +654,7 @@ export function ResponseViewer(props: {
           >
             <span className="sizePopoverTrigger">{formatBytes(result.responseBytes)}</span>
           </span>
-          {inFlightCount > 0 ? <span className="small" style={{ marginLeft: 'auto' }}>Sending…</span> : null}
+          {inFlightCount > 0 ? <span className="small">Sending…</span> : null}
         </div>
       ) : (
         <div className="small">{statusLine}</div>
@@ -630,7 +724,7 @@ export function ResponseViewer(props: {
 
       {tab === 'history' ? (
         <div className="historyList" style={{ flex: 1, minHeight: 0 }}>
-          <div className="small" style={{ opacity: 0.8, marginTop: 10 }}>
+          <div className="small" style={{ opacity: 0.8, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Click an item to load its params/body into the request editor.
           </div>
           {historyItems.length ? (
@@ -640,15 +734,18 @@ export function ResponseViewer(props: {
                   key={item.id}
                   type="button"
                   className="historyItem"
-                  onClick={() => props.onSelectHistoryItem?.(item)}
+                  onClick={() => {
+                    closeHistoryInfoMenu()
+                    props.onSelectHistoryItem?.(item)
+                  }}
                 >
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'nowrap' }}>
                         <span className={`badge ${historyStatusClass(item)}`}>
                           {formatHistoryStatus(item)}
                         </span>
-                        <div className="mono" style={{ fontSize: 13 }}>
+                        <div className="mono" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                           {item.method}
                         </div>
                         <div className="small" style={{ opacity: 0.75, whiteSpace: 'nowrap' }}>
@@ -656,6 +753,21 @@ export function ResponseViewer(props: {
                         </div>
                       </div>
                     </div>
+
+                    <button
+                      type="button"
+                      className="iconBtn historyInfoBtn"
+                      title="Details"
+                      aria-label="History item details"
+                      data-history-info-btn
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toggleHistoryInfoMenu(item.id, e.currentTarget)
+                      }}
+                    >
+                      <span className="historyInfoGlyph">i</span>
+                    </button>
 
                     <button
                       type="button"
@@ -739,6 +851,111 @@ export function ResponseViewer(props: {
           </div>
         </div>
       )}
+
+      {historyInfoOpenId && historyInfoAnchor && activeHistoryInfoItem
+        ? createPortal(
+          <div
+            className="selectMenuPanel historyInfoPanel"
+            ref={historyInfoPanelRef}
+            style={{
+              position: 'fixed',
+              left: historyInfoAnchor.left,
+              top: historyInfoAnchor.top,
+              width: historyInfoAnchor.width,
+              maxHeight: historyInfoMaxHeightPx ? `${historyInfoMaxHeightPx}px` : undefined,
+              transform: historyInfoAnchor.placement === 'above' ? 'translateY(-100%)' : undefined,
+              zIndex: 230,
+            }}
+          >
+            <div className="historyInfoSection">
+              <div className="historyInfoTitle">URL</div>
+              {stripUrlParams(activeHistoryInfoItem.url || '')
+                ? (
+                  <div className="historyInfoList">
+                    <div className="historyInfoRow">
+                      <div className="mono historyInfoValue historyInfoUrlValue">{stripUrlParams(activeHistoryInfoItem.url || '')}</div>
+                    </div>
+                  </div>
+                )
+                : <div className="historyInfoEmpty small">No URL</div>}
+            </div>
+
+            <div className="historyInfoSection">
+              <div className="historyInfoTitle">Headers</div>
+              {(() => {
+                const headers = getSortedRecordEntries(activeHistoryInfoItem.draft?.headers)
+                return headers.length ? (
+                  <div className="historyInfoList">
+                    {headers.map(entry => (
+                      <div key={entry.key} className="historyInfoRow">
+                        <div className="mono historyInfoValue">{`${entry.key}: ${entry.value || ''}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="historyInfoEmpty small">No headers</div>
+                )
+              })()}
+            </div>
+
+            <div className="historyInfoSection">
+              <div className="historyInfoTitle">Params</div>
+              {(() => {
+                const path = getSortedRecordEntries(activeHistoryInfoItem.draft?.pathParams).map(x => ({ ...x, key: `path.${x.key}` }))
+                const query = getSortedRecordEntries(activeHistoryInfoItem.draft?.queryParams).map(x => ({ ...x, key: `query.${x.key}` }))
+                const all = [...path, ...query]
+                return all.length ? (
+                  <div className="historyInfoList">
+                    {all.map(entry => (
+                      <div key={entry.key} className="historyInfoRow">
+                        <div className="mono historyInfoValue">{`${entry.key}: ${entry.value || ''}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="historyInfoEmpty small">No params</div>
+                )
+              })()}
+            </div>
+
+            <div className="historyInfoSection">
+              <div className="historyInfoTitle">Body</div>
+              {typeof activeHistoryInfoItem.draft?.bodyText === 'string' && activeHistoryInfoItem.draft.bodyText.trim()
+                ? <pre className="historyInfoBody mono">{activeHistoryInfoItem.draft.bodyText}</pre>
+                : <div className="historyInfoEmpty small">No body</div>}
+            </div>
+
+            <div className="historyInfoSection">
+              <div className="historyInfoTitle">File</div>
+              {(() => {
+                const rawRows = Array.isArray(activeHistoryInfoItem.draft?.fileRows) ? activeHistoryInfoItem.draft.fileRows : []
+                const files = rawRows
+                  .map(row => {
+                    const fieldName = typeof row?.fieldName === 'string' ? row.fieldName.trim() : ''
+                    const fileName = typeof (row as any)?.fileName === 'string' ? (row as any).fileName.trim() : ''
+                    const isActive = (row as any)?.isActive !== false
+                    return { fieldName, fileName, isActive }
+                  })
+                  .filter(row => row.isActive && row.fieldName && row.fileName)
+                  .sort((a, b) => a.fieldName.localeCompare(b.fieldName))
+
+                return files.length ? (
+                  <div className="historyInfoList">
+                    {files.map((entry, idx) => (
+                      <div key={`${entry.fieldName}:${entry.fileName}:${idx}`} className="historyInfoRow">
+                        <div className="mono historyInfoValue">{`${entry.fieldName}: ${entry.fileName}`}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="historyInfoEmpty small">No files</div>
+                )
+              })()}
+            </div>
+          </div>,
+          document.body,
+        )
+        : null}
 
       <div className="responseFooterWrap">
           <div className={`responseSearchWrap ${tab === 'body' && responseSearchOpen ? 'responseSearchWrapOpen' : ''}`}>

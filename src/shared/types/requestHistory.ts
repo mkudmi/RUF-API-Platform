@@ -27,7 +27,7 @@ export type RequestDraft = {
   bodyFormat?: 'auto' | 'json' | 'xml' | 'yaml' | 'text'
   fileFieldName?: string
   fileFieldNames?: string[]
-  fileRows?: Array<{ fieldName?: string, isActive?: boolean }>
+  fileRows?: Array<{ fieldName?: string, fileName?: string, isActive?: boolean }>
   baseUrlKey?: string
   urlTemplateOverride?: string
 }
@@ -36,6 +36,7 @@ export type RequestHistoryItem = {
   id: string
   createdAt: number
   method: HttpMethod
+  url?: string
   runId?: string
   responseStatus: number | null
   responseStatusText?: string

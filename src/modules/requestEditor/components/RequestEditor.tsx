@@ -2866,6 +2866,7 @@ export function RequestEditor(props: {
         id: uid('hist'),
         createdAt: Date.now(),
         method: props.request.method,
+        url: displayUrl,
         runId,
         responseStatus: null,
         draft: {
@@ -2887,7 +2888,7 @@ export function RequestEditor(props: {
            bodyFormat,
            fileFieldName: snapshot.fileFieldName,
            fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
-           fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), isActive: r.isActive })),
+           fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? '', isActive: r.isActive })),
            baseUrlKey,
            urlTemplateOverride,
          },

@@ -20,6 +20,7 @@ function normalizeHistoryItem(raw: unknown): RequestHistoryItem | null {
   const id = typeof raw.id === 'string' ? raw.id : ''
   const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : 0
   const method = typeof raw.method === 'string' ? (raw.method as any) : ''
+  const url = typeof raw.url === 'string' ? raw.url : undefined
   const runId = typeof raw.runId === 'string' ? raw.runId : undefined
   const responseStatus = typeof raw.responseStatus === 'number'
     ? raw.responseStatus
@@ -27,7 +28,7 @@ function normalizeHistoryItem(raw: unknown): RequestHistoryItem | null {
   const responseStatusText = typeof raw.responseStatusText === 'string' ? raw.responseStatusText : undefined
   const draft = isRecord(raw.draft) ? (raw.draft as any) : {}
   if (!id || !createdAt || !method) return null
-  return { id, createdAt, method, runId, responseStatus, responseStatusText, draft }
+  return { id, createdAt, method, url, runId, responseStatus, responseStatusText, draft }
 }
 
 export function loadRequestHistoryByRequestId(): Record<string, RequestHistoryItem[]> {
