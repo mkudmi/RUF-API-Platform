@@ -8,6 +8,7 @@ import {
   hasDbConfigInEnv,
   isDbEnvKey,
   mergeDbIntoVariables,
+  parseDbConnectionString,
   runDbConnectionTest,
 } from '../utils/dbConnection'
 import type { DbType, PgSslMode } from '../utils/dbConnection'
@@ -91,6 +92,8 @@ export function EnvironmentSettings(props: {
   const dbConnectionStringPreview = useMemo(() => {
     return getDbConnectionStringPreview(dbConnectionString)
   }, [dbConnectionString])
+  const [dbUrlInput, setDbUrlInput] = useState(dbConnectionStringPreview)
+  const [dbUrlFocused, setDbUrlFocused] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
 
@@ -132,6 +135,19 @@ export function EnvironmentSettings(props: {
     setDbDatabase(nextDb.database)
     setDbUsername(nextDb.username)
     setDbPassword(nextDb.password)
+    setDbUrlInput(
+      getDbConnectionStringPreview(
+        buildDbConnectionString({
+          type: nextDb.type,
+          sslmode: nextDb.sslmode,
+          host: nextDb.host,
+          port: nextDb.port,
+          database: nextDb.database,
+          username: nextDb.username,
+          password: nextDb.password,
+        }),
+      ),
+    )
     setDbAccordionOpen(hasDbConfigInEnv(props.env))
     dialogRef.current?.showModal()
   }
@@ -193,6 +209,11 @@ export function EnvironmentSettings(props: {
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [dbSslModeMenuOpen])
+
+  useEffect(() => {
+    if (dbUrlFocused) return
+    setDbUrlInput(dbConnectionStringPreview)
+  }, [dbConnectionStringPreview, dbUrlFocused])
 
   function setDbTypeAndMaybeDefaultPort(nextType: DbType) {
     setDbType(nextType)
@@ -307,6 +328,7 @@ export function EnvironmentSettings(props: {
 
   function clearDbFormKeepPort() {
     setDbHost('')
+    setDbPort('')
     setDbDatabase('')
     setDbUsername('')
     setDbPassword('')
@@ -323,6 +345,19 @@ export function EnvironmentSettings(props: {
 
   function clearBaseUrlValue() {
     setBaseUrlRow(prev => ({ ...prev, value: '' }))
+  }
+
+  function applyParsedConnectionString(raw: string) {
+    const parsed = parseDbConnectionString(raw)
+    if (!parsed) return false
+    setDbType(parsed.type)
+    setDbSslMode(parsed.sslmode)
+    setDbHost(parsed.host)
+    setDbPort(parsed.port)
+    setDbDatabase(parsed.database)
+    setDbUsername(parsed.username)
+    setDbPassword(parsed.password)
+    return true
   }
 
   function updateVariableRow(i: number, next: VariableRow) {
@@ -681,6 +716,8 @@ export function EnvironmentSettings(props: {
                 className="mono"
                 value={dbUsername}
                 onChange={e => setDbUsername(e.target.value)}
+                onCopy={e => e.preventDefault()}
+                onCut={e => e.preventDefault()}
                 placeholder="postgres"
               />
             </div>
@@ -708,8 +745,47 @@ export function EnvironmentSettings(props: {
             <div className="formRow">
               <div className="formLabel">URL</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
-                <div
+                <input
                   className="mono"
+                  type="text"
+                  value={dbUrlInput}
+                  onChange={e => {
+                    const next = e.target.value
+                    setDbUrlInput(next)
+                    if (!next.trim()) {
+                      clearDbFormKeepPort()
+                      setError(null)
+                      return
+                    }
+                    const ok = applyParsedConnectionString(next)
+                    if (ok) setError(null)
+                  }}
+                  onPaste={e => {
+                    const pasted = e.clipboardData?.getData('text') ?? ''
+                    if (!pasted.trim()) return
+                    e.preventDefault()
+                    setDbUrlInput(pasted)
+                    const ok = applyParsedConnectionString(pasted)
+                    if (!ok) setError('Invalid DB URL. Use postgres://... or mysql://...')
+                    else setError(null)
+                  }}
+                  onBlur={() => {
+                    setDbUrlFocused(false)
+                    const raw = dbUrlInput.trim()
+                    if (!raw) {
+                      clearDbFormKeepPort()
+                      setDbUrlInput('')
+                      setError(null)
+                      return
+                    }
+                    const ok = applyParsedConnectionString(raw)
+                    if (!ok) setError('Invalid DB URL. Use postgres://... or mysql://...')
+                    else setError(null)
+                  }}
+                  onFocus={() => setDbUrlFocused(true)}
+                  onCopy={e => e.preventDefault()}
+                  onCut={e => e.preventDefault()}
+                  placeholder="Paste postgres://... or mysql://..."
                   style={{
                     fontSize: 12,
                     lineHeight: 1.25,
@@ -717,13 +793,8 @@ export function EnvironmentSettings(props: {
                     overflowWrap: 'anywhere',
                     wordBreak: 'break-word',
                     whiteSpace: 'normal',
-                    userSelect: 'none',
                   }}
-                  onCopy={e => e.preventDefault()}
-                  onCut={e => e.preventDefault()}
-                >
-                  {dbConnectionStringPreview || '—'}
-                </div>
+                />
                 <button
                   type="button"
                   className="headerDeleteBtn"

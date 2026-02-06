@@ -94,6 +94,41 @@ export function buildDbConnectionString(state: DbFormState): string {
   }
 }
 
+export function parseDbConnectionString(rawConnectionString: string): DbFormState | null {
+  const raw = rawConnectionString.trim().replace(/^jdbc:/i, '')
+  if (!raw) return null
+
+  try {
+    const u = new URL(raw)
+    const protocol = (u.protocol || '').toLowerCase()
+    let type: DbType
+    if (protocol === 'mysql:' || protocol === 'mysql2:') type = 'mysql'
+    else if (protocol === 'postgres:' || protocol === 'postgresql:') type = 'postgres'
+    else return null
+
+    const defaultPort = type === 'mysql' ? '3306' : '5432'
+    const sslRaw = (u.searchParams.get('sslmode') || '').trim().toLowerCase()
+    const sslmode: PgSslMode =
+      sslRaw === 'disable' || sslRaw === 'allow' || sslRaw === 'require' || sslRaw === 'verify-ca' || sslRaw === 'verify-full'
+        ? (sslRaw as PgSslMode)
+        : 'prefer'
+
+    const database = decodeURIComponent((u.pathname || '').replace(/^\/+/, ''))
+
+    return {
+      type,
+      sslmode,
+      host: u.hostname || '',
+      port: u.port || defaultPort,
+      database,
+      username: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+    }
+  } catch {
+    return null
+  }
+}
+
 export function getDbConnectionStringPreview(connectionString: string): string {
   if (!connectionString) return ''
   try {

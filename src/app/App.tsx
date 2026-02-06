@@ -9,6 +9,7 @@ import { EnvironmentSettings } from '../modules/environment'
 import {
   buildDbConnectionString,
   getDbConnectionStringPreview,
+  parseDbConnectionString,
   runDbConnectionTest,
   type DbType,
   type PgSslMode,
@@ -161,6 +162,7 @@ export default function App() {
   const [sqlConnTypeMenuOpenId, setSqlConnTypeMenuOpenId] = useState<string | null>(null)
   const [sqlConnSslMenuOpenId, setSqlConnSslMenuOpenId] = useState<string | null>(null)
   const [sqlConnDeleteArmedId, setSqlConnDeleteArmedId] = useState<string | null>(null)
+  const [sqlConnUrlInputById, setSqlConnUrlInputById] = useState<Record<string, string>>({})
   const [sqlConnTestById, setSqlConnTestById] = useState<Record<string, { inFlight: boolean, error: string | null, log: string | null, okMs: number | null }>>({})
   const sqlConnTestTimerByIdRef = useRef<Record<string, number>>({})
   const sqlConnDeleteArmTimerRef = useRef<number | null>(null)
@@ -305,6 +307,12 @@ export default function App() {
 
   function deleteGlobalSqlConnection(connectionId: string) {
     setGlobalSqlConnections(prev => removeGlobalSqlConnectionItem(prev, connectionId))
+    setSqlConnUrlInputById(prev => {
+      if (!(connectionId in prev)) return prev
+      const next = { ...prev }
+      delete next[connectionId]
+      return next
+    })
     setSqlConnTestById(prev => {
       if (!(connectionId in prev)) return prev
       const next = { ...prev }
@@ -2993,6 +3001,7 @@ export default function App() {
                   const test = sqlConnTestById[conn.id] ?? { inFlight: false, error: null, log: null, okMs: null }
                   const connectionString = buildDbConnectionString(conn)
                   const connectionPreview = getDbConnectionStringPreview(connectionString)
+                  const urlInput = sqlConnUrlInputById[conn.id] ?? connectionPreview
                   return (
                     <details key={conn.id} className="accordion">
                       <summary>
@@ -3171,7 +3180,14 @@ export default function App() {
 
                         <div className="formRow">
                           <div className="formLabel">Username</div>
-                          <input className="mono" value={conn.username} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, username: e.target.value }))} placeholder="postgres" />
+                          <input
+                            className="mono"
+                            value={conn.username}
+                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, username: e.target.value }))}
+                            onCopy={e => e.preventDefault()}
+                            onCut={e => e.preventDefault()}
+                            placeholder="postgres"
+                          />
                         </div>
 
                         <div className="formRow">
@@ -3196,8 +3212,99 @@ export default function App() {
                         <div className="formRow">
                           <div className="formLabel">URL</div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
-                            <div
+                            <input
                               className="mono"
+                              type="text"
+                              value={urlInput}
+                              onChange={e => {
+                                const next = e.target.value
+                                setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: next }))
+                                if (!next.trim()) {
+                                  updateGlobalSqlConnection(conn.id, prev => ({
+                                    ...prev,
+                                    sslmode: 'prefer',
+                                    host: '',
+                                    port: '',
+                                    database: '',
+                                    username: '',
+                                    password: '',
+                                  }))
+                                  return
+                                }
+                                const parsed = parseDbConnectionString(next)
+                                if (!parsed) return
+                                updateGlobalSqlConnection(conn.id, prev => ({
+                                  ...prev,
+                                  type: parsed.type,
+                                  sslmode: parsed.sslmode,
+                                  host: parsed.host,
+                                  port: parsed.port,
+                                  database: parsed.database,
+                                  username: parsed.username,
+                                  password: parsed.password,
+                                }))
+                              }}
+                              onPaste={e => {
+                                const pasted = e.clipboardData?.getData('text') ?? ''
+                                if (!pasted.trim()) return
+                                e.preventDefault()
+                                setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: pasted }))
+                                const parsed = parseDbConnectionString(pasted)
+                                if (!parsed) return
+                                updateGlobalSqlConnection(conn.id, prev => ({
+                                  ...prev,
+                                  type: parsed.type,
+                                  sslmode: parsed.sslmode,
+                                  host: parsed.host,
+                                  port: parsed.port,
+                                  database: parsed.database,
+                                  username: parsed.username,
+                                  password: parsed.password,
+                                }))
+                                setSqlConnUrlInputById(prev => {
+                                  if (!(conn.id in prev)) return prev
+                                  const nextState = { ...prev }
+                                  delete nextState[conn.id]
+                                  return nextState
+                                })
+                              }}
+                              onBlur={e => {
+                                const raw = e.target.value.trim()
+                                if (!raw) {
+                                  updateGlobalSqlConnection(conn.id, prev => ({
+                                    ...prev,
+                                    sslmode: 'prefer',
+                                    host: '',
+                                    port: '',
+                                    database: '',
+                                    username: '',
+                                    password: '',
+                                  }))
+                                  setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: '' }))
+                                  return
+                                }
+                                const parsed = parseDbConnectionString(raw)
+                                if (!parsed) return
+                                updateGlobalSqlConnection(conn.id, prev => ({
+                                  ...prev,
+                                  type: parsed.type,
+                                  sslmode: parsed.sslmode,
+                                  host: parsed.host,
+                                  port: parsed.port,
+                                  database: parsed.database,
+                                  username: parsed.username,
+                                  password: parsed.password,
+                                }))
+                                setSqlConnUrlInputById(prev => {
+                                  if (!(conn.id in prev)) return prev
+                                  const nextState = { ...prev }
+                                  delete nextState[conn.id]
+                                  return nextState
+                                })
+                              }}
+                              onCopy={e => e.preventDefault()}
+                              onCut={e => e.preventDefault()}
+                              placeholder="Paste postgres://... or mysql://..."
                               style={{
                                 fontSize: 12,
                                 lineHeight: 1.25,
@@ -3205,13 +3312,8 @@ export default function App() {
                                 overflowWrap: 'anywhere',
                                 wordBreak: 'break-word',
                                 whiteSpace: 'normal',
-                                userSelect: 'none',
                               }}
-                              onCopy={e => e.preventDefault()}
-                              onCut={e => e.preventDefault()}
-                            >
-                              {connectionPreview || '-'}
-                            </div>
+                            />
                             <button
                               type="button"
                               className="headerDeleteBtn"
