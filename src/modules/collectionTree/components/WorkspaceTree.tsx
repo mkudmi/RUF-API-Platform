@@ -3,6 +3,7 @@ import type { Collection, RequestItem, TreeSortMode } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace'
 import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
+import { getEffectiveWorkspaceSearchTreeOpenCommand, getSearchOpenWorkspaceFolders, getVisibleWorkspaceSearchTree, normalizeWorkspaceTreeSearch } from '../utils/workspaceTreeSearch'
 import { CollectionsTree } from './CollectionsTree'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'
@@ -71,7 +72,26 @@ export function WorkspaceTree(props: {
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const editInputRef = useRef<HTMLInputElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const searchTerm = useMemo(() => normalizeWorkspaceTreeSearch(searchQuery), [searchQuery])
+
+  const { visibleCollections, visibleWorkspaceFolders } = useMemo(
+    () => getVisibleWorkspaceSearchTree(props.collections, props.workspace.folders, searchTerm),
+    [props.collections, props.workspace.folders, searchTerm],
+  )
+  const searchOpenWorkspaceFolders = useMemo(() => {
+    return getSearchOpenWorkspaceFolders(visibleWorkspaceFolders, searchTerm)
+  }, [searchTerm, visibleWorkspaceFolders])
+  const effectiveTreeOpenCommand = useMemo(() => {
+    return getEffectiveWorkspaceSearchTreeOpenCommand({
+      searchTerm,
+      treeOpenCommand: props.treeOpenCommand,
+      visibleWorkspaceFolderCount: visibleWorkspaceFolders.length,
+      visibleCollectionCount: visibleCollections.length,
+    })
+  }, [props.treeOpenCommand, searchTerm, visibleWorkspaceFolders.length, visibleCollections.length])
 
   function applyMenuPosition(panel: HTMLDivElement | null) {
     if (!panel) return
@@ -133,9 +153,9 @@ export function WorkspaceTree(props: {
       ids.push(folder.id)
       for (const child of folder.folders ?? []) visit(child)
     }
-    for (const folder of props.workspace.folders) visit(folder)
+    for (const folder of visibleWorkspaceFolders) visit(folder)
     setOpenWorkspaceFolders(new Set(ids))
-  }, [props.treeOpenCommand, props.workspace.folders])
+  }, [props.treeOpenCommand, visibleWorkspaceFolders])
 
   const workspaceFolderIds = useMemo(() => {
     const ids: string[] = []
@@ -143,9 +163,9 @@ export function WorkspaceTree(props: {
       ids.push(folder.id)
       for (const child of folder.folders ?? []) visit(child)
     }
-    for (const folder of props.workspace.folders) visit(folder)
+    for (const folder of visibleWorkspaceFolders) visit(folder)
     return ids
-  }, [props.workspace.folders])
+  }, [visibleWorkspaceFolders])
 
   const collectionTreeScopeIds = useMemo(() => {
     const scopes = ['root']
@@ -238,7 +258,7 @@ export function WorkspaceTree(props: {
   }, [editingFolderId])
 
   const { rootCollections, collectionsByWorkspaceFolderId } = useMemo(() => {
-    const byId = new Map(props.collections.map(c => [c.id, c]))
+    const byId = new Map(visibleCollections.map(c => [c.id, c]))
 
     const inAnyFolder = new Set<string>()
     const collectionsByWorkspaceFolderId: Record<string, Collection[]> = {}
@@ -256,11 +276,21 @@ export function WorkspaceTree(props: {
       for (const child of folder.folders ?? []) visit(child)
     }
 
-    for (const folder of props.workspace.folders) visit(folder)
+    for (const folder of visibleWorkspaceFolders) visit(folder)
 
-    const rootCollections = props.collections.filter(c => !inAnyFolder.has(c.id))
+    const rootCollections = visibleCollections.filter(c => !inAnyFolder.has(c.id))
     return { rootCollections, collectionsByWorkspaceFolderId }
-  }, [props.collections, props.workspace.folders])
+  }, [visibleCollections, visibleWorkspaceFolders])
+
+  useEffect(() => {
+    if (rootCollections.length) return
+    onCollectionScopeSummaryChange('root', {
+      totalCollections: 0,
+      openCollections: 0,
+      totalFolders: 0,
+      openFolders: 0,
+    })
+  }, [rootCollections.length])
 
   function renderWorkspaceFolder(folder: WorkspaceFolder, depth: number) {
     const cols = collectionsByWorkspaceFolderId[folder.id] ?? []
@@ -291,8 +321,9 @@ export function WorkspaceTree(props: {
       <details
         key={folder.id}
         className={depth ? 'treeGroup treeWorkspaceFolder treeWorkspaceFolderInner' : 'treeGroup treeWorkspaceFolder'}
-        open={openWorkspaceFolders.has(folder.id)}
+        open={searchTerm ? !!searchOpenWorkspaceFolders?.has(folder.id) : openWorkspaceFolders.has(folder.id)}
         onToggle={e => {
+          if (searchTerm) return
           const isOpen = (e.currentTarget as HTMLDetailsElement).open
           setOpenWorkspaceFolders(prev => {
             const next = new Set(prev)
@@ -452,7 +483,7 @@ export function WorkspaceTree(props: {
             environmentsByCollection={props.environmentsByCollection}
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
-            treeOpenCommand={props.treeOpenCommand}
+            treeOpenCommand={effectiveTreeOpenCommand}
             onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange(`wf:${folder.id}`, summary)}
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
@@ -499,39 +530,74 @@ export function WorkspaceTree(props: {
         })
       }}
     >
-      <div className="tree">
-        {props.workspace.folders.map(folder => renderWorkspaceFolder(folder, 0))}
+      <div className="workspaceTreeSearchWrap">
+        <div className="workspaceTreeSearchField">
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="workspaceTreeSearchInput"
+            placeholder="Search workspace tree..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            spellCheck={false}
+            aria-label="Search workspace tree"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              className="workspaceTreeSearchClearBtn"
+              aria-label="Clear search"
+              title="Clear"
+              onClick={() => {
+                setSearchQuery('')
+                requestAnimationFrame(() => searchInputRef.current?.focus())
+              }}
+            >
+              ×
+            </button>
+          ) : null}
+        </div>
+      </div>
 
-        <CollectionsTree
-          collections={rootCollections}
-          sortMode={props.sortMode}
-          environmentsByCollection={props.environmentsByCollection}
-          activeRequestId={props.activeRequestId}
-          inFlightCountByRequestId={props.inFlightCountByRequestId}
-          treeOpenCommand={props.treeOpenCommand}
-          onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
-          onPickRequest={props.onPickRequest}
-          onOpenEnv={props.onOpenEnv}
-          onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
-          onReloadCollectionFromFile={props.onReloadCollectionFromFile}
-          onAddRequest={props.onAddRequest}
-          onAddFolder={props.onAddFolder}
-          onAddRequestToFolder={props.onAddRequestToFolder}
-          onAddFolderToFolder={props.onAddFolderToFolder}
-          onRenameCollection={props.onRenameCollection}
-          onRenameFolder={props.onRenameFolder}
-          onRenameRequest={props.onRenameRequest}
-          onDuplicateCollection={props.onDuplicateCollection}
-          onDuplicateFolder={props.onDuplicateFolder}
-          onDuplicateRequest={props.onDuplicateRequest}
-          onMoveFolder={props.onMoveFolder}
-          onMoveRequest={props.onMoveRequest}
-          onMoveFolderToCollection={props.onMoveFolderToCollection}
-          onMoveRequestToCollection={props.onMoveRequestToCollection}
-          onDeleteFolder={props.onDeleteFolder}
-          onDeleteRequest={props.onDeleteRequest}
-          onDeleteCollection={props.onDeleteCollection}
-        />
+      <div className="tree">
+        {visibleWorkspaceFolders.map(folder => renderWorkspaceFolder(folder, 0))}
+
+        {rootCollections.length ? (
+          <CollectionsTree
+            collections={rootCollections}
+            sortMode={props.sortMode}
+            environmentsByCollection={props.environmentsByCollection}
+            activeRequestId={props.activeRequestId}
+            inFlightCountByRequestId={props.inFlightCountByRequestId}
+            treeOpenCommand={effectiveTreeOpenCommand}
+            onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
+            onPickRequest={props.onPickRequest}
+            onOpenEnv={props.onOpenEnv}
+            onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+            onReloadCollectionFromFile={props.onReloadCollectionFromFile}
+            onAddRequest={props.onAddRequest}
+            onAddFolder={props.onAddFolder}
+            onAddRequestToFolder={props.onAddRequestToFolder}
+            onAddFolderToFolder={props.onAddFolderToFolder}
+            onRenameCollection={props.onRenameCollection}
+            onRenameFolder={props.onRenameFolder}
+            onRenameRequest={props.onRenameRequest}
+            onDuplicateCollection={props.onDuplicateCollection}
+            onDuplicateFolder={props.onDuplicateFolder}
+            onDuplicateRequest={props.onDuplicateRequest}
+            onMoveFolder={props.onMoveFolder}
+            onMoveRequest={props.onMoveRequest}
+            onMoveFolderToCollection={props.onMoveFolderToCollection}
+            onMoveRequestToCollection={props.onMoveRequestToCollection}
+            onDeleteFolder={props.onDeleteFolder}
+            onDeleteRequest={props.onDeleteRequest}
+            onDeleteCollection={props.onDeleteCollection}
+          />
+        ) : null}
+
+        {!visibleWorkspaceFolders.length && !rootCollections.length ? (
+          <div className="workspaceTreeEmptyState small">No matches found</div>
+        ) : null}
       </div>
     </div>
   )
