@@ -156,14 +156,6 @@ function buildDbConnOptions(
 ): DbConnOption[] {
   const byId = new Map(collections.map(c => [c.id, c]))
   const out: DbConnOption[] = []
-  const appSignatures = new Set<string>()
-
-  for (const conn of extraConnections ?? []) {
-    if (!conn) continue
-    const connectionString = buildDbConnectionString(conn)
-    if (!connectionString) continue
-    appSignatures.add(`${conn.type}|${connectionString}`)
-  }
 
   for (const [collectionId, env] of Object.entries(envByCollection)) {
     if (!env) continue
@@ -177,12 +169,11 @@ function buildDbConnOptions(
     const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
     const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
     if (!connectionString) continue
-    if (appSignatures.has(`${type}|${connectionString}`)) continue
 
     const connectionPreview = getDbConnectionStringPreview(connectionString, false)
     out.push({
-      id: collectionId,
-      label: collection.name || collectionId,
+      id: `collection:${collectionId}`,
+      label: `Collection - ${collection.name || collectionId}`,
       type,
       connectionString,
       connectionPreview,
@@ -190,13 +181,13 @@ function buildDbConnOptions(
     })
   }
 
-  for (const conn of (extraConnections ?? []).slice(0, 1)) {
+  for (const conn of extraConnections ?? []) {
     if (!conn) continue
     const connectionString = buildDbConnectionString(conn)
     if (!connectionString) continue
     out.push({
       id: `app:${conn.id}`,
-      label: 'App',
+      label: `App - ${conn.name || 'Connection'}`,
       type: conn.type,
       connectionString,
       connectionPreview: getDbConnectionStringPreview(connectionString, false),
@@ -715,7 +706,7 @@ export function SqlTerminalDrawer(props: {
     if (busy) return
     const conn = selectedConn
     if (!conn) {
-      pushOutput([{ kind: 'err', text: 'No database connection selected. Configure DB in Environment settings.' }])
+      pushOutput([{ kind: 'err', text: 'No database connection selected. Configure connection in App Settings or Collection Environment.' }])
       return
     }
 
@@ -1041,7 +1032,7 @@ export function SqlTerminalDrawer(props: {
                     void run()
                   }
                 }}
-                placeholder={connOptions.length ? 'Write SQL here… (Ctrl+Enter to run)' : 'Configure DB connection in Environment settings…'}
+                placeholder={connOptions.length ? 'Write SQL here… (Ctrl+Enter to run)' : 'Configure DB connection in App Settings or Collection Environment…'}
                 spellCheck={false}
               />
 

@@ -15,7 +15,6 @@ import {
 } from '../modules/environment'
 import {
   addGlobalSqlConnectionItem,
-  applyGlobalSqlToEnvironment,
   createInitialGlobalSqlConnections,
   getPrimaryGlobalSqlSettings,
   removeGlobalSqlConnectionItem,
@@ -473,24 +472,6 @@ export default function App() {
   }, [caCertificates, globalSqlConnections, primaryGlobalSqlSettings, validateCertificates])
 
   useEffect(() => {
-    if (!primaryGlobalSqlSettings) return
-    setEnvByCollection(prev => {
-      let changed = false
-      const nextEnvs: Record<string, Environment> = {}
-
-      for (const [collectionId, env] of Object.entries(prev)) {
-        const nextEnv = applyGlobalSqlToEnvironment(env, primaryGlobalSqlSettings)
-        nextEnvs[collectionId] = nextEnv
-        if (nextEnv !== env) changed = true
-      }
-
-      if (!changed) return prev
-      saveEnvironmentsByCollection(nextEnvs)
-      return nextEnvs
-    })
-  }, [primaryGlobalSqlSettings])
-
-  useEffect(() => {
     return () => {
       for (const timerId of Object.values(sqlConnTestTimerByIdRef.current)) {
         window.clearTimeout(timerId)
@@ -734,8 +715,7 @@ export default function App() {
         [baseUrlKey]: seededBaseUrl || ((importedEnv?.variables ?? col.variables)?.[baseUrlKey] ?? ''),
       }
       const seededEnv: Environment = { baseUrlKey, variables: seededVariables, headers: DEFAULT_ENVIRONMENT.headers }
-      const nextEnv = primaryGlobalSqlSettings ? applyGlobalSqlToEnvironment(seededEnv, primaryGlobalSqlSettings) : seededEnv
-      const nextEnvs = { ...prev, [col.id]: nextEnv }
+      const nextEnvs = { ...prev, [col.id]: seededEnv }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     }
@@ -898,8 +878,7 @@ export default function App() {
 
   function saveEnvForCollection(collectionId: string, next: Environment) {
     setEnvByCollection(prev => {
-      const nextEnv = primaryGlobalSqlSettings ? applyGlobalSqlToEnvironment(next, primaryGlobalSqlSettings) : next
-      const nextEnvs = { ...prev, [collectionId]: nextEnv }
+      const nextEnvs = { ...prev, [collectionId]: next }
       saveEnvironmentsByCollection(nextEnvs)
       return nextEnvs
     })
@@ -3304,7 +3283,7 @@ export default function App() {
         onClose={() => setSqlTerminalOpen(false)}
         collections={collections}
         environmentsByCollection={envByCollection}
-        extraConnections={globalSqlConnections.length ? [globalSqlConnections[0]] : []}
+        extraConnections={globalSqlConnections}
       />
 
       {showUpdateToast && hasPendingUpdate ? (
