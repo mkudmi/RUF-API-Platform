@@ -37,6 +37,11 @@ function opDisplayName(method: string, path: string, op: any): string {
   return op?.summary || op?.operationId || `${method.toUpperCase()} ${path}`
 }
 
+function opDescription(op: any): string | undefined {
+  const raw = typeof op?.description === 'string' ? op.description.trim() : ''
+  return raw || undefined
+}
+
 function collectParams(op: any, pathItem?: any): RequestParam[] {
   const pathParams: any[] = Array.isArray(pathItem?.parameters) ? pathItem.parameters : []
   const opParams: any[] = Array.isArray(op?.parameters) ? op.parameters : []
@@ -142,6 +147,7 @@ export function buildCollectionFromV3(spec: any, name = 'Imported API', sourceOr
       const req: RequestItem = {
         id: uid('req'),
         name: opDisplayName(method, path, op),
+        description: opDescription(op),
         method,
         path,
         urlTemplate: joinUrlParts('{{baseUrl}}', path),

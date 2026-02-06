@@ -152,6 +152,7 @@ function swagger2ToV3Like(swagger2: any): any {
 
       v3PathItem[method] = {
         summary: op.summary,
+        description: op.description,
         operationId: op.operationId,
         tags: Array.isArray(op.tags) ? op.tags : undefined,
         parameters: parameters.length ? parameters : undefined,

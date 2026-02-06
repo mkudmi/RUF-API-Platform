@@ -2396,6 +2396,12 @@ export default function App() {
     }
   }
 
+  const activeRequestName = active?.req.name ?? ''
+  const activeRequestDescription = (active?.req.description ?? '').trim()
+  const windowRequestText = activeRequestDescription
+    ? `${activeRequestName} · ${activeRequestDescription}`
+    : activeRequestName
+
   return (
     <div className="windowShell">
       <header className="windowTitlebar" data-tauri-drag-region>
@@ -2410,8 +2416,8 @@ export default function App() {
             <ImportFab onImported={addCollection} openRef={importOpenRef} showTrigger={false} />
           </div>
         </div>
-        <div className="windowRequestName" title={active?.req.name ?? ''}>
-          {active?.req.name ?? ''}
+        <div className="windowRequestName" title={windowRequestText}>
+          {windowRequestText}
         </div>
         <div className="windowControls">
           <button

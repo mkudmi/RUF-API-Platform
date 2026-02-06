@@ -33,6 +33,7 @@ export type RequestParam = {
 export type RequestItem = {
   id: string
   name: string
+  description?: string
   method: HttpMethod
   path: string                 // /users/{id}
   urlTemplate: string          // {{baseUrl}}/users/{id}

@@ -142,6 +142,8 @@ function buildRequestFromNode(node: InsomniaRequestNode): RequestItem | null {
   const urlTemplate = rawUrl || '{{baseUrl}}/'
 
   const name = normalizeName(node.name, `${method}`)
+  const descriptionRaw = typeof (node as any)?.description === 'string' ? (node as any).description : ''
+  const description = descriptionRaw.trim() || undefined
   const headers = toHeaderMap(node.headers)
   const body = parseBody(node.body)
 
@@ -151,6 +153,7 @@ function buildRequestFromNode(node: InsomniaRequestNode): RequestItem | null {
   const out: RequestItem = {
     id: uid('req'),
     name,
+    description,
     method,
     path,
     urlTemplate,

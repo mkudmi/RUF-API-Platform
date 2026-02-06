@@ -260,6 +260,13 @@ function buildRequestFromItem(item: any): RequestItem | null {
   if (!method) return null
 
   const name = normalizeName(item?.name, `${method}`)
+  const descriptionRaw =
+    typeof req?.description === 'string'
+      ? req.description
+      : typeof item?.description === 'string'
+        ? item.description
+        : ''
+  const description = descriptionRaw.trim() || undefined
 
   const headers = toHeaderMap(req.header)
   const { path, params } = parseUrl(req.url)
@@ -270,6 +277,7 @@ function buildRequestFromItem(item: any): RequestItem | null {
   return {
     id: uid('req'),
     name,
+    description,
     method,
     path,
     urlTemplate,
