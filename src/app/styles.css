@@ -1411,6 +1411,8 @@ button:hover { background: rgba(255,255,255,.10); }
   right: 0;
 }
 .methodMenuItem {
+  display: flex;
+  align-items: center;
   width: 100%;
   text-align: left;
   padding: 8px 10px;
@@ -1421,8 +1423,61 @@ button:hover { background: rgba(255,255,255,.10); }
   font-size: 13px;
   cursor: pointer;
 }
+.methodMenuItemRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius);
+}
+.methodMenuItemRow .methodMenuItem {
+  flex: 1 1 auto;
+}
+.methodMenuCustomItemRow {
+  position: relative;
+}
+.methodMenuCustomItemBtn {
+  padding-right: 30px;
+}
+.methodMenuDeleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  margin-left: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,.65);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.methodMenuDeleteBtn:hover { background: rgba(255,255,255,.1); color: rgba(255,255,255,.92); }
 .methodMenuItem:hover { background: rgba(255,255,255,.08); }
-.methodMenuItemActive { background: rgba(255,255,255,.10); }
+.methodMenuCustomItemRow:hover .methodMenuCustomItemBtn { background: rgba(255,255,255,.08); }
+.methodMenuItemActive { background: transparent; }
+.methodMenuItemActive .methodMenuItem { background: rgba(255,255,255,.10); }
+.methodMenuAddBtn {
+  margin-top: 2px;
+  opacity: .9;
+}
+.methodMenuAddInput {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 13px;
+}
 .editorUrl {
   padding: 4px 10px;
   border-radius: var(--radius);

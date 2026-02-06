@@ -1,4 +1,4 @@
-export type HttpMethod = 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'|'HEAD'|'OPTIONS'
+export type HttpMethod = string
 
 export type TreeSortMode = 'none' | 'asc' | 'desc'
 

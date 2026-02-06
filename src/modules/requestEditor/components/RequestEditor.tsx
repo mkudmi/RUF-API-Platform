@@ -19,6 +19,7 @@ import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
+const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
 function normalizeBodyFormat(raw: unknown): BodyFormat {
   if (raw === 'auto' || raw === 'json' || raw === 'xml' || raw === 'yaml' || raw === 'text') return raw
@@ -1484,6 +1485,7 @@ export function RequestEditor(props: {
   const urlInputRef = useRef<HTMLInputElement | null>(null)
   const urlEditStartRef = useRef('')
   const methodMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const methodAddInputRef = useRef<HTMLInputElement | null>(null)
   const valueHistoryMenuPanelRef = useRef<HTMLDivElement | null>(null)
   const enumMenuPanelRef = useRef<HTMLDivElement | null>(null)
 
@@ -1515,7 +1517,54 @@ export function RequestEditor(props: {
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
+  const [customMethodOptions, setCustomMethodOptions] = useState<string[]>([])
+  const [isAddingMethod, setIsAddingMethod] = useState(false)
+  const [methodAddDraft, setMethodAddDraft] = useState('')
   const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql' | 'params'>('headers')
+
+  function normalizeMethodOption(raw: string) {
+    return raw.trim().toUpperCase()
+  }
+
+  function appendCustomMethod(method: string) {
+    setCustomMethodOptions(prev => {
+      if (DEFAULT_METHOD_OPTIONS.includes(method)) return prev
+      if (prev.includes(method)) return prev
+      return [...prev, method]
+    })
+  }
+
+  function commitMethodAdd(applyToRequest = false) {
+    const next = normalizeMethodOption(methodAddDraft)
+    setMethodAddDraft('')
+    setIsAddingMethod(false)
+    if (!next) return
+
+    appendCustomMethod(next)
+    if (applyToRequest) props.onChangeMethod?.(next)
+  }
+
+  function startMethodAdd() {
+    setMethodAddDraft('')
+    setIsAddingMethod(true)
+  }
+
+  function cancelMethodAdd() {
+    setMethodAddDraft('')
+    setIsAddingMethod(false)
+  }
+
+  function selectMethod(method: string) {
+    setMethodMenuOpen(false)
+    props.onChangeMethod?.(method)
+  }
+
+  function removeCustomMethod(method: string) {
+    if (props.request.method === method) {
+      props.onChangeMethod?.('GET')
+    }
+    setCustomMethodOptions(prev => prev.filter(m => m !== method))
+  }
 
   function commitQueryDraftRowById(rowId: string) {
     const row = queryDraftRows.find(r => r.id === rowId)
@@ -3391,8 +3440,16 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     setMethodMenuOpen(false)
+    setIsAddingMethod(false)
+    setMethodAddDraft('')
     setCopyMenuOpen(false)
   }, [props.request.id])
+
+  useEffect(() => {
+    if (!methodMenuOpen || !isAddingMethod) return
+    methodAddInputRef.current?.focus()
+    methodAddInputRef.current?.select()
+  }, [isAddingMethod, methodMenuOpen])
 
   useEffect(() => {
     if (!copyMenuOpen) return
@@ -3423,6 +3480,7 @@ export function RequestEditor(props: {
       const t = e.target as Node | null
       const wrap = methodMenuWrapRef.current
       if (t && wrap && wrap.contains(t)) return
+      if (isAddingMethod) commitMethodAdd(true)
       setMethodMenuOpen(false)
     }
 
@@ -3436,16 +3494,20 @@ export function RequestEditor(props: {
       window.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('keydown', onKeyDown)
     }
-  }, [methodMenuOpen])
+  }, [isAddingMethod, methodAddDraft, methodMenuOpen])
 
-  const methodOptions: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+  const visibleCustomMethodOptions = useMemo(() => {
+    const next = [...customMethodOptions]
+    const selected = normalizeMethodOption(props.request.method)
+    if (selected && !DEFAULT_METHOD_OPTIONS.includes(selected) && !next.includes(selected)) next.push(selected)
+    return next
+  }, [customMethodOptions, props.request.method])
 
   return (
     <div className="editor">
       <div className="editorUrlWrap">
         <div
           className="mono editorUrl"
-          title={displayUrl}
         >
           <div className="editorUrlText">
             <div ref={methodMenuOpen ? methodMenuWrapRef : null} className="methodMenuWrap">
@@ -3474,28 +3536,76 @@ export function RequestEditor(props: {
                   className="methodMenuPanel"
                   role="menu"
                   onPointerDown={e => {
-                    e.preventDefault()
                     e.stopPropagation()
                   }}
                   onClick={e => {
-                    e.preventDefault()
                     e.stopPropagation()
                   }}
                 >
-                  {methodOptions.map(m => (
-                    <button
-                      key={m}
-                      type="button"
-                      className={`methodMenuItem mono ${m === props.request.method ? 'methodMenuItemActive' : ''}`}
-                      role="menuitem"
-                      onClick={() => {
-                        setMethodMenuOpen(false)
-                        props.onChangeMethod?.(m)
-                      }}
-                    >
-                      {m}
-                    </button>
+                  {DEFAULT_METHOD_OPTIONS.map(m => (
+                    <div key={m} className={`methodMenuItemRow ${m === props.request.method ? 'methodMenuItemActive' : ''}`}>
+                      <button
+                        type="button"
+                        className="methodMenuItem mono"
+                        role="menuitem"
+                        onClick={() => selectMethod(m)}
+                      >
+                        {m}
+                      </button>
+                    </div>
                   ))}
+                  {visibleCustomMethodOptions.length ? <div className="treeMenuDivider" role="separator" /> : null}
+                  {visibleCustomMethodOptions.map(m => (
+                    <div key={m} className={`methodMenuItemRow methodMenuCustomItemRow ${m === props.request.method ? 'methodMenuItemActive' : ''}`}>
+                      <button
+                        type="button"
+                        className="methodMenuItem mono methodMenuCustomItemBtn"
+                        role="menuitem"
+                        onClick={() => selectMethod(m)}
+                      >
+                        {m}
+                      </button>
+                      <button
+                        type="button"
+                        className="methodMenuDeleteBtn mono"
+                        aria-label={`Delete method ${m}`}
+                        title={`Delete method ${m}`}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          removeCustomMethod(m)
+                        }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                  <div className="treeMenuDivider" role="separator" />
+                  {isAddingMethod ? (
+                    <input
+                      ref={methodAddInputRef}
+                      className="methodMenuAddInput mono"
+                      value={methodAddDraft}
+                      placeholder="METHOD"
+                      onChange={e => setMethodAddDraft(e.target.value.toUpperCase())}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitMethodAdd(true)
+                        if (e.key === 'Escape') {
+                          cancelMethodAdd()
+                        }
+                      }}
+                      onBlur={() => commitMethodAdd(true)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="methodMenuItem mono methodMenuAddBtn"
+                      role="menuitem"
+                      onClick={startMethodAdd}
+                    >
+                      Add
+                    </button>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -3504,6 +3614,7 @@ export function RequestEditor(props: {
               className="editorUrlMain"
               role="button"
               tabIndex={0}
+              title={displayUrl}
               onClick={() => {
                 if (isEditingUrl) return
                 startUrlEdit(true)
