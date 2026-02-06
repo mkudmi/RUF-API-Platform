@@ -88,6 +88,10 @@ export function SqlScriptsTab(props: {
   onChangeSqlConnectionId: (next: string | null) => void
   preSqlScript: string
   postSqlScript: string
+  preSqlScriptIsActive: boolean
+  postSqlScriptIsActive: boolean
+  onChangePreSqlScriptIsActive: (next: boolean) => void
+  onChangePostSqlScriptIsActive: (next: boolean) => void
   onChangePreSqlScript: (next: string) => void
   onChangePostSqlScript: (next: string) => void
 }) {
@@ -183,6 +187,16 @@ export function SqlScriptsTab(props: {
         <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="formLabel mono" style={{ marginBottom: 0 }}>Pre Script</div>
+            <label className="checkRow rowCheck" title={props.preSqlScriptIsActive ? 'Active' : 'Inactive'} style={{ marginLeft: 'auto' }}>
+              <input
+                className="checkInput"
+                type="checkbox"
+                checked={props.preSqlScriptIsActive}
+                onChange={e => props.onChangePreSqlScriptIsActive(e.target.checked)}
+                aria-label="Toggle pre script active"
+              />
+              <span className="checkBox" aria-hidden="true" />
+            </label>
             <button
               type="button"
               className="iconBtn"
@@ -195,7 +209,7 @@ export function SqlScriptsTab(props: {
               aria-disabled={!canCopyPre}
               aria-label="Copy pre script"
               title="Copy"
-              style={{ width: 28, height: 28, marginLeft: 'auto' }}
+              style={{ width: 28, height: 28 }}
             >
               {preSqlCopied ? 'OK' : <CopyIcon />}
             </button>
@@ -211,7 +225,7 @@ export function SqlScriptsTab(props: {
             />
           </div>
           <textarea
-            className="mono"
+            className={`mono ${props.preSqlScriptIsActive ? '' : 'rowInactive'}`.trim()}
             rows={5}
             value={props.preSqlScript}
             onChange={e => props.onChangePreSqlScript(e.target.value)}
@@ -223,6 +237,16 @@ export function SqlScriptsTab(props: {
         <div style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="formLabel mono" style={{ marginBottom: 0 }}>Post Script</div>
+            <label className="checkRow rowCheck" title={props.postSqlScriptIsActive ? 'Active' : 'Inactive'} style={{ marginLeft: 'auto' }}>
+              <input
+                className="checkInput"
+                type="checkbox"
+                checked={props.postSqlScriptIsActive}
+                onChange={e => props.onChangePostSqlScriptIsActive(e.target.checked)}
+                aria-label="Toggle post script active"
+              />
+              <span className="checkBox" aria-hidden="true" />
+            </label>
             <button
               type="button"
               className="iconBtn"
@@ -235,7 +259,7 @@ export function SqlScriptsTab(props: {
               aria-disabled={!canCopyPost}
               aria-label="Copy post script"
               title="Copy"
-              style={{ width: 28, height: 28, marginLeft: 'auto' }}
+              style={{ width: 28, height: 28 }}
             >
               {postSqlCopied ? 'OK' : <CopyIcon />}
             </button>
@@ -251,7 +275,7 @@ export function SqlScriptsTab(props: {
             />
           </div>
           <textarea
-            className="mono"
+            className={`mono ${props.postSqlScriptIsActive ? '' : 'rowInactive'}`.trim()}
             rows={5}
             value={props.postSqlScript}
             onChange={e => props.onChangePostSqlScript(e.target.value)}

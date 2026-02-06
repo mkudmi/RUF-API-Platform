@@ -10,6 +10,8 @@ export type RequestDraft = {
   disabledQueryParamNames?: Record<string, true>
   preSqlScript?: string
   postSqlScript?: string
+  preSqlScriptIsActive?: boolean
+  postSqlScriptIsActive?: boolean
   sqlConnectionId?: string
   /**
    * Effective headers snapshot used for a run (stored in request history).

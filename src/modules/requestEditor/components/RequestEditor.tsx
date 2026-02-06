@@ -1749,6 +1749,8 @@ export function RequestEditor(props: {
 
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
+  const [preSqlScriptIsActive, setPreSqlScriptIsActive] = useState(true)
+  const [postSqlScriptIsActive, setPostSqlScriptIsActive] = useState(true)
   const [selectedSqlConnectionId, setSelectedSqlConnectionId] = useState<string | null>(null)
 
   function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
@@ -2210,6 +2212,8 @@ export function RequestEditor(props: {
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
+    setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
+    setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
@@ -2349,6 +2353,8 @@ export function RequestEditor(props: {
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
+    setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
+    setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
 
     saveRequestDraft(props.request.id, {
@@ -2361,6 +2367,8 @@ export function RequestEditor(props: {
       disabledQueryParamNames: nextDisabledQueryParamNames,
       preSqlScript: draft?.preSqlScript ?? '',
       postSqlScript: draft?.postSqlScript ?? '',
+      preSqlScriptIsActive: draft?.preSqlScriptIsActive !== false,
+      postSqlScriptIsActive: draft?.postSqlScriptIsActive !== false,
       sqlConnectionId: draft?.sqlConnectionId ?? undefined,
       headerOverrides: nextHeaderOverrides,
       headerDraftRows: nextHeaderDraftRows,
@@ -2400,6 +2408,8 @@ export function RequestEditor(props: {
         disabledQueryParamNames,
         preSqlScript,
         postSqlScript,
+        preSqlScriptIsActive,
+        postSqlScriptIsActive,
         sqlConnectionId: selectedSqlConnectionId ?? undefined,
         headerOverrides,
         headerDraftRows,
@@ -2432,6 +2442,8 @@ export function RequestEditor(props: {
     pathParams,
     postSqlScript,
     preSqlScript,
+    preSqlScriptIsActive,
+    postSqlScriptIsActive,
     selectedSqlConnectionId,
     props.request.id,
     queryParams,
@@ -2867,6 +2879,8 @@ export function RequestEditor(props: {
           inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
           preSqlScript,
           postSqlScript,
+          preSqlScriptIsActive,
+          postSqlScriptIsActive,
           sqlConnectionId: selectedSqlConnectionId ?? undefined,
            bodyText,
            bodyFormat,
@@ -2878,8 +2892,8 @@ export function RequestEditor(props: {
          },
       })
 
-      const preSql = preSqlScript.trim()
-      const postSql = postSqlScript.trim()
+      const preSql = preSqlScriptIsActive ? preSqlScript.trim() : ''
+      const postSql = postSqlScriptIsActive ? postSqlScript.trim() : ''
       const shouldRunSql = !!(preSql || postSql)
 
       const getSqlErrorResult = (statusText: string, message: string): RunResult => ({
@@ -3696,6 +3710,10 @@ export function RequestEditor(props: {
           onChangeSqlConnectionId={setSelectedSqlConnectionId}
           preSqlScript={preSqlScript}
           postSqlScript={postSqlScript}
+          preSqlScriptIsActive={preSqlScriptIsActive}
+          postSqlScriptIsActive={postSqlScriptIsActive}
+          onChangePreSqlScriptIsActive={setPreSqlScriptIsActive}
+          onChangePostSqlScriptIsActive={setPostSqlScriptIsActive}
           onChangePreSqlScript={setPreSqlScript}
           onChangePostSqlScript={setPostSqlScript}
         />

@@ -48,7 +48,6 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Response search history: is it recorded after every change?? mouse clicks??
 // Send a series of requests with an iteration count input??
 // Rework request history
-// Active/inactive SQL script
 // Add environment variables to the picker via braces
 // Структура хранения данных приложения
 
