@@ -488,8 +488,13 @@ export function SqlTerminalDrawer(props: {
 
   function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    e.preventDefault()
     const handle = e.currentTarget
     const pointerId = e.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
     const startY = e.clientY
     const max = getSqlTerminalMaxHeightPx()
     const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, max))
@@ -501,6 +506,10 @@ export function SqlTerminalDrawer(props: {
     }
 
     function onMove(ev: PointerEvent) {
+      if ((ev.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
       const dy = ev.clientY - startY
       const next = clamp(Math.round(startHeight - dy))
       setHeightPx(next)
@@ -512,6 +521,8 @@ export function SqlTerminalDrawer(props: {
       window.removeEventListener('pointercancel', onCancel, true)
       window.removeEventListener('blur', onCancel)
       handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
       } catch {
@@ -572,8 +583,13 @@ export function SqlTerminalDrawer(props: {
 
   function onSplitHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    e.preventDefault()
     const handle = e.currentTarget
     const pointerId = e.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
     const wrap = bodyRef.current
     if (!wrap) return
 
@@ -591,6 +607,10 @@ export function SqlTerminalDrawer(props: {
     }
 
     function onMove(ev: PointerEvent) {
+      if ((ev.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
       const dx = ev.clientX - startX
       const next = clampFrac(startFrac + dx / rect.width)
       setSplitLeftFraction(next)
@@ -602,6 +622,8 @@ export function SqlTerminalDrawer(props: {
       window.removeEventListener('pointercancel', onCancel, true)
       window.removeEventListener('blur', onCancel)
       handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
       } catch {

@@ -20,6 +20,21 @@ type TerminalShellInfo = {
 }
 
 const TERMINAL_HEIGHT_KEY = 'ruf_terminal_height_v1'
+const TERMINAL_MIN_HEIGHT_PX = 200
+const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
+
+function getWindowTitlebarHeightPx() {
+  if (typeof document === 'undefined') return WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+  const el = document.querySelector<HTMLElement>('.windowTitlebar')
+  const measured = el?.getBoundingClientRect().height ?? WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+  return Math.max(0, Math.round(measured)) || WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+}
+
+function getTerminalMaxHeightPx() {
+  if (typeof window === 'undefined') return 420
+  const topReserved = getWindowTitlebarHeightPx()
+  return Math.max(TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
+}
 
 function splitLines(s: string): string[] {
   if (!s) return []
@@ -117,6 +132,22 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       // ignore
     }
   }, [heightPx])
+
+  useEffect(() => {
+    if (!open) return
+
+    function clampToViewport() {
+      const max = getTerminalMaxHeightPx()
+      setHeightPx(prev => {
+        if (prev == null) return prev
+        return Math.min(prev, max)
+      })
+    }
+
+    clampToViewport()
+    window.addEventListener('resize', clampToViewport)
+    return () => window.removeEventListener('resize', clampToViewport)
+  }, [open])
 
   useEffect(() => {
     const el = outputRef.current
@@ -235,19 +266,28 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
 
   function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    e.preventDefault()
     const handle = e.currentTarget
     const pointerId = e.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
     const startY = e.clientY
-    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, 420))
+    const max = getTerminalMaxHeightPx()
+    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, max))
 
-    const min = 200
-    const max = Math.max(min, Math.round(window.innerHeight * 0.85))
+    const min = TERMINAL_MIN_HEIGHT_PX
 
     function clamp(n: number) {
       return Math.max(min, Math.min(max, n))
     }
 
     function onMove(ev: PointerEvent) {
+      if ((ev.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
       const dy = ev.clientY - startY
       const next = clamp(Math.round(startHeight - dy))
       setHeightPx(next)
@@ -259,6 +299,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       window.removeEventListener('pointercancel', onCancel, true)
       window.removeEventListener('blur', onCancel)
       handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
       } catch {
@@ -385,6 +427,9 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     )
   }
 
+  const drawerMaxHeightPx = getTerminalMaxHeightPx()
+  const drawerHeightPx = heightPx == null ? null : Math.min(heightPx, drawerMaxHeightPx)
+
   return (
     <>
       <div
@@ -394,7 +439,7 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       <section
         className={props.open ? 'terminalDrawer terminalDrawerOpen' : 'terminalDrawer'}
         aria-hidden={!props.open}
-        style={heightPx != null ? { height: `${heightPx}px` } : undefined}
+        style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
       >
         <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} />
         <header className="terminalHeader">
