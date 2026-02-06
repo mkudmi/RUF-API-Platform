@@ -66,9 +66,11 @@ const BUILTIN_VARIABLES: BuiltinVar[] = [
   { name: 'utctimenow', description: 'UTC time (HH:mm:ss)', get: () => formatUtcTime(new Date()) },
 ]
 
-// Add environment variables you want to appear in the `{{...}}` dropdown here.
-// The dropdown will only show names that are explicitly listed.
-const SUGGESTED_ENVIRONMENT_VARIABLES: Array<{ name: string, description?: string }> = []
+function isUrlLikeEnvironmentKey(name: string): boolean {
+  if (!name.trim()) return true
+  if (name === 'scheme') return true
+  return /url/i.test(name)
+}
 
 const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(BUILTIN_VARIABLES.map(v => [v.name, v]))
 
@@ -80,9 +82,12 @@ export function resolveVariableValue(name: string, vars: Record<string, string>)
 export function getVariableSuggestions(vars: Record<string, string>): VariableSuggestion[] {
   const suggestions: VariableSuggestion[] = []
 
-  for (const env of SUGGESTED_ENVIRONMENT_VARIABLES) {
-    if (!Object.prototype.hasOwnProperty.call(vars, env.name)) continue
-    suggestions.push({ name: env.name, description: env.description, kind: 'environment' })
+  const envNames = Object.keys(vars)
+    .filter(name => !isUrlLikeEnvironmentKey(name))
+    .sort((a, b) => a.localeCompare(b))
+
+  for (const name of envNames) {
+    suggestions.push({ name, description: vars[name] ?? '', kind: 'environment' })
   }
   for (const v of BUILTIN_VARIABLES) {
     if (Object.prototype.hasOwnProperty.call(vars, v.name)) continue
