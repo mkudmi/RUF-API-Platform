@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ruf",
-  "version": "0.2.91",
+  "version": "0.2.92",
   "identifier": "com.ruf.desktop",
   "build": {
     "beforeDevCommand": "npm run tauri:ui:dev",
@@ -16,6 +16,7 @@
         "title": "Ruf",
         "width": 1200,
         "height": 800,
+        "maximized": true,
         "decorations": false,
         "resizable": true,
         "dragDropEnabled": false
@@ -31,7 +32,9 @@
     "createUpdaterArtifacts": true,
     "fileAssociations": [
       {
-        "ext": ["rufcollection"],
+        "ext": [
+          "rufcollection"
+        ],
         "name": "RUF Collection",
         "description": "JSON Source file",
         "mimeType": "application/json"
