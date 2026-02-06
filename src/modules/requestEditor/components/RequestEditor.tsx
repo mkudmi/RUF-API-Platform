@@ -3430,21 +3430,6 @@ export function RequestEditor(props: {
         <div
           className="mono editorUrl"
           title={displayUrl}
-          role="button"
-          tabIndex={0}
-          onClick={() => {
-            if (isEditingUrl) return
-            startUrlEdit(true)
-          }}
-          onKeyDown={e => {
-            if (isEditingUrl) return
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              e.stopPropagation()
-              startUrlEdit(true)
-            }
-          }}
-          style={{ cursor: 'pointer' }}
         >
           <div className="editorUrlText">
             <div ref={methodMenuOpen ? methodMenuWrapRef : null} className="methodMenuWrap">
@@ -3499,7 +3484,24 @@ export function RequestEditor(props: {
               ) : null}
             </div>
 
-            <div className="editorUrlMain">
+            <div
+              className="editorUrlMain"
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (isEditingUrl) return
+                startUrlEdit(true)
+              }}
+              onKeyDown={e => {
+                if (isEditingUrl) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  startUrlEdit(true)
+                }
+              }}
+              style={{ cursor: 'pointer' }}
+            >
               {isEditingUrl ? (
                 <VariableAutocompleteField
                   ref={urlInputRef as any}
@@ -3548,7 +3550,10 @@ export function RequestEditor(props: {
                             e.preventDefault()
                             e.stopPropagation()
                           }}
-                          onClick={() => setBaseUrlKey(k)}
+                          onClick={() => {
+                            setBaseUrlKey(k)
+                            cancelUrlEdit()
+                          }}
                         >
                           <div className="mono">{k}</div>
                           {props.environment?.variables?.[k] ? (
