@@ -1370,6 +1370,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeMethodInFlightDELETE { color: #ef4444; text-shadow: 0 0 10px rgba(239,68,68,.30); }
 .treeMethodInFlightHEAD { color: rgba(255,255,255,.75); text-shadow: 0 0 10px rgba(255,255,255,.15); }
 .treeMethodInFlightOPTIONS { color: #2dd4bf; text-shadow: 0 0 10px rgba(45,212,191,.30); }
+.treeMethodInFlightCustom { color: #a855f7; text-shadow: 0 0 10px rgba(168,85,247,.30); }
 .treeMethod, .treeItemName { line-height: 1.0; }
 .treeItemName { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; display: block; }
 

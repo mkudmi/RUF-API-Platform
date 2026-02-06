@@ -44,6 +44,8 @@ function sanitizeFileNameBase(rawName: string) {
   return cleaned || 'collection'
 }
 
+const DEFAULT_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+
 function normalizeRufCollectionFileName(rawName: string) {
   const base = sanitizeFileNameBase(rawName)
   const lower = base.toLowerCase()
@@ -381,16 +383,20 @@ export function CollectionsTree(props: {
   }, [openMenuCollectionId, openMenuFolderId, openMenuRequestId])
 
   function displayMethod(m: string) {
-    if (m === 'DELETE') return 'DEL'
-    if (m === 'PATCH') return 'PAT'
-    if (m === 'OPTIONS') return 'OPT'
-    return m
+    const normalized = (m ?? '').toUpperCase()
+    if (normalized === 'DELETE') return 'DEL'
+    if (normalized === 'PATCH') return 'PAT'
+    if (normalized === 'OPTIONS') return 'OPT'
+    if (!DEFAULT_HTTP_METHODS.has(normalized)) return normalized.slice(0, 3)
+    return normalized
   }
 
   function inFlightMethodClass(requestId: string, method: string): string {
     const inFlight = (props.inFlightCountByRequestId?.[requestId] ?? 0) > 0
     if (!inFlight) return ''
-    return `treeMethodInFlight treeMethodInFlight${method}`
+    const normalized = (method ?? '').toUpperCase()
+    if (!DEFAULT_HTTP_METHODS.has(normalized)) return 'treeMethodInFlight treeMethodInFlightCustom'
+    return `treeMethodInFlight treeMethodInFlight${normalized}`
   }
 
   function onFolderDragStart(e: DragEvent<HTMLElement>, collectionId: string, folderId: string) {
