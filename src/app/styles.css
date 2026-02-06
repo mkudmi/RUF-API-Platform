@@ -1712,7 +1712,6 @@ button:hover { background: rgba(255,255,255,.10); }
 .tabs {
   display: flex;
   gap: 0;
-  margin: 10px 0;
   border: 1px solid rgba(255,255,255,.12);
   border-radius: var(--radius);
   overflow: hidden;
