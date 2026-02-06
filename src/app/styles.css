@@ -1477,8 +1477,8 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .editorUrl .editorSendBtn { padding-top: 0; padding-bottom: 0; }
 .editorUrl .editorSendBtn {
-  width: 35px;
-  min-width: 35px;
+  width: 40px;
+  min-width: 40px;
   font-size: 14px;
   font-family: var(--font-mono);
   display: inline-flex;
