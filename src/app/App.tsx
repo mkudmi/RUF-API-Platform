@@ -185,9 +185,11 @@ export default function App() {
   const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => initialBootstrap.envByCollection)
   const [envModalCollectionId, setEnvModalCollectionId] = useState<string | null>(null)
   const createProjectDialogRef = useRef<HTMLDialogElement | null>(null)
+  const createProjectInputRef = useRef<HTMLInputElement | null>(null)
   const [projectName, setProjectName] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
   const createWorkspaceFolderDialogRef = useRef<HTMLDialogElement | null>(null)
+  const createWorkspaceFolderInputRef = useRef<HTMLInputElement | null>(null)
   const [workspaceFolderName, setWorkspaceFolderName] = useState('New Folder')
   const [workspaceFolderError, setWorkspaceFolderError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -2003,6 +2005,13 @@ export default function App() {
     setWorkspaceFolderError(null)
     setWorkspaceFolderName('New Folder')
     createWorkspaceFolderDialogRef.current?.showModal()
+    requestAnimationFrame(() => {
+      const input = createWorkspaceFolderInputRef.current
+      if (!input) return
+      input.focus()
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    })
   }
 
   function closeCreateWorkspaceFolder() {
@@ -2266,8 +2275,15 @@ export default function App() {
 
   function openCreateProject() {
     setProjectError(null)
-    setProjectName('')
+    setProjectName('New Collection')
     createProjectDialogRef.current?.showModal()
+    requestAnimationFrame(() => {
+      const input = createProjectInputRef.current
+      if (!input) return
+      input.focus()
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    })
   }
 
   function closeCreateProject() {
@@ -2697,7 +2713,7 @@ export default function App() {
         className="modal modalSmall"
         onClose={() => {
           setProjectError(null)
-          setProjectName('')
+          setProjectName('New Collection')
         }}
       >
         <div className="modalHeader">
@@ -2707,7 +2723,7 @@ export default function App() {
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
           <div className="small">Name</div>
-          <input style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="My API" />
+          <input ref={createProjectInputRef} style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="New Collection" />
         </div>
 
         {projectError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{projectError}</div>}
@@ -2733,10 +2749,10 @@ export default function App() {
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
           <div className="small">Name</div>
           <input
+            ref={createWorkspaceFolderInputRef}
             style={{ width: '100%' }}
             value={workspaceFolderName}
             onChange={e => setWorkspaceFolderName(e.target.value)}
-            onFocus={e => e.currentTarget.select()}
             autoFocus
             placeholder="New Folder"
           />
