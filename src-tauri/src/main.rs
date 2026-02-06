@@ -19,6 +19,8 @@ fn main() {
             commands::db::db_exec,
             commands::http::http_request,
             commands::cert::cert_inspect,
+            commands::storage::storage_load,
+            commands::storage::storage_save,
             commands::terminal::terminal_exec,
             commands::terminal::terminal_resolve_cwd,
             commands::terminal::terminal_list_shells,

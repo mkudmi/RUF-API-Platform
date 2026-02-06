@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "storage-access",
+      "description": "Allows loading and saving app local storage mirror to files.",
+      "commands": {
+        "allow": ["storage_load", "storage_save"]
+      }
+    }
+  ]
+}

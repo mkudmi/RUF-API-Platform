@@ -189,6 +189,12 @@
           "markdownDescription": "Allows making HTTP requests from the Rust backend (CORS-free)."
         },
         {
+          "description": "Allows loading and saving app local storage mirror to files.",
+          "type": "string",
+          "const": "storage-access",
+          "markdownDescription": "Allows loading and saving app local storage mirror to files."
+        },
+        {
           "description": "Allows executing commands via the built-in terminal.",
           "type": "string",
           "const": "terminal-exec",

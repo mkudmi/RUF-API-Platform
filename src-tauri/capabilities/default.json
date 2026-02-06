@@ -11,6 +11,7 @@
     "updater:default",
     "db-access",
     "http-raw",
+    "storage-access",
     "terminal-exec"
   ]
 }
