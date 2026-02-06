@@ -204,6 +204,8 @@ export function SqlTerminalDrawer(props: {
   const [busy, setBusy] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
+  const [schemaMenuPlacement, setSchemaMenuPlacement] = useState<'below' | 'above'>('below')
+  const [schemaMenuMaxHeight, setSchemaMenuMaxHeight] = useState<number>(260)
   const [heightPx, setHeightPx] = useState<number | null>(() => safeLoadNumber(SQL_TERMINAL_HEIGHT_KEY))
   const [selectedConnId, setSelectedConnId] = useState<string | null>(() => safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY))
   const [sql, setSql] = useState(() => safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '')
@@ -345,8 +347,13 @@ export function SqlTerminalDrawer(props: {
   useEffect(() => {
     const el = outputRef.current
     if (!el) return
+    const hasTableResult = (resultColumns?.length ?? 0) > 0 || (resultRows?.length ?? 0) > 0
+    if (hasTableResult) {
+      el.scrollTop = 0
+      return
+    }
     el.scrollTop = el.scrollHeight
-  }, [output.length, open])
+  }, [open, output.length, resultColumns, resultRows])
 
   useEffect(() => {
     if (!connOptions.length) return
@@ -487,6 +494,24 @@ export function SqlTerminalDrawer(props: {
   function pushOutput(add: OutputEntry[]) {
     if (!add.length) return
     setOutput(prev => [...prev, ...add])
+  }
+
+  function openSchemaMenu(anchorEl: HTMLElement) {
+    const margin = 8
+    const rect = anchorEl.getBoundingClientRect()
+    const availableBelow = Math.max(120, Math.floor(window.innerHeight - rect.bottom - margin - 6))
+    const availableAbove = Math.max(120, Math.floor(rect.top - margin - 6))
+
+    if (availableBelow >= availableAbove) {
+      setSchemaMenuPlacement('below')
+      setSchemaMenuMaxHeight(availableBelow)
+      setSchemaMenuOpen(true)
+      return
+    }
+
+    setSchemaMenuPlacement('above')
+    setSchemaMenuMaxHeight(availableAbove)
+    setSchemaMenuOpen(true)
   }
 
   function onSplitHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
@@ -787,7 +812,11 @@ export function SqlTerminalDrawer(props: {
                       e.preventDefault()
                       e.stopPropagation()
                       if (!schemas.length) return
-                      setSchemaMenuOpen(v => !v)
+                      if (schemaMenuOpen) {
+                        setSchemaMenuOpen(false)
+                        return
+                      }
+                      openSchemaMenu(e.currentTarget)
                     }}
                     aria-haspopup="menu"
                     aria-expanded={schemaMenuOpen}
@@ -798,8 +827,9 @@ export function SqlTerminalDrawer(props: {
                   </button>
                   {schemaMenuOpen ? (
                     <div
-                      className="selectMenuPanel"
+                      className={`selectMenuPanel sqlTerminalSchemaPanel ${schemaMenuPlacement === 'above' ? 'sqlTerminalSchemaPanelAbove' : ''}`.trim()}
                       role="menu"
+                      style={{ maxHeight: `${schemaMenuMaxHeight}px`, overflowY: 'auto' }}
                       onPointerDown={e => {
                         e.preventDefault()
                         e.stopPropagation()

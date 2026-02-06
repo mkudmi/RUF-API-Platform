@@ -92,6 +92,12 @@ export function CollectionsTree(props: {
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
   treeOpenCommand?: { action: 'expand' | 'collapse', nonce: number } | null
+  onOpenStateSummaryChange?: (summary: {
+    totalCollections: number
+    openCollections: number
+    totalFolders: number
+    openFolders: number
+  }) => void
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -145,6 +151,22 @@ export function CollectionsTree(props: {
     }))
   }, [props.collections, sortMode])
 
+  const treeNodeIds = useMemo(() => {
+    const collectionIds = sortedCollections.map(c => c.id)
+    const folderIds: string[] = []
+
+    function visit(folder: Folder) {
+      folderIds.push(folder.id)
+      for (const child of folder.folders ?? []) visit(child)
+    }
+
+    for (const col of sortedCollections) {
+      for (const folder of col.folders ?? []) visit(folder)
+    }
+
+    return { collectionIds, folderIds }
+  }, [sortedCollections])
+
   const [editing, setEditing] = useState<EditingTarget>(null)
   const [draftName, setDraftName] = useState('')
   const nameEditableRef = useRef<HTMLElement | null>(null)
@@ -176,19 +198,9 @@ export function CollectionsTree(props: {
       return
     }
 
-    const nextCollections = new Set(props.collections.map(c => c.id))
-    const folderIds: string[] = []
-    function visit(folder: Folder) {
-      folderIds.push(folder.id)
-      for (const child of folder.folders ?? []) visit(child)
-    }
-    for (const col of props.collections) {
-      for (const folder of col.folders ?? []) visit(folder)
-    }
-
-    setOpenCollections(nextCollections)
-    setOpenFolders(new Set(folderIds))
-  }, [props.treeOpenCommand?.nonce])
+    setOpenCollections(new Set(treeNodeIds.collectionIds))
+    setOpenFolders(new Set(treeNodeIds.folderIds))
+  }, [props.treeOpenCommand, treeNodeIds])
 
   async function exportCollection(col: Collection) {
     const env = props.environmentsByCollection[col.id]
@@ -255,6 +267,20 @@ export function CollectionsTree(props: {
   useEffect(() => {
     saveTreeOpenState({ collections: Array.from(openCollections), folders: Array.from(openFolders) })
   }, [openCollections, openFolders])
+
+  useEffect(() => {
+    if (!props.onOpenStateSummaryChange) return
+    const totalCollections = treeNodeIds.collectionIds.length
+    const totalFolders = treeNodeIds.folderIds.length
+    const openCollectionsCount = treeNodeIds.collectionIds.reduce((n, id) => n + (openCollections.has(id) ? 1 : 0), 0)
+    const openFoldersCount = treeNodeIds.folderIds.reduce((n, id) => n + (openFolders.has(id) ? 1 : 0), 0)
+    props.onOpenStateSummaryChange({
+      totalCollections,
+      openCollections: openCollectionsCount,
+      totalFolders,
+      openFolders: openFoldersCount,
+    })
+  }, [openCollections, openFolders, props.onOpenStateSummaryChange, treeNodeIds])
 
   useEffect(() => {
     if (!editing) return

@@ -2489,6 +2489,7 @@ export default function App() {
                 activeRequestId={activeRequestId}
                 inFlightCountByRequestId={inFlightCountByRequestId}
                 treeOpenCommand={treeOpenCommand}
+                onTreeAllExpandedChange={setTreeAllExpanded}
                 onPickRequest={pick}
                 onOpenEnv={setEnvModalCollectionId}
                 onUpdateCollectionFromUrl={updateCollectionFromUrl}

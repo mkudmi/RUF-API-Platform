@@ -30,6 +30,7 @@ export function WorkspaceTree(props: {
   activeRequestId?: string
   inFlightCountByRequestId?: Record<string, number>
   treeOpenCommand?: { action: 'expand' | 'collapse', nonce: number } | null
+  onTreeAllExpandedChange?: (isAllExpanded: boolean) => void
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
@@ -57,7 +58,15 @@ export function WorkspaceTree(props: {
   onRenameWorkspaceFolder: (workspaceFolderId: string, name: string) => void
   onDeleteWorkspaceFolder: (workspaceFolderId: string) => void
 }) {
+  type OpenStateSummary = {
+    totalCollections: number
+    openCollections: number
+    totalFolders: number
+    openFolders: number
+  }
+
   const [openWorkspaceFolders, setOpenWorkspaceFolders] = useState<Set<string>>(() => new Set(loadWorkspaceOpenIds()))
+  const [collectionSummariesByScope, setCollectionSummariesByScope] = useState<Record<string, OpenStateSummary>>({})
   const [openMenuWorkspaceFolderId, setOpenMenuWorkspaceFolderId] = useState<string | null>(null)
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
@@ -126,7 +135,74 @@ export function WorkspaceTree(props: {
     }
     for (const folder of props.workspace.folders) visit(folder)
     setOpenWorkspaceFolders(new Set(ids))
-  }, [props.treeOpenCommand?.nonce])
+  }, [props.treeOpenCommand, props.workspace.folders])
+
+  const workspaceFolderIds = useMemo(() => {
+    const ids: string[] = []
+    function visit(folder: WorkspaceFolder) {
+      ids.push(folder.id)
+      for (const child of folder.folders ?? []) visit(child)
+    }
+    for (const folder of props.workspace.folders) visit(folder)
+    return ids
+  }, [props.workspace.folders])
+
+  const collectionTreeScopeIds = useMemo(() => {
+    const scopes = ['root']
+    for (const id of workspaceFolderIds) scopes.push(`wf:${id}`)
+    return scopes
+  }, [workspaceFolderIds])
+
+  useEffect(() => {
+    setCollectionSummariesByScope(prev => {
+      const next: Record<string, OpenStateSummary> = {}
+      let changed = false
+      for (const scopeId of collectionTreeScopeIds) {
+        const summary = prev[scopeId]
+        if (summary) next[scopeId] = summary
+      }
+      if (Object.keys(prev).length !== Object.keys(next).length) changed = true
+      if (!changed) return prev
+      return next
+    })
+  }, [collectionTreeScopeIds])
+
+  function onCollectionScopeSummaryChange(scopeId: string, summary: OpenStateSummary) {
+    setCollectionSummariesByScope(prev => {
+      const current = prev[scopeId]
+      if (
+        current &&
+        current.totalCollections === summary.totalCollections &&
+        current.openCollections === summary.openCollections &&
+        current.totalFolders === summary.totalFolders &&
+        current.openFolders === summary.openFolders
+      ) return prev
+      return { ...prev, [scopeId]: summary }
+    })
+  }
+
+  useEffect(() => {
+    if (!props.onTreeAllExpandedChange) return
+
+    const totalWorkspaceFolders = workspaceFolderIds.length
+    const openWorkspaceFoldersCount = workspaceFolderIds.reduce((n, id) => n + (openWorkspaceFolders.has(id) ? 1 : 0), 0)
+
+    let totalCollections = 0
+    let openCollections = 0
+    let totalFolders = 0
+    let openFolders = 0
+    for (const summary of Object.values(collectionSummariesByScope)) {
+      totalCollections += summary.totalCollections
+      openCollections += summary.openCollections
+      totalFolders += summary.totalFolders
+      openFolders += summary.openFolders
+    }
+
+    const total = totalWorkspaceFolders + totalCollections + totalFolders
+    const openCount = openWorkspaceFoldersCount + openCollections + openFolders
+    const isAllExpanded = total > 0 && openCount === total
+    props.onTreeAllExpandedChange(isAllExpanded)
+  }, [collectionSummariesByScope, openWorkspaceFolders, props.onTreeAllExpandedChange, workspaceFolderIds])
 
   useEffect(() => {
     if (!openMenuWorkspaceFolderId) return
@@ -377,6 +453,7 @@ export function WorkspaceTree(props: {
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
             treeOpenCommand={props.treeOpenCommand}
+            onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange(`wf:${folder.id}`, summary)}
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
             onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
@@ -432,6 +509,7 @@ export function WorkspaceTree(props: {
           activeRequestId={props.activeRequestId}
           inFlightCountByRequestId={props.inFlightCountByRequestId}
           treeOpenCommand={props.treeOpenCommand}
+          onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
           onPickRequest={props.onPickRequest}
           onOpenEnv={props.onOpenEnv}
           onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
