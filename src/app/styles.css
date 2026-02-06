@@ -53,9 +53,9 @@ a { color: inherit; }
 }
 
 .windowTitlebar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   min-height: 0;
   padding: 0 8px 0 12px;
@@ -70,6 +70,21 @@ a { color: inherit; }
   align-items: center;
 }
 
+.windowRequestName {
+  min-width: 0;
+  max-width: min(50vw, 620px);
+  font-weight: 600;
+  font-size: 14px;
+  opacity: .92;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  user-select: none;
+  pointer-events: none;
+  justify-self: center;
+}
+
 .windowTitle {
   font-size: 13px;
   letter-spacing: .2px;
@@ -82,7 +97,7 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
+  justify-self: end;
 }
 
 .windowControlBtn {
@@ -1393,6 +1408,10 @@ button:hover { background: rgba(255,255,255,.10); }
   box-shadow: 0 8px 24px rgba(0,0,0,.45);
   z-index: 40;
 }
+.copyMenuPanel {
+  left: auto;
+  right: 0;
+}
 .methodMenuItem {
   width: 100%;
   text-align: left;
@@ -1407,15 +1426,79 @@ button:hover { background: rgba(255,255,255,.10); }
 .methodMenuItem:hover { background: rgba(255,255,255,.08); }
 .methodMenuItemActive { background: rgba(255,255,255,.10); }
 .editorUrl {
-  padding: 10px;
+  padding: 4px 10px;
   border-radius: var(--radius);
   border: 1px solid rgba(255,255,255,.10);
   background: rgba(255,255,255,.04);
   display: flex;
   gap: 10px;
   align-items: center;
-  min-height: 48px;
+  min-height: 36px;
   line-height: 1.3;
+}
+.editorUrlWrap {
+  position: relative;
+  overflow: visible;
+}
+.editorUrl .methodBadgeBtn,
+.editorUrl .editorUrlActionBtn,
+.editorUrl .editorSendBtn {
+  height: 32px;
+  box-sizing: border-box;
+}
+.editorUrl .methodBadgeBtn {
+  width: 65px;
+  min-width: 65px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0;
+  padding-right: 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  text-align: center;
+}
+.editorUrl .methodBadgeBtn::after {
+  position: absolute;
+  right: 0;
+  margin-left: 0;
+}
+.editorUrl .editorUrlActionBtn {
+  width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.editorUrl .editorSendBtn { padding-top: 0; padding-bottom: 0; }
+.editorUrl .editorSendBtn {
+  width: 35px;
+  min-width: 35px;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  margin-left: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+.editorUrl .editorSendBtnCancel,
+.editorUrl .editorSendBtnCancel:hover {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(255,255,255,.96);
 }
 .editorUrlInput {
   height: 28px;
@@ -1428,15 +1511,53 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .editorUrlInput:focus { outline: none; box-shadow: none; }
 .editorUrlInput:focus-visible { outline: 2px solid rgba(255,255,255,.22); outline-offset: 2px; border-radius: var(--radius); }
-.editorUrlEditGlyph { display: block; transform: translateY(1px); line-height: 1; }
 .editorUrlText {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex: 1;
   min-width: 0;
+}
+.editorUrlMain {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  border-left: 1px solid rgba(255,255,255,.16);
+  padding-left: 10px;
+}
+.editorUrlValue {
+  min-width: 0;
+  flex: 1;
   font-size: 16px;
   line-height: 1.3;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.editorUrlSendWrap {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid rgba(255,255,255,.16);
+  padding-left: 10px;
+}
+.editorUrlBaseUrlDock {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  width: 100%;
+  z-index: 230;
+}
+.editorUrlBaseUrlMenu {
+  position: static;
+  left: auto;
+  top: auto;
+  width: 100%;
+  max-height: 240px;
+  overflow: auto;
 }
 .editorTextarea { width: 100%; margin-top: 10px; resize: vertical; }
 .editorTextarea:focus { outline: none; box-shadow: none; }

@@ -2410,6 +2410,9 @@ export default function App() {
             <ImportFab onImported={addCollection} openRef={importOpenRef} showTrigger={false} />
           </div>
         </div>
+        <div className="windowRequestName" title={active?.req.name ?? ''}>
+          {active?.req.name ?? ''}
+        </div>
         <div className="windowControls">
           <button
             type="button"
