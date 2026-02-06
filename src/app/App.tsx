@@ -47,7 +47,6 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Undo after deleting a param/header via Ctrl+Z
 // Response search history: is it recorded after every change?? mouse clicks??
 // Send a series of requests with an iteration count input??
-// Editor for uploaded/sent files??
 // Rework request history
 // Active/inactive SQL script
 // Add environment variables to the picker via braces
