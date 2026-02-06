@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
+import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../../shared/types/requestHistory'
 import { CloseIcon, CopyIcon, ReloadIcon, StarIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
@@ -9,7 +10,7 @@ import { uid } from '../../../shared/utils/id'
 import { runRequest, type RunResult } from '../../requestRunner/runRequest'
 import { buildCurlCommand } from '../../requestRunner/buildCurl'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
-import { DB_ENV_KEYS, buildDbConnectionString, getDbFormStateFromEnv, runDbSql } from '../../environment'
+import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, runDbSql } from '../../environment'
 import { SqlScriptsTab } from './SqlScriptsTab'
 import { AuthorizationTab } from './AuthorizationTab'
 import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../../shared/utils/variables'
@@ -1467,6 +1468,7 @@ function HeaderDraftRow(props: {
 
 export function RequestEditor(props: {
   environment?: Environment
+  globalSqlConnections?: GlobalSqlConnectionItem[]
   collection: Collection
   request: RequestItem
   inFlightCount?: number
@@ -1747,10 +1749,65 @@ export function RequestEditor(props: {
 
   const [preSqlScript, setPreSqlScript] = useState('')
   const [postSqlScript, setPostSqlScript] = useState('')
+  const [selectedSqlConnectionId, setSelectedSqlConnectionId] = useState<string | null>(null)
 
   function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
     return Object.prototype.hasOwnProperty.call(obj, key)
   }
+
+  const sqlConnections = useMemo(() => {
+    const out: Array<{
+      id: string
+      label: string
+      type: 'postgres' | 'mysql'
+      connectionString: string
+      connectionPreview: string
+    }> = []
+
+    const env = props.environment
+    if (env) {
+      const rawType = env.variables?.[DB_ENV_KEYS.type]
+      const type = rawType === 'mysql' ? 'mysql' : 'postgres'
+      const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
+      const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
+      if (connectionString) {
+        out.push({
+          id: `collection:${props.collection.id}`,
+          label: `Collection - ${props.collection.name || props.collection.id}`,
+          type,
+          connectionString,
+          connectionPreview: getDbConnectionStringPreview(connectionString),
+        })
+      }
+    }
+
+    for (const conn of props.globalSqlConnections ?? []) {
+      if (!conn) continue
+      const connectionString = buildDbConnectionString(conn)
+      if (!connectionString) continue
+      out.push({
+        id: `app:${conn.id}`,
+        label: `App - ${conn.name || 'Connection'}`,
+        type: conn.type,
+        connectionString,
+        connectionPreview: getDbConnectionStringPreview(connectionString),
+      })
+    }
+
+    return out.sort((a, b) => a.label.localeCompare(b.label))
+  }, [props.collection.id, props.collection.name, props.environment, props.globalSqlConnections])
+
+  const selectedSqlConnection = useMemo(
+    () => sqlConnections.find(x => x.id === selectedSqlConnectionId) ?? null,
+    [selectedSqlConnectionId, sqlConnections],
+  )
+
+  useEffect(() => {
+    setSelectedSqlConnectionId(prev => {
+      if (prev && sqlConnections.some(x => x.id === prev)) return prev
+      return sqlConnections[0]?.id ?? null
+    })
+  }, [sqlConnections])
 
   function parseUrlInput(raw: string) {
     const trimmed = raw.trim()
@@ -2153,6 +2210,7 @@ export function RequestEditor(props: {
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
+    setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
@@ -2291,6 +2349,7 @@ export function RequestEditor(props: {
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
+    setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
 
     saveRequestDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
@@ -2302,6 +2361,7 @@ export function RequestEditor(props: {
       disabledQueryParamNames: nextDisabledQueryParamNames,
       preSqlScript: draft?.preSqlScript ?? '',
       postSqlScript: draft?.postSqlScript ?? '',
+      sqlConnectionId: draft?.sqlConnectionId ?? undefined,
       headerOverrides: nextHeaderOverrides,
       headerDraftRows: nextHeaderDraftRows,
       headerKeyOrder: nextHeaderKeyOrder,
@@ -2340,6 +2400,7 @@ export function RequestEditor(props: {
         disabledQueryParamNames,
         preSqlScript,
         postSqlScript,
+        sqlConnectionId: selectedSqlConnectionId ?? undefined,
         headerOverrides,
         headerDraftRows,
         headerKeyOrder,
@@ -2371,6 +2432,7 @@ export function RequestEditor(props: {
     pathParams,
     postSqlScript,
     preSqlScript,
+    selectedSqlConnectionId,
     props.request.id,
     queryParams,
     queryKeyOrder,
@@ -2805,6 +2867,7 @@ export function RequestEditor(props: {
           inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
           preSqlScript,
           postSqlScript,
+          sqlConnectionId: selectedSqlConnectionId ?? undefined,
            bodyText,
            bodyFormat,
            fileFieldName: snapshot.fileFieldName,
@@ -2852,20 +2915,10 @@ export function RequestEditor(props: {
       })
 
       if (shouldRunSql) {
-        const env = props.environment
-        if (!env) {
-          props.onResult(props.request.id, getSqlErrorResult('SQL Failed', 'No environment selected.'), runId)
-          return
-        }
-
-        const rawType = env.variables?.[DB_ENV_KEYS.type]
-        const dbType = rawType === 'mysql' ? 'mysql' : 'postgres'
-        const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
-        const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
-        if (!connectionString) {
+        if (!selectedSqlConnection) {
           props.onResult(
             props.request.id,
-            getSqlErrorResult('SQL Failed', 'Missing database connection. Configure it in Environment settings.'),
+            getSqlErrorResult('SQL Failed', 'Missing database connection. Select it in SQL tab.'),
             runId,
           )
           return
@@ -2873,8 +2926,8 @@ export function RequestEditor(props: {
 
         if (preSql) {
           const r = await runDbSql({
-            type: dbType,
-            connectionString,
+            type: selectedSqlConnection.type,
+            connectionString: selectedSqlConnection.connectionString,
             sql: applyVariablesForDisplay(preSql, variables),
           })
           if (!r.ok) {
@@ -2909,19 +2962,15 @@ export function RequestEditor(props: {
         signal: abortController.signal,
       })
 
-      if (shouldRunSql && postSql && props.environment) {
+      if (shouldRunSql && postSql) {
         if (abortController.signal.aborted) {
           props.onResult(props.request.id, getCanceledResult(), runId)
           return
         }
-        const rawType = props.environment.variables?.[DB_ENV_KEYS.type]
-        const dbType = rawType === 'mysql' ? 'mysql' : 'postgres'
-        const fromEnv = (props.environment.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
-        const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(props.environment))
-        if (connectionString) {
+        if (selectedSqlConnection) {
           const r = await runDbSql({
-            type: dbType,
-            connectionString,
+            type: selectedSqlConnection.type,
+            connectionString: selectedSqlConnection.connectionString,
             sql: applyVariablesForDisplay(postSql, variables),
           })
           if (!r.ok) {
@@ -2935,7 +2984,7 @@ export function RequestEditor(props: {
           result = {
             ...result,
             ok: false,
-            bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\nMissing database connection.\n`,
+            bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\nMissing database connection. Select it in SQL tab.\n`,
           }
         }
       }
@@ -3629,7 +3678,9 @@ export function RequestEditor(props: {
 
       {headersTab === 'sql' ? (
         <SqlScriptsTab
-          environment={props.environment}
+          sqlConnections={sqlConnections}
+          selectedSqlConnectionId={selectedSqlConnectionId}
+          onChangeSqlConnectionId={setSelectedSqlConnectionId}
           preSqlScript={preSqlScript}
           postSqlScript={postSqlScript}
           onChangePreSqlScript={setPreSqlScript}

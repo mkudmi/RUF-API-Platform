@@ -124,7 +124,6 @@ a { color: inherit; }
 
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
-  app-region: drag;
 }
 
 [data-tauri-drag-region] button,
@@ -132,7 +131,6 @@ a { color: inherit; }
 [data-tauri-drag-region] textarea,
 [data-tauri-drag-region] select {
   -webkit-app-region: no-drag;
-  app-region: no-drag;
 }
 
 .layout {

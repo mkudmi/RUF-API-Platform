@@ -2604,6 +2604,7 @@ export default function App() {
               ? (
                   <RequestEditor
                     environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT}
+                    globalSqlConnections={globalSqlConnections}
                     collection={active.col}
                     request={active.req}
                     inFlightCount={inFlightCountByRequestId[active.req.id] ?? 0}
