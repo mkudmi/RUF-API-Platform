@@ -47,7 +47,6 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Undo after deleting a param/header via Ctrl+Z
 // Response search history: is it recorded after every change?? mouse clicks??
 // Send a series of requests with an iteration count input??
-// Rework request history
 // Структура хранения данных приложения
 
 function clamp(n: number, min: number, max: number) {

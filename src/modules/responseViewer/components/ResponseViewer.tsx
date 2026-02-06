@@ -724,7 +724,7 @@ export function ResponseViewer(props: {
 
       {tab === 'history' ? (
         <div className="historyList" style={{ flex: 1, minHeight: 0 }}>
-          <div className="small" style={{ opacity: 0.8, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div className="small" style={{ fontSize: 13, opacity: 0.8, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Click an item to load its params/body into the request editor.
           </div>
           {historyItems.length ? (
@@ -748,7 +748,7 @@ export function ResponseViewer(props: {
                         <div className="mono" style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
                           {item.method}
                         </div>
-                        <div className="small" style={{ opacity: 0.75, whiteSpace: 'nowrap' }}>
+                        <div className="small" style={{ fontSize: 13, opacity: 0.75, whiteSpace: 'nowrap' }}>
                           {formatDateTime24(item.createdAt)}
                         </div>
                       </div>
@@ -787,7 +787,7 @@ export function ResponseViewer(props: {
               ))}
             </div>
           ) : (
-            <div className="small" style={{ opacity: 0.75, marginTop: 10 }}>
+            <div className="small" style={{ fontSize: 13, opacity: 0.75, marginTop: 10 }}>
               No history yet.
             </div>
           )}
