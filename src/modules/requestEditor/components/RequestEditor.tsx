@@ -1515,7 +1515,7 @@ export function RequestEditor(props: {
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
   const [methodMenuOpen, setMethodMenuOpen] = useState(false)
-  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql'>('headers')
+  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql' | 'params'>('headers')
 
   function commitQueryDraftRowById(rowId: string) {
     const row = queryDraftRows.find(r => r.id === rowId)
@@ -3652,6 +3652,14 @@ export function RequestEditor(props: {
       <div className="tabs">
         <button
           type="button"
+          className={`tab ${headersTab === 'params' ? 'tabActive' : ''}`}
+          onClick={() => setHeadersTab('params')}
+          aria-pressed={headersTab === 'params'}
+        >
+          Params
+        </button>
+        <button
+          type="button"
           className={`tab ${headersTab === 'headers' ? 'tabActive' : ''}`}
           onClick={() => setHeadersTab('headers')}
           aria-pressed={headersTab === 'headers'}
@@ -3692,6 +3700,301 @@ export function RequestEditor(props: {
           variableSuggestions={variableSuggestions}
           onChangeValue={next => setHeaderValueForRequest('Authorization', next)}
         />
+      ) : headersTab === 'params' ? (
+        <div className="accordion">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontWeight: 600, opacity: 0.95 }}>Params</div>
+            <button
+              type="button"
+              className="iconBtn addRowBtn"
+              onClick={addQueryDraftRow}
+              aria-label="Add query param"
+              title="Add query param"
+            >
+              <span className="addRowGlyph">+</span>
+            </button>
+          </div>
+
+          {pathParamsList.length > 0 && (
+            <div className="section">
+              <div className="sectionTitle">Path</div>
+              {pathParamsList.map(p => (
+                <ParamRow
+                  key={p.name}
+                  param={p}
+                  store={pathParams}
+                  setStore={setPathParams}
+                  onClear={() => {
+                    setPathParams(prev => {
+                      if (!(p.name in prev)) return prev
+                      const next = { ...prev }
+                      delete next[p.name]
+                      return next
+                    })
+                  }}
+                  variableSuggestions={variableSuggestions}
+                  enumMenuId={`enum:path:${p.name}`}
+                  enumMenuOpenId={enumMenuOpenId}
+                  enumMenuAnchor={enumMenuAnchor}
+                  onToggleEnumMenu={toggleEnumMenu}
+                  onCloseEnumMenu={closeEnumMenu}
+                  enumMenuPanelRef={enumMenuPanelRef}
+                  historyItems={valueHistory.path[p.name] ?? []}
+                  onRecordHistory={next => recordValueHistory('path', p.name, next)}
+                  onPickHistory={next => {
+                    setPathParams(prev => ({ ...prev, [p.name]: next }))
+                    recordValueHistory('path', p.name, next)
+                  }}
+                  onDeleteHistoryItem={next => deleteValueHistoryItem('path', p.name, next)}
+                  onClearAllHistory={clearAllValueHistory}
+                  historyMenuId={`path:${p.name}`}
+                  historyMenuOpenId={valueHistoryMenuOpenId}
+                  historyMenuAnchor={valueHistoryMenuAnchor}
+                  onToggleHistoryMenu={toggleValueHistoryMenu}
+                  onCloseHistoryMenu={closeValueHistoryMenu}
+                  historyMenuPanelRef={valueHistoryMenuPanelRef}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="section">
+            <div className="sectionTitle">Query</div>
+            {queryParamsList.map(p => {
+              const rawName = p.name
+              const isSpec = querySpecNames.has(rawName)
+              const isRequiredSpecKey = isSpec && !!p.required
+              const effectiveName =
+                isRequiredSpecKey
+                  ? rawName
+                  : isSpec
+                    ? (queryParamKeyOverrides[rawName] ?? rawName)
+                    : rawName
+              const value = queryParams[effectiveName] ?? ''
+              const isActive = !inactiveQueryParamNames[effectiveName]
+              const hint =
+                typeof p.example === 'string' || typeof p.example === 'number'
+                  ? String(p.example)
+                  : p.schemaType || ''
+
+              return (
+                <QueryRow
+                  key={rawName}
+                  name={effectiveName}
+                  rawName={rawName}
+                  isSpec={isSpec}
+                  value={value}
+                  hint={isSpec ? hint : undefined}
+                  enumValues={isSpec ? p.enumValues : undefined}
+                  required={isSpec ? p.required : false}
+                  readOnlyName={isRequiredSpecKey}
+                  isActive={isActive}
+                  onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
+                  variableSuggestions={variableSuggestions}
+                  historyItems={valueHistory.query[effectiveName] ?? []}
+                  onRecordHistory={next => recordValueHistory('query', effectiveName, next)}
+                  onPickHistory={next => {
+                    setQueryParams(prev => {
+                      const nextParams = { ...prev }
+                      nextParams[effectiveName] = next
+                      if (isSpec && effectiveName !== rawName) delete nextParams[rawName]
+                      return nextParams
+                    })
+                    setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
+                    recordValueHistory('query', effectiveName, next)
+                  }}
+                  onDeleteHistoryItem={next => deleteValueHistoryItem('query', effectiveName, next)}
+                  onClearAllHistory={clearAllValueHistory}
+                  historyMenuId={`query:${effectiveName}`}
+                  historyMenuOpenId={valueHistoryMenuOpenId}
+                  historyMenuAnchor={valueHistoryMenuAnchor}
+                  onToggleHistoryMenu={toggleValueHistoryMenu}
+                  onCloseHistoryMenu={closeValueHistoryMenu}
+                  historyMenuPanelRef={valueHistoryMenuPanelRef}
+                  enumMenuId={isSpec ? `enum:query:${rawName}` : undefined}
+                  enumMenuOpenId={enumMenuOpenId}
+                  enumMenuAnchor={enumMenuAnchor}
+                  onToggleEnumMenu={toggleEnumMenu}
+                  onCloseEnumMenu={closeEnumMenu}
+                  enumMenuPanelRef={enumMenuPanelRef}
+                  onChangeValue={nextValue => {
+                    setQueryParams(prev => {
+                      const next = { ...prev }
+                      next[effectiveName] = nextValue
+                      if (isSpec && effectiveName !== rawName) delete next[rawName]
+                      return next
+                    })
+                  }}
+                  onRename={
+                    isRequiredSpecKey
+                      ? undefined
+                      : nextName => {
+                      const trimmed = nextName.trim()
+                      if (trimmed === effectiveName) return
+
+                      if (isSpec) {
+                        if (!trimmed) {
+                          setQueryParams(prev => {
+                            if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                            const next = { ...prev }
+                            delete next[effectiveName]
+                            if (rawName !== effectiveName) delete next[rawName]
+                            return next
+                          })
+                          setInactiveQueryParamNames(prev => {
+                            let next = setFlagForKey(prev, effectiveName, true)
+                            if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                            return next
+                          })
+                          return
+                        }
+                        setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                        setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
+                        setQueryParamKeyOverrides(prev => {
+                          const next = { ...prev }
+                          if (trimmed === rawName) delete next[rawName]
+                          else next[rawName] = trimmed
+                          return next
+                        })
+                        setInactiveQueryParamNames(prev => setFlagForKey(prev, trimmed, isActive))
+                        setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
+                        return
+                      }
+
+                      if (!trimmed) {
+                        setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value, isActive: true }])
+                        setQueryParams(prev => {
+                          if (!(effectiveName in prev)) return prev
+                          const next = { ...prev }
+                          delete next[effectiveName]
+                          return next
+                        })
+                        setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
+                        return
+                      }
+
+                      setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
+                      setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
+                      setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
+                    }
+                  }
+                  onDelete={isRequiredSpecKey ? () => {
+                    setQueryParams(prev => {
+                      if (!Object.prototype.hasOwnProperty.call(prev, effectiveName)) return prev
+                      if (prev[effectiveName] === '') return prev
+                      return { ...prev, [effectiveName]: '' }
+                    })
+                  } : () => {
+                    const totalRows = queryParamsList.length + queryDraftRows.length
+                    const isLastRow = totalRows === 1
+
+                    if (isLastRow) {
+                      if (isSpec) {
+                        setQueryParams(prev => {
+                          if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                          const next = { ...prev }
+                          delete next[effectiveName]
+                          if (rawName !== effectiveName) delete next[rawName]
+                          return next
+                        })
+                        setInactiveQueryParamNames(prev => {
+                          let next = setFlagForKey(prev, effectiveName, true)
+                          if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                          return next
+                        })
+                        setQueryParamKeyOverrides(prev => {
+                          if (!(rawName in prev)) return prev
+                          const next = { ...prev }
+                          delete next[rawName]
+                          return next
+                        })
+                        setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
+                        setQueryDraftRows(prev => (prev.length ? prev : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
+                        return
+                      }
+
+                      setQueryParams(prev => {
+                        if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[effectiveName]
+                        if (rawName !== effectiveName) delete next[rawName]
+                        return next
+                      })
+                      setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
+                      setInactiveQueryParamNames(prev => {
+                        let next = setFlagForKey(prev, effectiveName, true)
+                        if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                        return next
+                      })
+                      return
+                    }
+
+                    setQueryParams(prev => {
+                      if (!(effectiveName in prev) && !(rawName in prev)) return prev
+                      const next = { ...prev }
+                      delete next[effectiveName]
+                      if (rawName !== effectiveName) delete next[rawName]
+                      return next
+                    })
+                    setInactiveQueryParamNames(prev => {
+                      let next = setFlagForKey(prev, effectiveName, true)
+                      if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
+                      return next
+                    })
+                    if (isSpec) {
+                      setQueryParamKeyOverrides(prev => {
+                        if (!(rawName in prev)) return prev
+                        const next = { ...prev }
+                        delete next[rawName]
+                        return next
+                      })
+                      setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
+                    }
+                  }}
+                />
+              )
+            })}
+
+            {queryDraftRows.map(row => (
+              <QueryDraftRow
+                key={row.id}
+                rowId={row.id}
+                name={row.name}
+                value={row.value}
+                isActive={row.isActive}
+                onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
+                onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
+                onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+                onCommit={() => commitQueryDraftRowById(row.id)}
+                variableSuggestions={variableSuggestions}
+                historyItems={valueHistory.query[row.name.trim()] ?? []}
+                onRecordHistory={next => recordValueHistory('query', row.name, next)}
+                onPickHistory={next => {
+                  setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
+                  setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: true } : r)))
+                  recordValueHistory('query', row.name, next)
+                }}
+                onDeleteHistoryItem={next => deleteValueHistoryItem('query', row.name, next)}
+                onClearAllHistory={clearAllValueHistory}
+                historyMenuId={`queryDraft:${row.id}`}
+                historyMenuOpenId={valueHistoryMenuOpenId}
+                historyMenuAnchor={valueHistoryMenuAnchor}
+                onToggleHistoryMenu={toggleValueHistoryMenu}
+                onCloseHistoryMenu={closeValueHistoryMenu}
+                historyMenuPanelRef={valueHistoryMenuPanelRef}
+                onDelete={() => {
+                  setQueryDraftRows(prev => {
+                    if (prev.length === 1 && prev[0]?.id === row.id) {
+                      if (queryParamsList.length > 0) return []
+                      return [{ ...prev[0], name: '', value: '', isActive: true }]
+                    }
+                    return prev.filter(r => r.id !== row.id)
+                  })
+                }}
+              />
+            ))}
+          </div>
+        </div>
       ) : (
         <div className="accordion">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -3918,305 +4221,6 @@ export function RequestEditor(props: {
           </div>
         </div>
       )}
-
-      <details className="accordion" open>
-        <summary>
-          <span>Params</span>
-          <span style={{ marginLeft: 'auto' }} />
-          <button
-            type="button"
-            className="iconBtn addRowBtn"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              addQueryDraftRow()
-            }}
-            aria-label="Add query param"
-            title="Add query param"
-          >
-            <span className="addRowGlyph">+</span>
-          </button>
-        </summary>
-        {pathParamsList.length > 0 && (
-          <div className="section">
-            <div className="sectionTitle">Path</div>
-            {pathParamsList.map(p => ( 
-              <ParamRow 
-                key={p.name} 
-                param={p} 
-                store={pathParams} 
-                setStore={setPathParams} 
-                onClear={() => { 
-                  setPathParams(prev => { 
-                    if (!(p.name in prev)) return prev 
-                    const next = { ...prev } 
-                    delete next[p.name] 
-                    return next 
-                  }) 
-                }} 
-                variableSuggestions={variableSuggestions} 
-                enumMenuId={`enum:path:${p.name}`}
-                enumMenuOpenId={enumMenuOpenId}
-                enumMenuAnchor={enumMenuAnchor}
-                onToggleEnumMenu={toggleEnumMenu}
-                onCloseEnumMenu={closeEnumMenu}
-                enumMenuPanelRef={enumMenuPanelRef}
-                historyItems={valueHistory.path[p.name] ?? []} 
-                onRecordHistory={next => recordValueHistory('path', p.name, next)} 
-                onPickHistory={next => { 
-                  setPathParams(prev => ({ ...prev, [p.name]: next })) 
-                  recordValueHistory('path', p.name, next)
-                }}
-                onDeleteHistoryItem={next => deleteValueHistoryItem('path', p.name, next)}
-                onClearAllHistory={clearAllValueHistory}
-                historyMenuId={`path:${p.name}`}
-                historyMenuOpenId={valueHistoryMenuOpenId}
-                historyMenuAnchor={valueHistoryMenuAnchor}
-                onToggleHistoryMenu={toggleValueHistoryMenu}
-                onCloseHistoryMenu={closeValueHistoryMenu}
-                historyMenuPanelRef={valueHistoryMenuPanelRef}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="section">
-          <div className="sectionTitle">Query</div>
-          {queryParamsList.map(p => {
-            const rawName = p.name
-            const isSpec = querySpecNames.has(rawName)
-            const isRequiredSpecKey = isSpec && !!p.required
-            const effectiveName =
-              isRequiredSpecKey
-                ? rawName
-                : isSpec
-                  ? (queryParamKeyOverrides[rawName] ?? rawName)
-                  : rawName
-            const value = queryParams[effectiveName] ?? ''
-            const isActive = !inactiveQueryParamNames[effectiveName]
-            const hint =
-              typeof p.example === 'string' || typeof p.example === 'number'
-                ? String(p.example)
-                : p.schemaType || ''
-
-            return (
-              <QueryRow
-                key={rawName}
-                name={effectiveName}
-                rawName={rawName}
-                isSpec={isSpec}
-                value={value}
-                hint={isSpec ? hint : undefined}
-                enumValues={isSpec ? p.enumValues : undefined}
-                required={isSpec ? p.required : false}
-                readOnlyName={isRequiredSpecKey}
-                isActive={isActive}
-                onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
-                variableSuggestions={variableSuggestions}
-                historyItems={valueHistory.query[effectiveName] ?? []}
-                onRecordHistory={next => recordValueHistory('query', effectiveName, next)}
-                onPickHistory={next => {
-                  setQueryParams(prev => {
-                    const nextParams = { ...prev }
-                    nextParams[effectiveName] = next
-                    if (isSpec && effectiveName !== rawName) delete nextParams[rawName]
-                    return nextParams
-                  })
-                  setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
-                  recordValueHistory('query', effectiveName, next)
-                }}
-                onDeleteHistoryItem={next => deleteValueHistoryItem('query', effectiveName, next)}
-                onClearAllHistory={clearAllValueHistory}
-                historyMenuId={`query:${effectiveName}`}
-                historyMenuOpenId={valueHistoryMenuOpenId}
-                historyMenuAnchor={valueHistoryMenuAnchor}
-                onToggleHistoryMenu={toggleValueHistoryMenu}
-                onCloseHistoryMenu={closeValueHistoryMenu}
-                historyMenuPanelRef={valueHistoryMenuPanelRef}
-                enumMenuId={isSpec ? `enum:query:${rawName}` : undefined}
-                enumMenuOpenId={enumMenuOpenId}
-                enumMenuAnchor={enumMenuAnchor}
-                onToggleEnumMenu={toggleEnumMenu}
-                onCloseEnumMenu={closeEnumMenu}
-                enumMenuPanelRef={enumMenuPanelRef}
-                onChangeValue={nextValue => {
-                  setQueryParams(prev => {
-                    const next = { ...prev }
-                    next[effectiveName] = nextValue
-                    if (isSpec && effectiveName !== rawName) delete next[rawName]
-                    return next
-                  })
-                }}
-                onRename={
-                  isRequiredSpecKey
-                    ? undefined
-                    : nextName => {
-                    const trimmed = nextName.trim()
-                    if (trimmed === effectiveName) return
-
-                    if (isSpec) {
-                      if (!trimmed) {
-                        setQueryParams(prev => {
-                          if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                          const next = { ...prev }
-                          delete next[effectiveName]
-                          if (rawName !== effectiveName) delete next[rawName]
-                          return next
-                        })
-                        setInactiveQueryParamNames(prev => {
-                          let next = setFlagForKey(prev, effectiveName, true)
-                          if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                          return next
-                        })
-                        return
-                      }
-                      setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
-                      setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
-                      setQueryParamKeyOverrides(prev => {
-                        const next = { ...prev }
-                        if (trimmed === rawName) delete next[rawName]
-                        else next[rawName] = trimmed
-                        return next
-                      })
-                      setInactiveQueryParamNames(prev => setFlagForKey(prev, trimmed, isActive))
-                      setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
-                      return
-                    }
-
-                    if (!trimmed) {
-                      setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value, isActive: true }])
-                      setQueryParams(prev => {
-                        if (!(effectiveName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[effectiveName]
-                        return next
-                      })
-                      setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
-                      return
-                    }
-
-                    setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
-                    setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
-                    setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
-                  }
-                }
-                onDelete={isRequiredSpecKey ? () => {
-                  setQueryParams(prev => {
-                    if (!Object.prototype.hasOwnProperty.call(prev, effectiveName)) return prev
-                    if (prev[effectiveName] === '') return prev
-                    return { ...prev, [effectiveName]: '' }
-                  })
-                } : () => {
-                  const totalRows = queryParamsList.length + queryDraftRows.length
-                  const isLastRow = totalRows === 1
-
-                  if (isLastRow) {
-                    if (isSpec) {
-                      setQueryParams(prev => {
-                        if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[effectiveName]
-                        if (rawName !== effectiveName) delete next[rawName]
-                        return next
-                      })
-                      setInactiveQueryParamNames(prev => {
-                        let next = setFlagForKey(prev, effectiveName, true)
-                        if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                        return next
-                      })
-                      setQueryParamKeyOverrides(prev => {
-                        if (!(rawName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[rawName]
-                        return next
-                      })
-                      setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
-                      setQueryDraftRows(prev => (prev.length ? prev : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
-                      return
-                    }
-
-                    setQueryParams(prev => {
-                      if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                      const next = { ...prev }
-                      delete next[effectiveName]
-                      if (rawName !== effectiveName) delete next[rawName]
-                      return next
-                    })
-                    setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
-                    setInactiveQueryParamNames(prev => {
-                      let next = setFlagForKey(prev, effectiveName, true)
-                      if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                      return next
-                    })
-                    return
-                  }
-
-                  setQueryParams(prev => {
-                    if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                    const next = { ...prev }
-                    delete next[effectiveName]
-                    if (rawName !== effectiveName) delete next[rawName]
-                    return next
-                  })
-                  setInactiveQueryParamNames(prev => {
-                    let next = setFlagForKey(prev, effectiveName, true)
-                    if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                    return next
-                  })
-                  if (isSpec) {
-                    setQueryParamKeyOverrides(prev => {
-                      if (!(rawName in prev)) return prev
-                      const next = { ...prev }
-                      delete next[rawName]
-                      return next
-                    })
-                    setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
-                  }
-                }}
-              />
-            )
-          })}
-
-          {queryDraftRows.map(row => (
-            <QueryDraftRow
-              key={row.id}
-              rowId={row.id}
-              name={row.name}
-              value={row.value}
-              isActive={row.isActive}
-              onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
-              onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
-              onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-              onCommit={() => commitQueryDraftRowById(row.id)}
-              variableSuggestions={variableSuggestions}
-              historyItems={valueHistory.query[row.name.trim()] ?? []}
-              onRecordHistory={next => recordValueHistory('query', row.name, next)}
-              onPickHistory={next => {
-                setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
-                setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: true } : r)))
-                recordValueHistory('query', row.name, next)
-              }}
-              onDeleteHistoryItem={next => deleteValueHistoryItem('query', row.name, next)}
-              onClearAllHistory={clearAllValueHistory}
-              historyMenuId={`queryDraft:${row.id}`}
-              historyMenuOpenId={valueHistoryMenuOpenId}
-              historyMenuAnchor={valueHistoryMenuAnchor}
-              onToggleHistoryMenu={toggleValueHistoryMenu}
-              onCloseHistoryMenu={closeValueHistoryMenu}
-              historyMenuPanelRef={valueHistoryMenuPanelRef}
-              onDelete={() => {
-                setQueryDraftRows(prev => {
-                  if (prev.length === 1 && prev[0]?.id === row.id) {
-                    if (queryParamsList.length > 0) return []
-                    return [{ ...prev[0], name: '', value: '', isActive: true }]
-                  }
-                  return prev.filter(r => r.id !== row.id)
-                })
-              }}
-            />
-          ))}
-        </div>
-      </details>
 
       <details
         className="accordion"
