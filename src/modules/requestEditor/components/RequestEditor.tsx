@@ -2866,7 +2866,8 @@ export function RequestEditor(props: {
         id: uid('hist'),
         createdAt: Date.now(),
         method: props.request.method,
-        url: displayUrl,
+        runId,
+        responseStatus: null,
         draft: {
           pathParams,
           queryParams: snapshot.effectiveQueryParamsForCommit,

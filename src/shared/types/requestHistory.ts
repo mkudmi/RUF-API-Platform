@@ -36,6 +36,8 @@ export type RequestHistoryItem = {
   id: string
   createdAt: number
   method: HttpMethod
-  url: string
+  runId?: string
+  responseStatus: number | null
+  responseStatusText?: string
   draft: RequestDraft
 }

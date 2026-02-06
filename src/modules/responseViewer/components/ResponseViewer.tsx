@@ -37,6 +37,18 @@ function compactStatusText(text: string) {
     .join('')
 }
 
+function formatHistoryStatus(item: RequestHistoryItem): string {
+  if (typeof item.responseStatus === 'number') {
+    return String(item.responseStatus)
+  }
+  return 'Pending'
+}
+
+function historyStatusClass(item: RequestHistoryItem): string {
+  if (typeof item.responseStatus === 'number') return statusClass(item.responseStatus)
+  return 'statusOther'
+}
+
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   if (bytes < 1024) return `${Math.round(bytes)} B`
@@ -630,19 +642,18 @@ export function ResponseViewer(props: {
                   className="historyItem"
                   onClick={() => props.onSelectHistoryItem?.(item)}
                 >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="mono" style={{ fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {item.method} {item.url}
-                      </div>
-                      <div className="small" style={{ opacity: 0.75 }}>
-                        {formatDateTime24(item.createdAt)}
-                        {item.draft?.queryParams && Object.keys(item.draft.queryParams).length
-                          ? ` · query ${Object.keys(item.draft.queryParams).length}`
-                          : ''}
-                        {typeof item.draft?.bodyText === 'string' && item.draft.bodyText.trim()
-                          ? ` · body ${item.draft.bodyText.length} chars`
-                          : ''}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span className={`badge ${historyStatusClass(item)}`}>
+                          {formatHistoryStatus(item)}
+                        </span>
+                        <div className="mono" style={{ fontSize: 13 }}>
+                          {item.method}
+                        </div>
+                        <div className="small" style={{ opacity: 0.75, whiteSpace: 'nowrap' }}>
+                          {formatDateTime24(item.createdAt)}
+                        </div>
                       </div>
                     </div>
 

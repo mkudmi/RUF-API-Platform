@@ -612,8 +612,27 @@ export default function App() {
     })
   }
 
-  function onRequestResult(requestId: string, result: RunResult) {
+  function onRequestResult(requestId: string, result: RunResult, runId: string) {
     setResultByRequestId(prev => ({ ...prev, [requestId]: result }))
+    setHistoryByRequestId(prev => {
+      const items = prev[requestId]
+      if (!items?.length) return prev
+
+      const idx = items.findIndex(item => item.runId === runId)
+      if (idx < 0) return prev
+
+      const current = items[idx]
+      const nextItem: RequestHistoryItem = {
+        ...current,
+        responseStatus: result.status,
+        responseStatusText: result.statusText,
+      }
+      const nextItems = [...items]
+      nextItems[idx] = nextItem
+      const next = { ...prev, [requestId]: nextItems }
+      saveRequestHistoryByRequestId(next)
+      return next
+    })
   }
 
   function onRequestBeforeSend(requestId: string, item: RequestHistoryItem) {
@@ -2609,7 +2628,7 @@ export default function App() {
                     onBeforeSend={(requestId, item) => onRequestBeforeSend(requestId, item)}
                     onSendStart={requestId => onRequestSendStart(requestId)}
                     onSendEnd={requestId => onRequestSendEnd(requestId)}
-                    onResult={(requestId, result) => onRequestResult(requestId, result)}
+                    onResult={(requestId, result, runId) => onRequestResult(requestId, result, runId)}
                     onChangeMethod={m => setRequestMethod(active.col.id, active.req.id, m)}
                     applyDraft={
                       applyDraftState && applyDraftState.requestId === active.req.id
