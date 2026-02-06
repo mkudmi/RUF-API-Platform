@@ -51,6 +51,7 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 // Rework request history
 // Active/inactive SQL script
 // Add environment variables to the picker via braces
+// Структура хранения данных приложения
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
