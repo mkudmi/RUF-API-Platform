@@ -101,7 +101,7 @@ export function SqlScriptsTab(props: {
   const selectedConn = props.sqlConnections.find(x => x.id === props.selectedSqlConnectionId) ?? null
   const selectedConnLabel = selectedConn
     ? `${selectedConn.label}: ${selectedConn.connectionPreview}`
-    : (props.sqlConnections.length ? 'Select DB…' : 'No DB connections')
+    : (props.sqlConnections.length ? 'Select DB...' : 'No DB connections')
 
   useEffect(() => {
     if (!connMenuOpen) return
@@ -126,7 +126,7 @@ export function SqlScriptsTab(props: {
   }, [connMenuOpen])
 
   return (
-    <div className="accordion">
+    <div className="accordion sqlScriptsAccordion">
       <div className="section">
         <div ref={connMenuOpen ? connMenuWrapRef : null} className="selectMenuWrap" style={{ maxWidth: '100%' }}>
           <button
@@ -173,7 +173,7 @@ export function SqlScriptsTab(props: {
                   }}
                 >
                   <span className="mono">{o.label}</span>
-                  <span style={{ opacity: 0.75 }}>{` — ${o.connectionPreview}`}</span>
+                  <span style={{ opacity: 0.75 }}>{` - ${o.connectionPreview}`}</span>
                 </button>
               ))}
             </div>
