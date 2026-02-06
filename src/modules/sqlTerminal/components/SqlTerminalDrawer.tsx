@@ -20,6 +20,21 @@ const SQL_TERMINAL_SELECTED_CONN_KEY = 'ruf_sql_terminal_selected_conn_v1'
 const SQL_TERMINAL_SQL_KEY = 'ruf_sql_terminal_sql_v1'
 const SQL_TERMINAL_SPLIT_KEY = 'ruf_sql_terminal_split_v1'
 const SQL_TERMINAL_SCHEMA_KEY = 'ruf_sql_terminal_schema_v1'
+const SQL_TERMINAL_MIN_HEIGHT_PX = 240
+const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
+
+function getWindowTitlebarHeightPx() {
+  if (typeof document === 'undefined') return WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+  const el = document.querySelector<HTMLElement>('.windowTitlebar')
+  const measured = el?.getBoundingClientRect().height ?? WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+  return Math.max(0, Math.round(measured)) || WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
+}
+
+function getSqlTerminalMaxHeightPx() {
+  if (typeof window === 'undefined') return 420
+  const topReserved = getWindowTitlebarHeightPx()
+  return Math.max(SQL_TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
+}
 
 function safeLoadNumber(key: string): number | null {
   try {
@@ -205,7 +220,7 @@ export function SqlTerminalDrawer(props: {
   const [menuOpen, setMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
   const [schemaMenuPlacement, setSchemaMenuPlacement] = useState<'below' | 'above'>('below')
-  const [schemaMenuMaxHeight, setSchemaMenuMaxHeight] = useState<number>(260)
+  const [schemaMenuMaxHeight, setSchemaMenuMaxHeight] = useState<number>(220)
   const [heightPx, setHeightPx] = useState<number | null>(() => safeLoadNumber(SQL_TERMINAL_HEIGHT_KEY))
   const [selectedConnId, setSelectedConnId] = useState<string | null>(() => safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY))
   const [sql, setSql] = useState(() => safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '')
@@ -325,6 +340,22 @@ export function SqlTerminalDrawer(props: {
     if (heightPx == null) return
     safeSave(SQL_TERMINAL_HEIGHT_KEY, String(heightPx))
   }, [heightPx])
+
+  useEffect(() => {
+    if (!open) return
+
+    function clampToViewport() {
+      const max = getSqlTerminalMaxHeightPx()
+      setHeightPx(prev => {
+        if (prev == null) return prev
+        return Math.min(prev, max)
+      })
+    }
+
+    clampToViewport()
+    window.addEventListener('resize', clampToViewport)
+    return () => window.removeEventListener('resize', clampToViewport)
+  }, [open])
 
   useEffect(() => {
     if (!selectedConnId) safeRemove(SQL_TERMINAL_SELECTED_CONN_KEY)
@@ -466,11 +497,13 @@ export function SqlTerminalDrawer(props: {
 
   function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    const handle = e.currentTarget
+    const pointerId = e.pointerId
     const startY = e.clientY
-    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, 420))
+    const max = getSqlTerminalMaxHeightPx()
+    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, max))
 
-    const min = 240
-    const max = Math.max(min, Math.round(window.innerHeight * 0.85))
+    const min = SQL_TERMINAL_MIN_HEIGHT_PX
 
     function clamp(n: number) {
       return Math.max(min, Math.min(max, n))
@@ -482,13 +515,38 @@ export function SqlTerminalDrawer(props: {
       setHeightPx(next)
     }
 
-    function onUp() {
+    function cleanup() {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // ignore
     }
 
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, { once: true })
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
   }
 
   function pushOutput(add: OutputEntry[]) {
@@ -498,9 +556,16 @@ export function SqlTerminalDrawer(props: {
 
   function openSchemaMenu(anchorEl: HTMLElement) {
     const margin = 8
+    const gap = 6
+    const minHeight = 96
     const rect = anchorEl.getBoundingClientRect()
-    const availableBelow = Math.max(120, Math.floor(window.innerHeight - rect.bottom - margin - 6))
-    const availableAbove = Math.max(120, Math.floor(rect.top - margin - 6))
+    const sectionRect = sectionRef.current?.getBoundingClientRect()
+    const limitTop = (sectionRect?.top ?? 0) + margin
+    const limitBottom = (sectionRect?.bottom ?? window.innerHeight) - margin
+    const availableBelowRaw = Math.floor(limitBottom - rect.bottom - gap)
+    const availableAboveRaw = Math.floor(rect.top - limitTop - gap)
+    const availableBelow = Math.max(minHeight, availableBelowRaw)
+    const availableAbove = Math.max(minHeight, availableAboveRaw)
 
     if (availableBelow >= availableAbove) {
       setSchemaMenuPlacement('below')
@@ -516,6 +581,8 @@ export function SqlTerminalDrawer(props: {
 
   function onSplitHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    const handle = e.currentTarget
+    const pointerId = e.pointerId
     const wrap = bodyRef.current
     if (!wrap) return
 
@@ -538,13 +605,38 @@ export function SqlTerminalDrawer(props: {
       setSplitLeftFraction(next)
     }
 
-    function onUp() {
+    function cleanup() {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // ignore
     }
 
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, { once: true })
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
   }
 
   const effectiveResultColumns = useMemo(() => {
@@ -701,6 +793,9 @@ export function SqlTerminalDrawer(props: {
     return () => window.removeEventListener('keydown', onGlobalKeyDown, true)
   }, [open])
 
+  const drawerMaxHeightPx = getSqlTerminalMaxHeightPx()
+  const drawerHeightPx = heightPx == null ? null : Math.min(heightPx, drawerMaxHeightPx)
+
   return (
     <>
       <div className={open ? 'terminalBackdrop terminalBackdropOpen' : 'terminalBackdrop'} onClick={onClose} />
@@ -708,7 +803,7 @@ export function SqlTerminalDrawer(props: {
         ref={sectionRef}
         className={open ? 'terminalDrawer terminalDrawerOpen sqlTerminalDrawer' : 'terminalDrawer sqlTerminalDrawer'}
         aria-hidden={!open}
-        style={heightPx != null ? { height: `${heightPx}px` } : undefined}
+        style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
       >
         <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} />
 

@@ -235,6 +235,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
 
   function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!open) return
+    const handle = e.currentTarget
+    const pointerId = e.pointerId
     const startY = e.clientY
     const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, 420))
 
@@ -251,13 +253,38 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       setHeightPx(next)
     }
 
-    function onUp() {
+    function cleanup() {
       window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch {
+        // ignore
+      }
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch {
+      // ignore
     }
 
     window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, { once: true })
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
   }
 
   async function runCommand(raw: string) {

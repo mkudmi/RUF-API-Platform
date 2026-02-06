@@ -16,6 +16,7 @@
 
 :root {
   --radius: 6px;
+  --window-titlebar-height: 38px;
   --font-brand: 'Verdanto', system-ui, -apple-system, Segoe UI, Roboto, Arial;
   --font-ui: 'Nimbus Sans Round', system-ui, -apple-system, Segoe UI, Roboto, Arial;
   font-family: var(--font-ui);
@@ -46,7 +47,7 @@ a { color: inherit; }
 
 .windowShell {
   display: grid;
-  grid-template-rows: 38px 1fr;
+  grid-template-rows: var(--window-titlebar-height) 1fr;
   height: 100%;
   overflow: hidden;
 }
@@ -784,6 +785,7 @@ button:hover { background: rgba(255,255,255,.10); }
 
 .sqlTerminalDrawer {
   grid-template-rows: 10px auto 1fr;
+  max-height: calc(100vh - var(--window-titlebar-height));
 }
 
 .sqlTerminalBody {
@@ -829,7 +831,7 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 
 .sqlTerminalPaneTitleLeft { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.sqlTerminalSchemaMenu { min-width: 160px; }
+.sqlTerminalSchemaMenu { width: min(220px, 36vw); min-width: 140px; }
 .sqlTerminalSchemaPanel { overscroll-behavior: contain; }
 .sqlTerminalSchemaPanelAbove { top: auto; bottom: calc(100% + 6px); }
 
@@ -908,7 +910,8 @@ button:hover { background: rgba(255,255,255,.10); }
   color: rgba(255,255,255,.80);
 }
 
-.sqlTerminalConnMenu { min-width: min(420px, 58vw); }
+.sqlTerminalConnMenu { width: min(320px, 46vw); min-width: 220px; }
+.sqlTerminalConnMenu .selectMenuPanel { max-height: min(240px, 36vh); overflow: auto; }
 
 .sqlTerminalPlayBtn {
   width: 34px;
