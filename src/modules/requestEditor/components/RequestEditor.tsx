@@ -260,6 +260,14 @@ function headerNameExistsCaseInsensitive(headers: Record<string, string>, name: 
   return false
 }
 
+function getHeaderValueCaseInsensitive(headers: Record<string, string>, name: string): string {
+  const needle = name.toLowerCase()
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === needle) return v ?? ''
+  }
+  return ''
+}
+
 function defaultInactiveQueryParamNamesFromSpec(params: RequestParam[]): Record<string, true> {
   const out: Record<string, true> = {}
   for (const p of params) {
@@ -2657,6 +2665,37 @@ export function RequestEditor(props: {
     })
   }, [envHeaders, headerSpecNames, requestBaseHeaders, visibleHeaderParams])
 
+  const hasParamsTabData = useMemo(() => {
+    const hasActivePathValues = Object.entries(pathParams).some(([name, value]) => !!name.trim() && !!String(value ?? '').trim())
+    const hasActiveQueryValues = queryParamsList.some(p => {
+      const rawName = p.name
+      const effectiveName = (queryParamKeyOverrides[rawName] ?? rawName).trim()
+      if (!effectiveName) return false
+      if (inactiveQueryParamNames[effectiveName]) return false
+      return !!String(queryParams[effectiveName] ?? '').trim()
+    })
+    const hasActiveQueryDraftRows = queryDraftRows.some(r => !!r.isActive && !!r.name.trim() && !!r.value.trim())
+    return hasActivePathValues || hasActiveQueryValues || hasActiveQueryDraftRows
+  }, [inactiveQueryParamNames, pathParams, queryDraftRows, queryParamKeyOverrides, queryParams, queryParamsList])
+
+  const hasHeadersTabData = useMemo(() => {
+    const hasActiveCommittedHeaders = Object.entries(committedHeaders).some(([name, value]) => {
+      if (name.toLowerCase() === 'authorization') return false
+      if (headerIsInactive(inactiveHeaderNames, name)) return false
+      return !!String(value ?? '').trim()
+    })
+    const hasActiveHeaderDraftRows = headerDraftRows.some(r => {
+      const name = r.name.trim().toLowerCase()
+      if (!r.isActive) return false
+      if (!name || name === 'authorization') return false
+      return !!r.value.trim()
+    })
+    return hasActiveCommittedHeaders || hasActiveHeaderDraftRows
+  }, [committedHeaders, headerDraftRows, inactiveHeaderNames])
+
+  const hasAuthorizationTabData = !!getHeaderValueCaseInsensitive(committedHeaders, 'authorization').trim()
+  const hasSqlTabData = !!preSqlScript.trim() || !!postSqlScript.trim()
+
   const effectiveContentType = useMemo(() => {
     const activeHeaders = removeInactiveHeaders(effectiveHeaders, inactiveHeaderNames)
     const fromHeadersOrSpec = (activeHeaders['Content-Type'] || activeHeaders['content-type'] || props.request.body?.contentType || '').trim()
@@ -3788,7 +3827,10 @@ export function RequestEditor(props: {
           onClick={() => setHeadersTab('params')}
           aria-pressed={headersTab === 'params'}
         >
-          Params
+          <span className="tabLabelWithIndicator">
+            <span>Params</span>
+            {hasParamsTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
+          </span>
         </button>
         <button
           type="button"
@@ -3796,7 +3838,10 @@ export function RequestEditor(props: {
           onClick={() => setHeadersTab('headers')}
           aria-pressed={headersTab === 'headers'}
         >
-          Headers
+          <span className="tabLabelWithIndicator">
+            <span>Headers</span>
+            {hasHeadersTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
+          </span>
         </button>
         <button
           type="button"
@@ -3804,7 +3849,10 @@ export function RequestEditor(props: {
           onClick={() => setHeadersTab('authorization')}
           aria-pressed={headersTab === 'authorization'}
         >
-          Authorization
+          <span className="tabLabelWithIndicator">
+            <span>Authorization</span>
+            {hasAuthorizationTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
+          </span>
         </button>
         <button
           type="button"
@@ -3812,7 +3860,10 @@ export function RequestEditor(props: {
           onClick={() => setHeadersTab('sql')}
           aria-pressed={headersTab === 'sql'}
         >
-          SQL
+          <span className="tabLabelWithIndicator">
+            <span>SQL</span>
+            {hasSqlTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
+          </span>
         </button>
       </div>
 

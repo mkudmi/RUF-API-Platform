@@ -1786,6 +1786,19 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .tab:last-child { border-right: 0; }
 .tabActive { background: rgba(255,255,255,.12); }
+.tabLabelWithIndicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.tabIndicatorDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #24d05a;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.2);
+}
 
 /* Request history */
 .historyList {
