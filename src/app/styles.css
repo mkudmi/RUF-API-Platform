@@ -910,7 +910,18 @@ button:hover { background: rgba(255,255,255,.10); }
   color: rgba(255,255,255,.80);
 }
 
-.sqlTerminalConnMenu { width: min(320px, 46vw); min-width: 220px; }
+.sqlTerminalConnMenu {
+  flex: 1 1 auto;
+  min-width: 220px;
+  width: auto;
+}
+.sqlTerminalConnMenu .selectMenuBtn {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .sqlTerminalConnMenu .selectMenuPanel { max-height: min(240px, 36vh); overflow: auto; }
 
 .sqlTerminalPlayBtn {
