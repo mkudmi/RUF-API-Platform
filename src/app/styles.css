@@ -32,6 +32,12 @@ body { margin: 0; background: #0b0c10; color: #e8e8e8; font-family: var(--font-u
 button, input, textarea, select { font-family: inherit; }
 a { color: inherit; }
 
+/* Hide native password reveal/clear buttons (Windows/Edge). */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
 /* Scrollbars */
 * { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.85) rgba(255,255,255,.04); }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
