@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Ruf",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "identifier": "com.ruf.desktop",
   "build": {
     "beforeDevCommand": "npm run tauri:ui:dev",
@@ -33,7 +33,7 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "currentUser"
       }
     },
     "createUpdaterArtifacts": true,
