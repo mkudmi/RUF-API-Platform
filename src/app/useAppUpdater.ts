@@ -1,10 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DownloadEvent } from '@tauri-apps/plugin-updater'
+import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater'
 
-type PendingUpdate = {
-  version: string
-  download: (cb?: (event: DownloadEvent) => void) => Promise<void>
-  install: () => Promise<void>
+type PendingUpdate = Pick<Update, 'version' | 'download' | 'install'>
+
+const UPDATE_TOAST_SUPPRESS_KEY = 'ruf.update.toastSuppress'
+const UPDATE_TOAST_SUPPRESS_TTL_MS = 30 * 60 * 1000
+
+function readSuppressedUpdateVersion() {
+  try {
+    const raw = window.localStorage.getItem(UPDATE_TOAST_SUPPRESS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { version?: unknown, ts?: unknown }
+    const version = typeof parsed?.version === 'string' ? parsed.version : null
+    const ts = typeof parsed?.ts === 'number' ? parsed.ts : null
+    if (!version || !ts) return null
+    if (Date.now() - ts > UPDATE_TOAST_SUPPRESS_TTL_MS) return null
+    return version
+  } catch {
+    return null
+  }
+}
+
+function writeSuppressedUpdateVersion(version: string) {
+  try {
+    window.localStorage.setItem(UPDATE_TOAST_SUPPRESS_KEY, JSON.stringify({ version, ts: Date.now() }))
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function clearSuppressedUpdateVersion() {
+  try {
+    window.localStorage.removeItem(UPDATE_TOAST_SUPPRESS_KEY)
+  } catch {
+    // ignore localStorage failures
+  }
 }
 
 function safeStringify(value: unknown) {
@@ -15,13 +45,14 @@ function safeStringify(value: unknown) {
       (_k, v) => {
         if (typeof v === 'bigint') return v.toString()
         if (v instanceof Error) {
+          const errLike = v as Error & Record<string, unknown> & { cause?: unknown }
           const out: Record<string, unknown> = {
             name: v.name,
             message: v.message,
             stack: v.stack,
           }
-          for (const key of Object.keys(v)) out[key] = (v as any)[key]
-          const cause = (v as any)?.cause
+          for (const key of Object.keys(errLike)) out[key] = errLike[key]
+          const cause = errLike.cause
           if (cause !== undefined) out.cause = cause
           return out
         }
@@ -45,7 +76,7 @@ function formatUpdateErrorLog(action: 'check' | 'download' | 'install', e: unkno
   if (typeof e === 'string') return `${header}\n${e}`
   if (!e || (typeof e !== 'object' && typeof e !== 'function')) return `${header}\n${String(e)}`
 
-  const err = e as any
+  const err = e as Partial<Error>
   const message = typeof err?.message === 'string' ? err.message : String(err)
   const name = typeof err?.name === 'string' ? err.name : null
   const stack = typeof err?.stack === 'string' ? err.stack : null
@@ -68,17 +99,32 @@ export function useAppUpdater() {
   const updateDownloadTotalBytesRef = useRef<number | null>(null)
   const updateDownloadedBytesRef = useRef(0)
   const lastUpdateDownloadPctRef = useRef<number | null>(null)
+  const suppressUpdateToastRef = useRef(false)
   const [showUpdateToast, setShowUpdateToast] = useState(false)
   const updateHintTimeoutRef = useRef<number | null>(null)
 
-  useEffect(() => {
-    return () => {
-      if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+  function clearUpdateHintTimer() {
+    if (updateHintTimeoutRef.current != null) {
+      window.clearTimeout(updateHintTimeoutRef.current)
+      updateHintTimeoutRef.current = null
     }
+  }
+
+  function getErrorMessage(e: unknown) {
+    if (typeof e === 'string') return e
+    if (e && typeof e === 'object' && 'message' in e) {
+      const msg = (e as { message?: unknown }).message
+      if (typeof msg === 'string') return msg
+    }
+    return String(e)
+  }
+
+  useEffect(() => {
+    return clearUpdateHintTimer
   }, [])
 
   function setUpdateHintTransient(message: string, ms: number) {
-    if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+    clearUpdateHintTimer()
     setUpdateHint(message)
     updateHintTimeoutRef.current = window.setTimeout(() => {
       setUpdateHint(null)
@@ -98,21 +144,27 @@ export function useAppUpdater() {
       const [{ check }] = await Promise.all([import('@tauri-apps/plugin-updater')])
       const update = await check()
       if (!update) {
+        clearSuppressedUpdateVersion()
         if (opts?.showNoUpdateMessage) setUpdateHintTransient('You are up to date!', 5000)
         setUpdateErrorLog(null)
         return null
       }
 
-      setPendingUpdate(update as any)
+      const suppressedVersion = readSuppressedUpdateVersion()
+      const shouldSuppressToast =
+        suppressUpdateToastRef.current ||
+        (suppressedVersion != null && suppressedVersion === update.version)
+
+      setPendingUpdate(update)
       setUpdateDownloaded(false)
       resetUpdateDownloadProgress()
-      if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+      clearUpdateHintTimer()
       setUpdateHint(`v ${update.version} is available!`)
       setUpdateErrorLog(null)
-      if (opts?.showToastIfUpdate) setShowUpdateToast(true)
-      return update as any
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
+      if (opts?.showToastIfUpdate && !shouldSuppressToast) setShowUpdateToast(true)
+      return update
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e)
       if (opts?.showNoUpdateMessage) setUpdateHintTransient(`Update check failed: ${msg}`, 4000)
       setUpdateErrorLog(formatUpdateErrorLog('check', e))
       return null
@@ -157,7 +209,7 @@ export function useAppUpdater() {
     setUpdateTask('downloading')
     setUpdateDownloaded(false)
     resetUpdateDownloadProgress()
-    if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+    clearUpdateHintTimer()
     setUpdateHint(`Downloading v ${pendingUpdate.version}...`)
     setUpdateErrorLog(null)
     try {
@@ -199,10 +251,10 @@ export function useAppUpdater() {
       })
 
       setUpdateDownloaded(true)
-      if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+      clearUpdateHintTimer()
       setUpdateHint('Download complete. Restart to install.')
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e)
       setUpdateHintTransient(`Update failed: ${msg}`, 6000)
       setUpdateErrorLog(formatUpdateErrorLog('download', e))
     } finally {
@@ -214,18 +266,26 @@ export function useAppUpdater() {
   async function onRestartToUpdate() {
     if (!pendingUpdate || !updateDownloaded) return
 
+    const installingUpdate = pendingUpdate
+    suppressUpdateToastRef.current = true
+    writeSuppressedUpdateVersion(installingUpdate.version)
+    setShowUpdateToast(false)
+    setPendingUpdate(null)
+
     setUpdateBusy(true)
     setUpdateTask('installing')
-    if (updateHintTimeoutRef.current != null) window.clearTimeout(updateHintTimeoutRef.current)
+    clearUpdateHintTimer()
     setUpdateHint('Installing...')
     setUpdateErrorLog(null)
     try {
       const [{ relaunch }] = await Promise.all([import('@tauri-apps/plugin-process')])
-      await pendingUpdate.install()
+      await installingUpdate.install()
       setUpdateHint('Restarting...')
       await relaunch()
-    } catch (e: any) {
-      const msg = typeof e?.message === 'string' ? e.message : String(e)
+    } catch (e: unknown) {
+      suppressUpdateToastRef.current = false
+      clearSuppressedUpdateVersion()
+      const msg = getErrorMessage(e)
       setUpdateHintTransient(`Update failed: ${msg}`, 6000)
       setUpdateErrorLog(formatUpdateErrorLog('install', e))
     } finally {
