@@ -730,9 +730,6 @@ export function ResponseViewer(props: {
 
       {tab === 'history' ? (
         <div className="historyList" style={{ flex: 1, minHeight: 0 }}>
-          <div className="small" style={{ fontSize: 13, opacity: 0.8, marginTop: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Click an item to load its params/body into the request editor.
-          </div>
           {historyItems.length ? (
             <div style={{ overflow: 'auto', minHeight: 0, display: 'grid', gap: 8, marginTop: 10 }}>
               {historyItems.map(item => (
@@ -740,6 +737,7 @@ export function ResponseViewer(props: {
                   key={item.id}
                   type="button"
                   className="historyItem"
+                  title="Load"
                   onClick={() => {
                     closeHistoryInfoMenu()
                     props.onSelectHistoryItem?.(item)
