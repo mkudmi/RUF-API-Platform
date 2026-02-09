@@ -54,6 +54,46 @@ function inferBodyFormatFromContentType(contentType: string): BeautifyBodyFormat
   return 'text'
 }
 
+function inferBodyFormatFromBodyText(bodyText: string): Exclude<BodyFormat, 'auto'> | null {
+  const raw = (bodyText || '').trim()
+  if (!raw) return null
+
+  if ((raw.startsWith('{') || raw.startsWith('['))) {
+    try {
+      JSON.parse(raw)
+      return 'json'
+    } catch {
+      // ignore
+    }
+  }
+
+  if (raw.startsWith('<')) {
+    try {
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(raw, 'application/xml')
+      if (!doc.getElementsByTagName('parsererror')?.length) return 'xml'
+    } catch {
+      // ignore
+    }
+  }
+
+  const looksLikeYaml =
+    raw.startsWith('---') ||
+    /^[\t ]*[^#\s][^:\n]*:[^\n]*$/m.test(raw) ||
+    /^[\t ]*-\s+\S+/m.test(raw)
+
+  if (looksLikeYaml) {
+    try {
+      beautifyBody(raw, 'yaml')
+      return 'yaml'
+    } catch {
+      // ignore
+    }
+  }
+
+  return null
+}
+
 function shouldDefaultOpenFileTab(method: HttpMethod, contentType: string | undefined): boolean {
   if (method === 'GET' || method === 'HEAD') return false
   const ct = (contentType || '').toLowerCase()
@@ -2706,10 +2746,15 @@ export function RequestEditor(props: {
   const supportsFileSend = methodAllowsBody
 
   const resolvedBodyFormatForBeautify = useMemo((): BeautifyBodyFormat => {
-    if (bodyFormat === 'auto') return inferBodyFormatFromContentType(effectiveContentType)
+    if (bodyFormat === 'auto') return inferBodyFormatFromBodyText(bodyText) ?? inferBodyFormatFromContentType(effectiveContentType)
     if (bodyFormat === 'json' || bodyFormat === 'xml' || bodyFormat === 'yaml' || bodyFormat === 'text') return bodyFormat
     return 'text'
-  }, [bodyFormat, effectiveContentType])
+  }, [bodyFormat, bodyText, effectiveContentType])
+
+  const bodyFormatForDisplay = useMemo<BodyFormat>(() => {
+    if (bodyFormat !== 'auto') return bodyFormat
+    return inferBodyFormatFromBodyText(bodyText) ?? 'auto'
+  }, [bodyFormat, bodyText])
 
   function templateForBodyFormat(format: BodyFormat): string {
     switch (format) {
@@ -4432,7 +4477,7 @@ export function RequestEditor(props: {
               aria-label="Body format"
               title="Body format"
             >
-              {labelForBodyFormat(bodyFormat)}
+              {labelForBodyFormat(bodyFormatForDisplay)}
             </button>
           </div>
           <button
@@ -4609,7 +4654,7 @@ export function RequestEditor(props: {
             <button
               key={v}
               type="button"
-              className={`selectMenuItem ${bodyFormat === v ? 'selectMenuItemActive' : ''}`}
+              className={`selectMenuItem ${bodyFormatForDisplay === v ? 'selectMenuItemActive' : ''}`}
               role="menuitem"
               onClick={() => pickBodyFormat(v)}
             >
