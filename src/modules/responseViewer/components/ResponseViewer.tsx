@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../../shared/utils/http'
 import { generateJsonSchema } from '../../../shared/utils/jsonSchema'
@@ -8,6 +8,7 @@ import { evaluateJsonSearch, type JsonValue } from '../utils/jsonPathSearch'
 import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
 import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
+import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -147,97 +148,6 @@ function prettyPrintXml(xmlText: string) {
   return out.join('\n')
 }
 
-function renderJsonLineSyntax(line: string): ReactNode[] {
-  type Segment = { kind: 'text' | 'string', text: string, start: number, end: number }
-  const segments: Segment[] = []
-  let i = 0
-  let textStart = 0
-
-  while (i < line.length) {
-    if (line[i] !== '"') {
-      i += 1
-      continue
-    }
-
-    if (textStart < i) {
-      segments.push({ kind: 'text', text: line.slice(textStart, i), start: textStart, end: i })
-    }
-
-    const start = i
-    i += 1
-    let escaped = false
-    while (i < line.length) {
-      const ch = line[i]
-      if (escaped) {
-        escaped = false
-      } else if (ch === '\\') {
-        escaped = true
-      } else if (ch === '"') {
-        i += 1
-        break
-      }
-      i += 1
-    }
-
-    const end = i
-    segments.push({ kind: 'string', text: line.slice(start, end), start, end })
-    textStart = i
-  }
-
-  if (textStart < line.length) {
-    segments.push({ kind: 'text', text: line.slice(textStart), start: textStart, end: line.length })
-  }
-  if (!segments.length) segments.push({ kind: 'text', text: line, start: 0, end: line.length })
-
-  const out: ReactNode[] = []
-  const tokenRegex = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b|[{}[\],:]/g
-
-  for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-    const seg = segments[segIdx]
-
-    if (seg.kind === 'string') {
-      let j = seg.end
-      while (j < line.length && /\s/.test(line[j])) j += 1
-      const isKey = j < line.length && line[j] === ':'
-      out.push(
-        <span key={`s:${seg.start}:${seg.end}`} className={isKey ? 'jsonKeyToken' : 'jsonStringToken'}>
-          {seg.text}
-        </span>,
-      )
-      continue
-    }
-
-    const chunk = seg.text
-    let last = 0
-    tokenRegex.lastIndex = 0
-    let m = tokenRegex.exec(chunk)
-    while (m) {
-      const idx = m.index
-      const value = m[0]
-      const nextPos = idx + value.length
-
-      if (idx > last) out.push(<span key={`t:${seg.start}:${last}`}>{chunk.slice(last, idx)}</span>)
-
-      if (value === 'true' || value === 'false') {
-        out.push(<span key={`b:${seg.start + idx}`} className="jsonBooleanToken">{value}</span>)
-      } else if (value === 'null') {
-        out.push(<span key={`u:${seg.start + idx}`} className="jsonNullToken">{value}</span>)
-      } else if (value.length === 1 && '{}[],:'.includes(value)) {
-        out.push(<span key={`p:${seg.start + idx}`} className="jsonPunctuationToken">{value}</span>)
-      } else {
-        out.push(<span key={`n:${seg.start + idx}`} className="jsonNumberToken">{value}</span>)
-      }
-
-      last = nextPos
-      m = tokenRegex.exec(chunk)
-    }
-
-    if (last < chunk.length) out.push(<span key={`t:${seg.start}:${last}:end`}>{chunk.slice(last)}</span>)
-  }
-
-  return out
-}
-
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
@@ -278,6 +188,11 @@ export function ResponseViewer(props: {
   }, [props.result])
 
   const isJson = props.result ? parsed !== null : false
+  const isXmlBody = useMemo(() => {
+    if (!props.result || isJson) return false
+    const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
+    return looksLikeXml(ct, props.result.bodyText)
+  }, [isJson, props.result])
 
   const bodyView = useMemo(() => {
     if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null }
@@ -892,7 +807,9 @@ export function ResponseViewer(props: {
                   <div className="mono codeRowGutter" style={{ width: `${bodyGutterWidthCh}ch` }} aria-hidden="true">
                     {idx + 1}
                   </div>
-                  <div className="mono codeRowText">{isJson ? renderJsonLineSyntax(line) : line}</div>
+                  <div className="mono codeRowText">
+                    {isJson ? renderJsonLineSyntax(line) : isXmlBody ? renderXmlLineSyntax(line) : line}
+                  </div>
                 </div>
               ))}
             </div>

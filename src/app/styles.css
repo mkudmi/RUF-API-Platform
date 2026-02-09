@@ -1029,6 +1029,13 @@ button:hover { background: rgba(255,255,255,.10); }
 .codeRowText .jsonBooleanToken { color: #ff8ec2 !important; }
 .codeRowText .jsonNullToken { color: #b8c0cc !important; }
 .codeRowText .jsonPunctuationToken { color: #c7d2fe !important; }
+.codeRowText .xmlTagBracketToken { color: #bfc8d6 !important; }
+.codeRowText .xmlTagNameToken { color: #7fd8ff !important; }
+.codeRowText .xmlAttrNameToken { color: #95e7c3 !important; }
+.codeRowText .xmlAttrValueToken { color: #ffb46a !important; }
+.codeRowText .xmlCommentToken { color: #9aa6b2 !important; }
+.codeRowText .xmlDeclarationToken { color: #d8b4fe !important; }
+.codeRowText .xmlTextToken { color: #e5e7eb !important; }
 
 .codeRowText:empty::before {
   content: ' ';
