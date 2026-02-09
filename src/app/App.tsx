@@ -197,6 +197,12 @@ export default function App() {
   const createWorkspaceFolderInputRef = useRef<HTMLInputElement | null>(null)
   const [workspaceFolderName, setWorkspaceFolderName] = useState('New Folder')
   const [workspaceFolderError, setWorkspaceFolderError] = useState<string | null>(null)
+  const [workspaceFolderCreateParentId, setWorkspaceFolderCreateParentId] = useState<string | null>(null)
+  const createCollectionSubfolderDialogRef = useRef<HTMLDialogElement | null>(null)
+  const createCollectionSubfolderInputRef = useRef<HTMLInputElement | null>(null)
+  const [collectionSubfolderName, setCollectionSubfolderName] = useState('New Folder')
+  const [collectionSubfolderError, setCollectionSubfolderError] = useState<string | null>(null)
+  const [collectionSubfolderTarget, setCollectionSubfolderTarget] = useState<{ collectionId: string, parentFolderId: string } | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -1361,9 +1367,10 @@ export default function App() {
     })
   }
 
-  function addFolderToFolder(collectionId: string, parentFolderId: string) {
-    const newFolder = { id: uid('folder'), name: 'New Folder', requests: [], folders: [] }
-
+  function addFolderToFolderWithName(collectionId: string, parentFolderId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+    const newFolder = { id: uid('folder'), name: nextName, requests: [], folders: [] }
     setCollections(prev => {
       function addToFolders(folders: any[]): { folders: any[], changed: boolean } {
         let changed = false
@@ -1397,6 +1404,37 @@ export default function App() {
       saveCollections(next)
       return next
     })
+  }
+
+  function addFolderToFolder(collectionId: string, parentFolderId: string) {
+    setCollectionSubfolderError(null)
+    setCollectionSubfolderName('New Folder')
+    setCollectionSubfolderTarget({ collectionId, parentFolderId })
+    createCollectionSubfolderDialogRef.current?.showModal()
+    requestAnimationFrame(() => {
+      const input = createCollectionSubfolderInputRef.current
+      if (!input) return
+      input.focus()
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    })
+  }
+
+  function closeCreateCollectionSubfolder() {
+    createCollectionSubfolderDialogRef.current?.close()
+  }
+
+  function createCollectionSubfolder() {
+    setCollectionSubfolderError(null)
+    const target = collectionSubfolderTarget
+    if (!target) return
+    const name = collectionSubfolderName.trim()
+    if (!name) {
+      setCollectionSubfolderError('Enter a folder name.')
+      return
+    }
+    addFolderToFolderWithName(target.collectionId, target.parentFolderId, name)
+    closeCreateCollectionSubfolder()
   }
 
   function deleteFolder(collectionId: string, folderId: string) {
@@ -2011,9 +2049,10 @@ export default function App() {
     confirmDeleteDialogRef.current?.close()
   }
 
-  function openCreateWorkspaceFolder() {
+  function openCreateWorkspaceFolder(parentFolderId: string | null = null) {
     setWorkspaceFolderError(null)
     setWorkspaceFolderName('New Folder')
+    setWorkspaceFolderCreateParentId(parentFolderId)
     createWorkspaceFolderDialogRef.current?.showModal()
     requestAnimationFrame(() => {
       const input = createWorkspaceFolderInputRef.current
@@ -2048,39 +2087,22 @@ export default function App() {
       let name = base
       for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
 
-      const next: Workspace = {
-        ...prev,
-        folders: [{ id: uid('wfolder'), name, collectionIds: [], folders: [] }, ...prev.folders],
-      }
-      saveWorkspace(next)
-      return next
-    })
+      const newFolder: WorkspaceFolder = { id: uid('wfolder'), name, collectionIds: [], folders: [] }
+      const parentId = workspaceFolderCreateParentId
 
-    closeCreateWorkspaceFolder()
-  }
-
-  function addWorkspaceFolderToFolder(parentFolderId: string) {
-    const base = 'New Folder'
-    const newId = uid('wfolder')
-
-    setWorkspace(prev => {
-      const existing = new Set<string>()
-      const visit = (folders: WorkspaceFolder[]) => {
-        for (const f of folders) {
-          existing.add(f.name)
-          if (f.folders?.length) visit(f.folders)
+      if (!parentId) {
+        const next: Workspace = {
+          ...prev,
+          folders: [newFolder, ...prev.folders],
         }
+        saveWorkspace(next)
+        return next
       }
-      visit(prev.folders)
-
-      let name = base
-      for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
-      const newFolder: WorkspaceFolder = { id: newId, name, collectionIds: [], folders: [] }
 
       function addToFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], added: boolean } {
         let added = false
         const nextFolders = folders.map(f => {
-          if (f.id === parentFolderId) {
+          if (f.id === parentId) {
             added = true
             const nested = f.folders ?? []
             return { ...f, folders: [newFolder, ...nested] }
@@ -2101,6 +2123,12 @@ export default function App() {
       saveWorkspace(next)
       return next
     })
+
+    closeCreateWorkspaceFolder()
+  }
+
+  function addWorkspaceFolderToFolder(parentFolderId: string) {
+    openCreateWorkspaceFolder(parentFolderId)
   }
 
   function moveWorkspaceFolder(workspaceFolderId: string, targetParentWorkspaceFolderId: string | null) {
@@ -2748,6 +2776,7 @@ export default function App() {
         onClose={() => {
           setWorkspaceFolderError(null)
           setWorkspaceFolderName('New Folder')
+          setWorkspaceFolderCreateParentId(null)
         }}
       >
         <div className="modalHeader">
@@ -2771,6 +2800,39 @@ export default function App() {
 
         <div className="modalActions">
           <button onClick={createWorkspaceFolder}>Create</button>
+        </div>
+      </dialog>
+
+      <dialog
+        ref={createCollectionSubfolderDialogRef}
+        className="modal modalSmall"
+        onClose={() => {
+          setCollectionSubfolderError(null)
+          setCollectionSubfolderName('New Folder')
+          setCollectionSubfolderTarget(null)
+        }}
+      >
+        <div className="modalHeader">
+          <b>Create Folder</b>
+          <button className="iconBtn" onClick={closeCreateCollectionSubfolder} aria-label="Close">âœ•</button>
+        </div>
+
+        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
+          <div className="small">Name</div>
+          <input
+            ref={createCollectionSubfolderInputRef}
+            style={{ width: '100%' }}
+            value={collectionSubfolderName}
+            onChange={e => setCollectionSubfolderName(e.target.value)}
+            autoFocus
+            placeholder="New Folder"
+          />
+        </div>
+
+        {collectionSubfolderError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{collectionSubfolderError}</div>}
+
+        <div className="modalActions">
+          <button onClick={createCollectionSubfolder}>Create</button>
         </div>
       </dialog>
 
