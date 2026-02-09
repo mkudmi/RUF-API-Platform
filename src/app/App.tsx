@@ -60,6 +60,7 @@ const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
 type SettingsTab = 'certificates' | 'update' | 'sql'
+type TreeToggleAction = 'expand' | 'collapse'
 
 function safeParseJson<T>(raw: string | null): T | null {
   try {
@@ -94,6 +95,10 @@ function loadTreeSortMode(): TreeSortMode {
 
 function saveTreeSortMode(mode: TreeSortMode) {
   localStorage.setItem(TREE_SORT_MODE_KEY, mode)
+}
+
+function invertTreeToggleAction(action: TreeToggleAction): TreeToggleAction {
+  return action === 'expand' ? 'collapse' : 'expand'
 }
 
 function findRequestByIds(collections: Collection[], collectionId: string, requestId: string) {
@@ -263,11 +268,13 @@ export default function App() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [sqlTerminalOpen, setSqlTerminalOpen] = useState(false)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
-  const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: 'expand' | 'collapse', nonce: number } | null>(null)
+  const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: TreeToggleAction, nonce: number } | null>(null)
   const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
-  const nextTreeToggleAction: 'expand' | 'collapse' = treeOpenCommand
-    ? (treeOpenCommand.action === 'expand' ? 'collapse' : 'expand')
+  const nextTreeToggleAction: TreeToggleAction = treeOpenCommand
+    ? invertTreeToggleAction(treeOpenCommand.action)
     : (treeAllExpanded ? 'collapse' : 'expand')
+  const treeToggleWillCollapse = nextTreeToggleAction === 'collapse'
+  const treeToggleLabel = treeToggleWillCollapse ? 'Collapse all folders' : 'Expand all folders'
   const {
     updateBusy,
     updateTask,
@@ -2582,11 +2589,11 @@ export default function App() {
                 setTreeAllExpanded(nextTreeToggleAction === 'expand')
                 setTreeOpenCommand({ action: nextTreeToggleAction, nonce: treeCommandNonceRef.current })
               }}
-              aria-label={nextTreeToggleAction === 'collapse' ? 'Collapse all folders' : 'Expand all folders'}
-              title={nextTreeToggleAction === 'collapse' ? 'Collapse all folders' : 'Expand all folders'}
+              aria-label={treeToggleLabel}
+              title={treeToggleLabel}
             >
               <span className="iconGlyph">
-                {nextTreeToggleAction === 'collapse' ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
+                {treeToggleWillCollapse ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
               </span>
             </button>
             <button
