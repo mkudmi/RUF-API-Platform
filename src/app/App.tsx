@@ -265,6 +265,9 @@ export default function App() {
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: 'expand' | 'collapse', nonce: number } | null>(null)
   const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
+  const nextTreeToggleAction: 'expand' | 'collapse' = treeOpenCommand
+    ? (treeOpenCommand.action === 'expand' ? 'collapse' : 'expand')
+    : (treeAllExpanded ? 'collapse' : 'expand')
   const {
     updateBusy,
     updateTask,
@@ -2575,16 +2578,15 @@ export default function App() {
             <button
               className="iconBtn treeToggleBtn"
               onClick={() => {
-                const nextAction = treeAllExpanded ? 'collapse' : 'expand'
                 treeCommandNonceRef.current += 1
-                setTreeAllExpanded(nextAction === 'expand')
-                setTreeOpenCommand({ action: nextAction, nonce: treeCommandNonceRef.current })
+                setTreeAllExpanded(nextTreeToggleAction === 'expand')
+                setTreeOpenCommand({ action: nextTreeToggleAction, nonce: treeCommandNonceRef.current })
               }}
-              aria-label={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
-              title={treeAllExpanded ? 'Collapse all folders' : 'Expand all folders'}
+              aria-label={nextTreeToggleAction === 'collapse' ? 'Collapse all folders' : 'Expand all folders'}
+              title={nextTreeToggleAction === 'collapse' ? 'Collapse all folders' : 'Expand all folders'}
             >
               <span className="iconGlyph">
-                {treeAllExpanded ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
+                {nextTreeToggleAction === 'collapse' ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
               </span>
             </button>
             <button

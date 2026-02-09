@@ -70,6 +70,7 @@ export function WorkspaceTree(props: {
   const [collectionSummariesByScope, setCollectionSummariesByScope] = useState<Record<string, OpenStateSummary>>({})
   const [openMenuWorkspaceFolderId, setOpenMenuWorkspaceFolderId] = useState<string | null>(null)
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
+  const lastAppliedTreeCommandNonceRef = useRef<number | null>(null)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
@@ -138,6 +139,8 @@ export function WorkspaceTree(props: {
   useEffect(() => {
     const cmd = props.treeOpenCommand
     if (!cmd) return
+    if (lastAppliedTreeCommandNonceRef.current === cmd.nonce) return
+    lastAppliedTreeCommandNonceRef.current = cmd.nonce
 
     setOpenMenuWorkspaceFolderId(null)
     setEditingFolderId(null)

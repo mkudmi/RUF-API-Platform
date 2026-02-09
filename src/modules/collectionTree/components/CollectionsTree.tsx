@@ -181,12 +181,15 @@ export function CollectionsTree(props: {
   const requestMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [openCollections, setOpenCollections] = useState<Set<string>>(() => new Set(loadTreeOpenState().collections))
   const [openFolders, setOpenFolders] = useState<Set<string>>(() => new Set(loadTreeOpenState().folders))
+  const lastAppliedTreeCommandNonceRef = useRef<number | null>(null)
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
 
   useEffect(() => {
     const cmd = props.treeOpenCommand
     if (!cmd) return
+    if (lastAppliedTreeCommandNonceRef.current === cmd.nonce) return
+    lastAppliedTreeCommandNonceRef.current = cmd.nonce
 
     setOpenMenuCollectionId(null)
     setOpenMenuFolderId(null)
