@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
 import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
@@ -15,6 +15,7 @@ import { SqlScriptsTab } from './SqlScriptsTab'
 import { AuthorizationTab } from './AuthorizationTab'
 import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../../shared/utils/variables'
 import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
+import { JsonCodeEditor } from './JsonCodeEditor'
 import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 
@@ -2183,7 +2184,7 @@ export function RequestEditor(props: {
     bodyTextareaRef.current?.focus()
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const draft = loadRequestDraft(props.request.id)
     const nextPathParams = draft?.pathParams ?? {}
     const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
@@ -2755,6 +2756,7 @@ export function RequestEditor(props: {
     if (bodyFormat !== 'auto') return bodyFormat
     return inferBodyFormatFromBodyText(bodyText) ?? 'auto'
   }, [bodyFormat, bodyText])
+  const useJsonBodyEditor = bodyFormatForDisplay === 'json'
 
   function templateForBodyFormat(format: BodyFormat): string {
     switch (format) {
@@ -3159,21 +3161,26 @@ export function RequestEditor(props: {
     }
   }, [])
 
+  const triggerSendShortcut = useCallback((): boolean => {
+    if (!canSend || isSending) return false
+    commitFocusedValueFieldToState()
+    sendRef.current?.()
+    return true
+  }, [canSend, isSending])
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
       const target = e.target as HTMLElement | null
       if (target?.closest('dialog')) return
-      if (!canSend || isSending) return
-      commitFocusedValueFieldToState()
+      if (!triggerSendShortcut()) return
       e.preventDefault()
       e.stopPropagation()
-      sendRef.current?.()
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canSend, isSending])
+  }, [triggerSendShortcut])
 
   async function copyBodyText() {
     await copyText(bodyText)
@@ -4530,6 +4537,13 @@ export function RequestEditor(props: {
             icon={<CloseIcon size={18} />}
           />
         </summary>
+        {useJsonBodyEditor ? (
+          <JsonCodeEditor
+            value={bodyText}
+            onChangeValue={setBodyText}
+            onSubmitShortcut={triggerSendShortcut}
+          />
+        ) : (
           <VariableAutocompleteField
             as="textarea"
             ref={bodyTextareaRef as any}
@@ -4538,71 +4552,79 @@ export function RequestEditor(props: {
             spellCheck={false}
             suggestions={variableSuggestions}
             onChangeValue={setBodyText}
-          onKeyDown={e => {
-            if (e.ctrlKey || e.metaKey || e.altKey) return
-            if (e.key === 'Tab') {
-              e.preventDefault()
-              e.stopPropagation()
-              applyBodyTabIndent(e.shiftKey)
-              return
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              e.stopPropagation()
-              applyBodyEnterIndent()
-              return
-            }
-            if (e.key === '"') {
-              const ta = bodyTextareaRef.current
-              if (!ta) return
-
-              const selStart = ta.selectionStart ?? 0
-              const selEnd = ta.selectionEnd ?? 0
-
-              if (selStart === selEnd && ta.value[selStart] === '"') {
+            onKeyDown={e => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                if (triggerSendShortcut()) {
+                  e.preventDefault()
+                  e.stopPropagation()
+                }
+                return
+              }
+              if (e.ctrlKey || e.metaKey || e.altKey) return
+              if (e.key === 'Tab') {
                 e.preventDefault()
                 e.stopPropagation()
-                const nextPos = selStart + 1
-                ta.selectionStart = nextPos
-                ta.selectionEnd = nextPos
+                applyBodyTabIndent(e.shiftKey)
                 return
               }
-
-              e.preventDefault()
-              e.stopPropagation()
-
-              if (selStart !== selEnd) {
-                const selected = ta.value.slice(selStart, selEnd)
-                applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                e.stopPropagation()
+                applyBodyEnterIndent()
                 return
               }
+              if (e.key === '"') {
+                const ta = bodyTextareaRef.current
+                if (!ta) return
 
-              applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
-            }
-            if (e.key === '{' || e.key === '[') {
-              const ta = bodyTextareaRef.current
-              if (!ta) return
+                const selStart = ta.selectionStart ?? 0
+                const selEnd = ta.selectionEnd ?? 0
 
-              const selStart = ta.selectionStart ?? 0
-              const selEnd = ta.selectionEnd ?? 0
+                if (selStart === selEnd && ta.value[selStart] === '"') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const nextPos = selStart + 1
+                  ta.selectionStart = nextPos
+                  ta.selectionEnd = nextPos
+                  return
+                }
 
-              e.preventDefault()
-              e.stopPropagation()
+                e.preventDefault()
+                e.stopPropagation()
 
-              const open = e.key
-              const close = open === '{' ? '}' : ']'
+                if (selStart !== selEnd) {
+                  const selected = ta.value.slice(selStart, selEnd)
+                  applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
+                  return
+                }
 
-              if (selStart !== selEnd) {
-                const selected = ta.value.slice(selStart, selEnd)
-                applyBodyTextareaReplacement(selStart, selEnd, `${open}${selected}${close}`, selStart + 1, selEnd + 1)
-                return
+                applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
               }
+              if (e.key === '{' || e.key === '[') {
+                const ta = bodyTextareaRef.current
+                if (!ta) return
 
-              applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
-            }
-          }}
-          rows={18}
-        />
+                const selStart = ta.selectionStart ?? 0
+                const selEnd = ta.selectionEnd ?? 0
+
+                e.preventDefault()
+                e.stopPropagation()
+
+                const open = e.key
+                const close = open === '{' ? '}' : ']'
+
+                if (selStart !== selEnd) {
+                  const selected = ta.value.slice(selStart, selEnd)
+                  applyBodyTextareaReplacement(selStart, selEnd, `${open}${selected}${close}`, selStart + 1, selEnd + 1)
+                  return
+                }
+
+                applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
+              }
+            }}
+            rows={18}
+          />
+        )}
       </details>
 
       {(
