@@ -1000,13 +1000,13 @@ button:hover { background: rgba(255,255,255,.10); }
   line-height: 1.45;
 }
 
-.codeRowGutter {
+.codeWithGutterRows .codeRow .codeRowGutter {
   white-space: pre;
   flex: 0 0 auto;
   user-select: none;
   text-align: right;
   padding: 0 8px 0 2px;
-  color: rgba(255,255,255,.45);
+  color: rgba(255, 255, 255, 0.438) !important;
   border-right: 1px solid rgba(255,255,255,.10);
   position: sticky;
   left: 0;
