@@ -1023,6 +1023,13 @@ button:hover { background: rgba(255,255,255,.10); }
   word-break: break-word;
 }
 
+.codeRowText .jsonKeyToken { color: #7fd8ff !important; }
+.codeRowText .jsonNumberToken { color: #a9f5a9 !important; }
+.codeRowText .jsonStringToken { color: #ffb46a !important; }
+.codeRowText .jsonBooleanToken { color: #ff8ec2 !important; }
+.codeRowText .jsonNullToken { color: #b8c0cc !important; }
+.codeRowText .jsonPunctuationToken { color: #c7d2fe !important; }
+
 .codeRowText:empty::before {
   content: ' ';
 }
