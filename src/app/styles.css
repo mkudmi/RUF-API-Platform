@@ -30,7 +30,7 @@ html, body, #root {
   overscroll-behavior: none;
 }
 body { margin: 0; background: #0b0c10; color: var(--text-color); font-family: var(--font-ui); }
-*:not(.appTitle):not(.appTitle *) { color: var(--text-color) !important; }
+*:not(:where(.appTitle, .appTitle *, .reqStar, .keyReqStar)) { color: var(--text-color) !important; }
 button, input, textarea, select { font-family: inherit; }
 a { color: inherit; }
 
@@ -1633,8 +1633,8 @@ button:hover { background: rgba(255,255,255,.10); }
 .sectionTitle { font-size: 12px; opacity: .8; font-weight: 600; }
 .formRow { display: grid; grid-template-columns: 220px 1fr; gap: 10px; align-items: center; }
 .formLabel { font-size: 12px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reqStar { color: #ff9a9a; margin-left: 4px; }
-.keyReqStar { position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; transform: translateY(2px); margin-left: 0; pointer-events: none; }
+.reqStar { color: #ff9a9a !important; margin-left: 4px; }
+.keyReqStar { color: #ff9a9a !important; position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; transform: translateY(2px); margin-left: 0; pointer-events: none; }
 .editor .formRow input.keyInput { padding-right: 24px; }
 .editor .formRow input { height: 36px; padding: 8px 10px; }
 .editor .formRow input.valueHistoryInput, .editor .formRow textarea.valueHistoryInput { padding-right: 35px; }

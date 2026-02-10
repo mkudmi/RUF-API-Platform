@@ -19,6 +19,12 @@ type FileSystemFileHandleLike = {
   createWritable: () => Promise<FileSystemWritableFileStreamLike>
 }
 
+type HistoryFileRow = {
+  fieldName?: string
+  fileName?: string
+  isActive?: boolean
+}
+
 function statusClass(status: number) {
   if (status >= 200 && status < 300) return 'status2xx'
   if (status >= 300 && status < 400) return 'status3xx'
@@ -234,6 +240,10 @@ export function ResponseViewer(props: {
   const activeHistoryInfoItem = useMemo(
     () => (historyInfoOpenId ? historyItems.find(item => item.id === historyInfoOpenId) ?? null : null),
     [historyInfoOpenId, historyItems],
+  )
+  const activeHistoryInfoUrl = useMemo(
+    () => stripUrlParams(activeHistoryInfoItem?.url || ''),
+    [activeHistoryInfoItem?.url],
   )
   const historyInfoMaxHeightPx = useMemo(() => {
     if (!historyInfoAnchor) return undefined
@@ -875,11 +885,11 @@ export function ResponseViewer(props: {
           >
             <div className="historyInfoSection">
               <div className="historyInfoTitle">URL</div>
-              {stripUrlParams(activeHistoryInfoItem.url || '')
+              {activeHistoryInfoUrl
                 ? (
                   <div className="historyInfoList">
                     <div className="historyInfoRow">
-                      <div className="mono historyInfoValue historyInfoUrlValue">{stripUrlParams(activeHistoryInfoItem.url || '')}</div>
+                      <div className="mono historyInfoValue historyInfoUrlValue">{activeHistoryInfoUrl}</div>
                     </div>
                   </div>
                 )
@@ -934,12 +944,12 @@ export function ResponseViewer(props: {
             <div className="historyInfoSection">
               <div className="historyInfoTitle">File</div>
               {(() => {
-                const rawRows = Array.isArray(activeHistoryInfoItem.draft?.fileRows) ? activeHistoryInfoItem.draft.fileRows : []
+                const rawRows: HistoryFileRow[] = Array.isArray(activeHistoryInfoItem.draft?.fileRows) ? activeHistoryInfoItem.draft.fileRows : []
                 const files = rawRows
                   .map(row => {
                     const fieldName = typeof row?.fieldName === 'string' ? row.fieldName.trim() : ''
-                    const fileName = typeof (row as any)?.fileName === 'string' ? (row as any).fileName.trim() : ''
-                    const isActive = (row as any)?.isActive !== false
+                    const fileName = typeof row?.fileName === 'string' ? row.fileName.trim() : ''
+                    const isActive = row?.isActive !== false
                     return { fieldName, fileName, isActive }
                   })
                   .filter(row => row.isActive && row.fieldName && row.fileName)

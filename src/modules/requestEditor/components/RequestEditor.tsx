@@ -2148,6 +2148,7 @@ export function RequestEditor(props: {
   const [isBodyOpen, setIsBodyOpen] = useState(!!props.request.body)
   const [isFileOpen, setIsFileOpen] = useState(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('auto')
+  const [autoDetectedBodyFormat, setAutoDetectedBodyFormat] = useState<Exclude<BodyFormat, 'auto'> | null>(null)
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const bodyFormatMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [bodyFormatMenuOpen, setBodyFormatMenuOpen] = useState(false)
@@ -2296,6 +2297,7 @@ export function RequestEditor(props: {
     setIsBodyOpen(!!props.request.body)
     const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
     setBodyFormat(nextBodyFormat)
+    setAutoDetectedBodyFormat(null)
     setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
@@ -2437,6 +2439,7 @@ export function RequestEditor(props: {
     setIsBodyOpen(!!props.request.body)
     const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
     setBodyFormat(nextBodyFormat)
+    setAutoDetectedBodyFormat(null)
     setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
     setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
     setIsEditingUrl(false)
@@ -2752,10 +2755,33 @@ export function RequestEditor(props: {
     return 'text'
   }, [bodyFormat, bodyText, effectiveContentType])
 
+  useEffect(() => {
+    if (bodyFormat !== 'auto') {
+      setAutoDetectedBodyFormat(prev => (prev === null ? prev : null))
+      return
+    }
+
+    const raw = bodyText.trim()
+    if (!raw) {
+      setAutoDetectedBodyFormat(prev => (prev === null ? prev : null))
+      return
+    }
+
+    const inferred = inferBodyFormatFromBodyText(bodyText)
+    if (inferred) {
+      setAutoDetectedBodyFormat(prev => (prev === inferred ? prev : inferred))
+      return
+    }
+
+    // Keep the previously detected format while user is typing invalid intermediate text.
+    // This prevents editor remount/focus loss in auto mode.
+    setAutoDetectedBodyFormat(prev => prev)
+  }, [bodyFormat, bodyText])
+
   const bodyFormatForDisplay = useMemo<BodyFormat>(() => {
     if (bodyFormat !== 'auto') return bodyFormat
-    return inferBodyFormatFromBodyText(bodyText) ?? 'auto'
-  }, [bodyFormat, bodyText])
+    return autoDetectedBodyFormat ?? 'auto'
+  }, [autoDetectedBodyFormat, bodyFormat])
   const useJsonBodyEditor = bodyFormatForDisplay === 'json'
 
   function templateForBodyFormat(format: BodyFormat): string {
