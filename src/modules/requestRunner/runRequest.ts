@@ -96,6 +96,17 @@ function getCaCertsPem(): string[] {
   }
 }
 
+function getRequestTimeoutMs(): number {
+  try {
+    const secRaw = loadAppSettings().requestTimeoutSec
+    const sec = Number.isFinite(secRaw) ? Math.round(secRaw) : 300
+    if (sec <= 0) return 300
+    return Math.max(1000, Math.min(600_000, sec * 1000))
+  } catch {
+    return 300_000
+  }
+}
+
 function applyVariables(text: string, vars: Record<string, string>) {
   return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
 }
@@ -365,13 +376,14 @@ export async function runRequest(args: {
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
   const caCertsPem = getCaCertsPem()
+  const timeoutMs = getRequestTimeoutMs()
   const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)
   const requestBodyBytes = estimateBodyBytes(init.body)
   const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
-    res = await platformFetch(url, init, { insecureTls: !validateCertificates, caCertsPem })
+    res = await platformFetch(url, init, { insecureTls: !validateCertificates, caCertsPem, timeoutMs })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
     if (e?.name === 'AbortError') {

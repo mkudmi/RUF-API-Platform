@@ -15,6 +15,7 @@ export type CaCertificate = {
 export type AppSettings = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
+  requestTimeoutSec: number
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
 }
@@ -22,6 +23,7 @@ export type AppSettings = {
 const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
   caCertificates: [],
+  requestTimeoutSec: 300,
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
   globalSqlConnections: [],
 }
@@ -44,6 +46,11 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
   const validateCertificates = typeof rec.validateCertificates === 'boolean'
     ? rec.validateCertificates
     : DEFAULT_APP_SETTINGS.validateCertificates
+  const requestTimeoutSec = (
+    typeof rec.requestTimeoutSec === 'number' && Number.isFinite(rec.requestTimeoutSec)
+      ? Math.max(0, Math.min(600, Math.round(rec.requestTimeoutSec)))
+      : DEFAULT_APP_SETTINGS.requestTimeoutSec
+  )
 
   const rawCa = rec.caCertificates
   const caCertificates: CaCertificate[] = Array.isArray(rawCa)
@@ -120,7 +127,7 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       .filter((x): x is GlobalSqlConnectionItem => !!x)
     : []
 
-  return { validateCertificates, caCertificates, globalSql, globalSqlConnections }
+  return { validateCertificates, caCertificates, requestTimeoutSec, globalSql, globalSqlConnections }
 }
 
 export function saveAppSettings(settings: AppSettings, storage: Storage = localStorage) {

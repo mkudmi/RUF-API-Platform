@@ -59,7 +59,7 @@ const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
-type SettingsTab = 'certificates' | 'update' | 'sql'
+type SettingsTab = 'general' | 'certificates' | 'update' | 'sql'
 type TreeToggleAction = 'expand' | 'collapse'
 
 function safeParseJson<T>(raw: string | null): T | null {
@@ -147,7 +147,10 @@ export default function App() {
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
   const initialAppSettings = useMemo(() => loadAppSettings(), [])
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('certificates')
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  const [requestTimeoutSec, setRequestTimeoutSec] = useState<number | null>(() => (
+    initialAppSettings.requestTimeoutSec > 0 ? initialAppSettings.requestTimeoutSec : null
+  ))
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => initialAppSettings.validateCertificates)
   const [caCertificates, setCaCertificates] = useState<CaCertificate[]>(() => initialAppSettings.caCertificates)
   const [caCertInput, setCaCertInput] = useState('')
@@ -303,7 +306,7 @@ export default function App() {
   )
 
   function openSettings() {
-    setSettingsTab('certificates')
+    setSettingsTab('general')
     settingsDialogRef.current?.showModal()
   }
 
@@ -479,12 +482,13 @@ export default function App() {
 
   useEffect(() => {
     saveAppSettings({
+      requestTimeoutSec: requestTimeoutSec ?? 0,
       validateCertificates,
       caCertificates,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [caCertificates, globalSqlConnections, primaryGlobalSqlSettings, validateCertificates])
+  }, [caCertificates, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -2920,6 +2924,9 @@ export default function App() {
       <dialog
         ref={settingsDialogRef}
         className="modal modalSmall modalSettings"
+        onClick={e => {
+          if (e.target === e.currentTarget) closeSettings()
+        }}
       >
         <div className="modalHeader" style={{ marginBottom: 0 }}>
           <b>Settings</b>
@@ -2928,10 +2935,38 @@ export default function App() {
         <hr className="modalDivider" />
 
         <div className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
+          <button className={`tab ${settingsTab === 'general' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('general')}>General</button>
           <button className={`tab ${settingsTab === 'certificates' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('certificates')}>Certificates</button>
           <button className={`tab ${settingsTab === 'update' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('update')}>Update</button>
           <button className={`tab ${settingsTab === 'sql' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('sql')}>SQL</button>
         </div>
+
+        {settingsTab === 'general' ? (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div className="formRow">
+              <div className="formLabel">Request timeout (seconds)</div>
+              <input
+                className="mono"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={3}
+                placeholder="30s"
+                value={requestTimeoutSec === null ? '' : String(requestTimeoutSec)}
+                onChange={e => {
+                  const raw = e.target.value
+                  const digits = raw.replaceAll(/\D+/g, '').slice(0, 3)
+                  if (!digits) {
+                    setRequestTimeoutSec(null)
+                    return
+                  }
+                  const n = Number(digits)
+                  setRequestTimeoutSec(Math.max(1, Math.min(600, Math.round(n))))
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {settingsTab === 'certificates' ? (
           <div style={{ display: 'grid', gap: 10 }}>

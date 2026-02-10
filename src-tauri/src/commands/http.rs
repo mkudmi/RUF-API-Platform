@@ -126,7 +126,7 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
         let method =
             reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| HttpError::InvalidMethod)?;
 
-        let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(30000), 1000, 120_000);
+        let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(300_000), 300, 600_000);
         let insecure_tls = args.insecure_tls.unwrap_or(false);
 
         let mut client_builder = reqwest::Client::builder()
