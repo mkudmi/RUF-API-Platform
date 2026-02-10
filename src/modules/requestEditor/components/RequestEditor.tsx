@@ -2767,6 +2767,13 @@ export function RequestEditor(props: {
       return
     }
 
+    // Keep JSON editor active while user types intermediate invalid JSON.
+    // This prevents accidental fallback to another format in auto mode.
+    if (raw.startsWith('{') || raw.startsWith('[')) {
+      setAutoDetectedBodyFormat(prev => (prev === 'json' ? prev : 'json'))
+      return
+    }
+
     const inferred = inferBodyFormatFromBodyText(bodyText)
     if (inferred) {
       setAutoDetectedBodyFormat(prev => (prev === inferred ? prev : inferred))
