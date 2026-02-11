@@ -2168,11 +2168,13 @@ export function RequestEditor(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const isSending = inFlightCount > 0
   const sendRef = useRef<(() => void) | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
 
-  function cancelInFlightSend() {
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
+  function cancelInFlightSend(requestId: string = props.request.id) {
+    const controller = abortControllersRef.current.get(requestId)
+    if (!controller) return
+    controller.abort()
+    abortControllersRef.current.delete(requestId)
   }
 
   function requestDefaultBodyText() {
@@ -3022,9 +3024,8 @@ export function RequestEditor(props: {
   }
 
   async function send() {
-    cancelInFlightSend()
     const abortController = new AbortController()
-    abortControllerRef.current = abortController
+    abortControllersRef.current.set(props.request.id, abortController)
 
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
@@ -3180,7 +3181,9 @@ export function RequestEditor(props: {
 
       props.onResult(props.request.id, result, runId)
     } finally {
-      if (abortControllerRef.current === abortController) abortControllerRef.current = null
+      if (abortControllersRef.current.get(props.request.id) === abortController) {
+        abortControllersRef.current.delete(props.request.id)
+      }
       props.onSendEnd?.(props.request.id, runId)
     }
   }
@@ -3194,8 +3197,8 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     return () => {
-      abortControllerRef.current?.abort()
-      abortControllerRef.current = null
+      for (const controller of abortControllersRef.current.values()) controller.abort()
+      abortControllersRef.current.clear()
     }
   }, [])
 
