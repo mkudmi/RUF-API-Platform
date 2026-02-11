@@ -118,6 +118,7 @@ export default function App() {
   const isMac = platform.includes('mac') || ua.includes('mac os')
 
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const settingsTabsRef = useRef<HTMLDivElement | null>(null)
   const importOpenRef = useRef<{
     openMenu: () => void
     openNameStep: (col: Collection) => void
@@ -306,6 +307,10 @@ export default function App() {
     const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
     setSettingsTab(defaultTabId)
     settingsDialogRef.current?.showModal()
+    requestAnimationFrame(() => {
+      const activeTabButton = settingsTabsRef.current?.querySelector('button.tabActive') as HTMLButtonElement | null
+      activeTabButton?.focus()
+    })
   }
 
   function closeSettings() {
@@ -1295,8 +1300,7 @@ export default function App() {
       const input = createCollectionSubfolderInputRef.current
       if (!input) return
       input.focus()
-      const end = input.value.length
-      input.setSelectionRange(end, end)
+      input.select()
     })
   }
 
@@ -2046,8 +2050,7 @@ export default function App() {
       const input = createWorkspaceFolderInputRef.current
       if (!input) return
       input.focus()
-      const end = input.value.length
-      input.setSelectionRange(end, end)
+      input.select()
     })
   }
 
@@ -2932,7 +2935,7 @@ export default function App() {
         </div>
         <hr className="modalDivider" />
 
-        <div className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
+        <div ref={settingsTabsRef} className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
           {settingsTabExtensions.map(tab => (
             <button key={tab.id} className={`tab ${settingsTab === tab.id ? 'tabActive' : ''}`} onClick={() => setSettingsTab(tab.id)}>
               {tab.label}
