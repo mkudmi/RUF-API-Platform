@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Collection } from '../../collectionTree'
 import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import { resolveVariableValue } from '../../../shared/utils/variables'
@@ -36,6 +36,12 @@ function getSqlTerminalMaxHeightPx() {
   if (typeof window === 'undefined') return 420
   const topReserved = getWindowTitlebarHeightPx()
   return Math.max(SQL_TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
+}
+
+function getSqlTerminalBaseHeightPx() {
+  if (typeof window === 'undefined') return 420
+  const max = getSqlTerminalMaxHeightPx()
+  return Math.round(Math.min(window.innerHeight * 0.38, max))
 }
 
 function safeLoadNumber(key: string): number | null {
@@ -152,6 +158,24 @@ function clampHistory<T>(arr: T[], max: number): T[] {
 function formatTime(d: Date) {
   const pad2 = (n: number) => String(n).padStart(2, '0')
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+function extractSchemaTableLabel(sql: string, selectedSchema: string): string | null {
+  const re = /\b(from|into|update|join)\s+([a-zA-Z0-9_".]+)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(sql)) !== null) {
+    const rawRef = (m[2] ?? '').trim()
+    if (!rawRef || rawRef.startsWith('(')) continue
+    const normalized = rawRef
+      .split('.')
+      .map(stripQuotes)
+      .filter(Boolean)
+      .join('.')
+    if (!normalized) continue
+    if (normalized.includes('.')) return normalized
+    return selectedSchema ? `${selectedSchema}.${normalized}` : normalized
+  }
+  return null
 }
 
 function getCurrentSqlStatement(sql: string, caret: number): string | null {
@@ -329,6 +353,7 @@ export function SqlTerminalDrawer(props: {
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>> | null>(null)
   const [resultColumns, setResultColumns] = useState<string[] | null>(null)
   const [resultHint, setResultHint] = useState<string | null>(null)
+  const [lastRunSchemaTableLabel, setLastRunSchemaTableLabel] = useState<string | null>(null)
   const [splitLeftFraction, setSplitLeftFraction] = useState<number>(() => safeLoadFraction(SQL_TERMINAL_SPLIT_KEY) ?? 0.42)
   const [schemas, setSchemas] = useState<string[]>([])
   const [selectedSchema, setSelectedSchema] = useState<string>(() => safeLoadString(SQL_TERMINAL_SCHEMA_KEY) ?? '')
@@ -342,10 +367,12 @@ export function SqlTerminalDrawer(props: {
   const [columnLoading, setColumnLoading] = useState(false)
   const [tableSuggestPrefix, setTableSuggestPrefix] = useState<string>('')
   const [tableSuggestReplaceRange, setTableSuggestReplaceRange] = useState<{ start: number; end: number } | null>(null)
+  const [tableSuggestActiveIndex, setTableSuggestActiveIndex] = useState<number>(0)
 
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const schemaMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const sqlRef = useRef<HTMLTextAreaElement | null>(null)
+  const lineNumbersRef = useRef<HTMLPreElement | null>(null)
   const outputRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const runRef = useRef<(() => void) | null>(null)
@@ -362,6 +389,31 @@ export function SqlTerminalDrawer(props: {
     [props.collections, props.environmentsByCollection, props.extraConnections],
   )
   const selectedConn = useMemo(() => connOptions.find(c => c.id === selectedConnId) ?? null, [connOptions, selectedConnId])
+  const lineCount = useMemo(() => Math.max(1, sql.split('\n').length), [sql])
+  const lineNumberDigits = useMemo(() => Math.max(2, String(lineCount).length), [lineCount])
+  const lineNumbers = useMemo(() => Array.from({ length: lineCount }, (_x, i) => i + 1), [lineCount])
+  const activeLine = useMemo(() => {
+    const safeCursor = Math.max(0, Math.min(cursorPos, sql.length))
+    return sql.slice(0, safeCursor).split('\n').length
+  }, [cursorPos, sql])
+  const editorWrapStyle = useMemo(
+    () =>
+      ({
+        '--sql-line-gutter-ch': String(lineNumberDigits + 1),
+      }) as CSSProperties,
+    [lineNumberDigits],
+  )
+  const syncLineNumberScroll = useCallback(() => {
+    const ta = sqlRef.current
+    const lines = lineNumbersRef.current
+    if (!ta || !lines) return
+    lines.style.transform = `translateY(${-ta.scrollTop}px)`
+  }, [])
+
+  const refreshEditorCaretState = useCallback(() => {
+    setCursorPos(sqlRef.current?.selectionStart ?? 0)
+    syncLineNumberScroll()
+  }, [syncLineNumberScroll])
 
   useEffect(() => {
     if (!open) return
@@ -382,7 +434,12 @@ export function SqlTerminalDrawer(props: {
     ta.selectionStart = pending
     ta.selectionEnd = pending
     setCursorPos(pending)
+    requestAnimationFrame(syncLineNumberScroll)
   }, [sql])
+
+  useEffect(() => {
+    requestAnimationFrame(syncLineNumberScroll)
+  }, [open, lineCount, syncLineNumberScroll])
 
   useEffect(() => {
     if (!open) return
@@ -637,6 +694,14 @@ export function SqlTerminalDrawer(props: {
     handle.addEventListener('lostpointercapture', onCancel)
   }
 
+  function onResizeHandleDoubleClick() {
+    const max = getSqlTerminalMaxHeightPx()
+    const base = getSqlTerminalBaseHeightPx()
+    const current = heightPx ?? base
+    const isMaximized = Math.abs(current - max) <= 2
+    setHeightPx(isMaximized ? base : max)
+  }
+
   function pushOutput(add: OutputEntry[]) {
     if (!add.length) return
     setOutput(prev => [...prev, ...add])
@@ -761,6 +826,32 @@ export function SqlTerminalDrawer(props: {
     return cols.filter(c => c.toLowerCase().includes(p)).slice(0, 120)
   }, [columnsByTableKey, columnTargetTableKey, tableSuggestPrefix])
 
+  const applyTableSuggestionAt = useCallback((index: number) => {
+    const range = tableSuggestReplaceRange
+    const t = tableSuggestions[index]
+    if (!range || !t) return
+    const needsLeadingSpace = /(from|into)$/i.test(sql.slice(0, range.start))
+    const tableRef = tableSuggestKind === 'from' ? `${t} ${makeTableAlias(t)}` : t
+    const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
+    const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
+    setSql(next)
+    setTableSuggestOpen(false)
+    requestAnimationFrame(() => {
+      const ta = sqlRef.current
+      if (!ta) return
+      const newPos = range.start + insert.length
+      ta.focus()
+      ta.selectionStart = newPos
+      ta.selectionEnd = newPos
+      setCursorPos(newPos)
+    })
+  }, [sql, tableSuggestKind, tableSuggestReplaceRange, tableSuggestions])
+
+  useEffect(() => {
+    if (!tableSuggestOpen || suggestMode !== 'table') return
+    setTableSuggestActiveIndex(0)
+  }, [tableSuggestOpen, suggestMode, tableSuggestPrefix])
+
   useEffect(() => {
     if (!open) return
     const ta = sqlRef.current
@@ -795,6 +886,7 @@ export function SqlTerminalDrawer(props: {
       setTableSuggestReplaceRange(null)
       setTableSuggestPrefix('')
       setColumnTargetTableKey(null)
+      setTableSuggestActiveIndex(0)
       return
     }
 
@@ -807,6 +899,7 @@ export function SqlTerminalDrawer(props: {
     setTableSuggestPrefix(prefix.replaceAll('"', ''))
     setTableSuggestReplaceRange({ start, end })
     setColumnTargetTableKey(null)
+    setTableSuggestActiveIndex(0)
     setTableSuggestOpen(true)
   }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
 
@@ -828,6 +921,7 @@ export function SqlTerminalDrawer(props: {
       pushOutput([{ kind: 'sys', text: 'Nothing to run.' }])
       return
     }
+    setLastRunSchemaTableLabel(extractSchemaTableLabel(raw, selectedSchema))
 
     const startedAt = new Date()
     const scopeLabel = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
@@ -910,7 +1004,7 @@ export function SqlTerminalDrawer(props: {
         aria-hidden={!open}
         style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
       >
-        <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} />
+        <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} />
 
         <header className="terminalHeader">
           <div className="terminalTitle mono" style={{ flex: '1 1 auto', minWidth: 0 }}>
@@ -978,6 +1072,7 @@ export function SqlTerminalDrawer(props: {
                 setResultRows(null)
                 setResultColumns(null)
                 setResultHint(null)
+                setLastRunSchemaTableLabel(null)
                 setSql('')
                 requestAnimationFrame(() => sqlRef.current?.focus())
               }}
@@ -1069,7 +1164,16 @@ export function SqlTerminalDrawer(props: {
                 ▶
               </button>
             </div>
-            <div className="sqlTerminalEditorWrap">
+            <div className="sqlTerminalEditorWrap" style={editorWrapStyle}>
+              <div className="sqlTerminalLineNumbers" aria-hidden="true">
+                <pre ref={lineNumbersRef} className="sqlTerminalLineNumbersInner mono">
+                  {lineNumbers.map(n => (
+                    <span key={n} className={n === activeLine ? 'sqlTerminalLineNumber sqlTerminalLineNumberActive' : 'sqlTerminalLineNumber'}>
+                      {n}
+                    </span>
+                  ))}
+                </pre>
+              </div>
               <textarea
                 ref={sqlRef}
                 className="sqlTerminalEditor mono"
@@ -1092,11 +1196,12 @@ export function SqlTerminalDrawer(props: {
                   }
 
                   setSql(nextText)
-                  requestAnimationFrame(() => setCursorPos(sqlRef.current?.selectionStart ?? 0))
+                  requestAnimationFrame(refreshEditorCaretState)
                 }}
-                onKeyUp={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
-                onClick={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
-                onSelect={() => setCursorPos(sqlRef.current?.selectionStart ?? 0)}
+                onKeyUp={refreshEditorCaretState}
+                onClick={refreshEditorCaretState}
+                onSelect={refreshEditorCaretState}
+                onScroll={syncLineNumberScroll}
                 onKeyDown={e => {
                   const isUndo = (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'z') || (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z')
                   const isRedo =
@@ -1144,6 +1249,28 @@ export function SqlTerminalDrawer(props: {
                     e.preventDefault()
                     e.stopPropagation()
                     void run()
+                    return
+                  }
+
+                  if (tableSuggestOpen && suggestMode === 'table' && tableSuggestions.length) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setTableSuggestActiveIndex(prev => (prev + 1) % tableSuggestions.length)
+                      return
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setTableSuggestActiveIndex(prev => (prev - 1 + tableSuggestions.length) % tableSuggestions.length)
+                      return
+                    }
+                    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      applyTableSuggestionAt(tableSuggestActiveIndex)
+                      return
+                    }
                   }
                 }}
                 placeholder={
@@ -1151,6 +1278,7 @@ export function SqlTerminalDrawer(props: {
                     ? 'Write SQL here… (Ctrl+Enter: selection/current statement; trailing ; optional)'
                     : 'Configure DB connection in App Settings or Collection Environment…'
                 }
+                wrap="off"
                 spellCheck={false}
               />
 
@@ -1202,30 +1330,15 @@ export function SqlTerminalDrawer(props: {
                     )
                   ) : (
                     tableSuggestions.length ? (
-                      tableSuggestions.map(t => (
+                      tableSuggestions.map((t, idx) => (
                         <button
                           key={t}
                           type="button"
-                          className="selectMenuItem"
+                          className={`selectMenuItem ${idx === tableSuggestActiveIndex ? 'selectMenuItemActive' : ''}`.trim()}
                           role="option"
                           onClick={() => {
-                            const range = tableSuggestReplaceRange
-                            if (!range) return
-                            const needsLeadingSpace = /(from|into)$/i.test(sql.slice(0, range.start))
-                            const tableRef = tableSuggestKind === 'from' ? `${t} ${makeTableAlias(t)}` : t
-                            const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
-                            const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
-                            setSql(next)
-                            setTableSuggestOpen(false)
-                            requestAnimationFrame(() => {
-                              const ta = sqlRef.current
-                              if (!ta) return
-                              const newPos = range.start + insert.length
-                              ta.focus()
-                              ta.selectionStart = newPos
-                              ta.selectionEnd = newPos
-                              setCursorPos(newPos)
-                            })
+                            setTableSuggestActiveIndex(idx)
+                            applyTableSuggestionAt(idx)
                           }}
                         >
                           <span className="mono">{t}</span>
@@ -1245,6 +1358,7 @@ export function SqlTerminalDrawer(props: {
           <div className="sqlTerminalPane">
             <div className="sqlTerminalPaneTitle mono">
               <span>Output</span>
+              {lastRunSchemaTableLabel ? <span className="sqlTerminalPaneTitleCenter" title={lastRunSchemaTableLabel}>{lastRunSchemaTableLabel}</span> : null}
               {resultHint ? <span style={{ opacity: 0.75 }}>{resultHint}</span> : null}
             </div>
             <div
