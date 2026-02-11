@@ -5,22 +5,17 @@ import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace
 import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
 import { getEffectiveWorkspaceSearchTreeOpenCommand, getSearchOpenWorkspaceFolders, getVisibleWorkspaceSearchTree, normalizeWorkspaceTreeSearch } from '../utils/workspaceTreeSearch'
 import { CollectionsTree } from './CollectionsTree'
+import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'
 
 function loadWorkspaceOpenIds(): string[] {
-  try {
-    const raw = localStorage.getItem(WORKSPACE_OPEN_STATE_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
+  const parsed = loadLocalStorageJson<unknown>(WORKSPACE_OPEN_STATE_KEY, [])
+  return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
 }
 
 function saveWorkspaceOpenIds(ids: string[]) {
-  localStorage.setItem(WORKSPACE_OPEN_STATE_KEY, JSON.stringify(ids))
+  saveLocalStorageJson(WORKSPACE_OPEN_STATE_KEY, ids)
 }
 
 export function WorkspaceTree(props: {

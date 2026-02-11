@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useDismissibleLayer } from '../hooks/useDismissibleLayer'
 
 export function SidebarCreateMenu(props: {
   onImport: () => void
@@ -13,23 +14,19 @@ export function SidebarCreateMenu(props: {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const [menuPos, setMenuPos] = useState<{ left: number, top: number } | null>(null)
 
+  useDismissibleLayer({
+    open,
+    onDismiss: () => setOpen(false),
+    isInsideTarget: target => {
+      const el = wrapRef.current
+      return !!(el && target && el.contains(target))
+    },
+  })
+
   useEffect(() => {
     if (!open) {
       setMenuPos(null)
       return
-    }
-
-    function onPointerDown(e: PointerEvent) {
-      const el = wrapRef.current
-      if (!el) return
-      const target = e.target as Node | null
-      if (!target) return
-      if (el.contains(target)) return
-      setOpen(false)
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
     }
 
     function updateMenuPosition() {
@@ -54,14 +51,10 @@ export function SidebarCreateMenu(props: {
     }
 
     const rafId = window.requestAnimationFrame(updateMenuPosition)
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
     window.addEventListener('resize', updateMenuPosition)
     window.addEventListener('scroll', updateMenuPosition, true)
     return () => {
       window.cancelAnimationFrame(rafId)
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('resize', updateMenuPosition)
       window.removeEventListener('scroll', updateMenuPosition, true)
     }

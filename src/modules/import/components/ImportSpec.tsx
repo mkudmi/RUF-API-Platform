@@ -1,7 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Collection } from '../../collectionTree'
-import { buildImportedCollectionFromText } from '../buildImportedCollection'
-import { loadSpecFromUrl } from '../loadSpecFromUrl'
+import { importCollectionFromFile, importCollectionFromText, loadImportSourceFromUrl } from './importHelpers'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -17,18 +16,18 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [loadingUrl, setLoadingUrl] = useState(false)
 
   async function importFromText(text: string, origin?: string, importedFromUrl?: string) {
-    const col = await buildImportedCollectionFromText({ text, name: name || undefined, sourceOrigin: origin })
-    props.onImported(importedFromUrl ? { ...col, sourceUrl: importedFromUrl } : col)
+    const col = await importCollectionFromText({ text, name: name || undefined, sourceOrigin: origin, sourceUrl: importedFromUrl })
+    props.onImported(col)
   }
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     setError(null)
     const file = e.target.files?.[0]
     if (!file) return
-    const text = await file.text()
 
     try {
-      await importFromText(text)
+      const col = await importCollectionFromFile(file, { name: name || undefined })
+      props.onImported(col)
     } catch (err: any) {
       setError(err?.message || 'Failed to import spec.')
     } finally {
@@ -95,7 +94,7 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
         return
       }
 
-      const loaded = await loadSpecFromUrl(url)
+      const loaded = await loadImportSourceFromUrl(url)
       const text = loaded.text
       setPasteText(text)
       setSourceOrigin(loaded.origin)

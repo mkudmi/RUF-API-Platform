@@ -12,6 +12,7 @@ import {
   runDbConnectionTest,
 } from '../utils/dbConnection'
 import type { DbType, PgSslMode } from '../utils/dbConnection'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 
 type HeaderRow = { key: string; value: string }
 type VariableRow = { key: string; value: string }
@@ -166,49 +167,23 @@ export function EnvironmentSettings(props: {
     }
   }, [props.open, props.env])
 
-  useEffect(() => {
-    if (!dbTypeMenuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
+  useDismissibleLayer({
+    open: dbTypeMenuOpen,
+    onDismiss: () => setDbTypeMenuOpen(false),
+    isInsideTarget: target => {
       const wrap = dbTypeMenuWrapRef.current
-      const t = e.target as Node | null
-      if (wrap && t && wrap.contains(t)) return
-      setDbTypeMenuOpen(false)
-    }
+      return !!(wrap && target && wrap.contains(target))
+    },
+  })
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setDbTypeMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [dbTypeMenuOpen])
-
-  useEffect(() => {
-    if (!dbSslModeMenuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
+  useDismissibleLayer({
+    open: dbSslModeMenuOpen,
+    onDismiss: () => setDbSslModeMenuOpen(false),
+    isInsideTarget: target => {
       const wrap = dbSslModeMenuWrapRef.current
-      const t = e.target as Node | null
-      if (wrap && t && wrap.contains(t)) return
-      setDbSslModeMenuOpen(false)
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setDbSslModeMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [dbSslModeMenuOpen])
+      return !!(wrap && target && wrap.contains(target))
+    },
+  })
 
   useEffect(() => {
     if (dbUrlFocused) return

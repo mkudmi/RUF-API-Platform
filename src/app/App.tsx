@@ -39,6 +39,10 @@ import { useAppUpdater } from './useAppUpdater'
 import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 import { buildSidebarToolExtensions } from './extensions'
 import { buildSettingsTabExtensions } from './settingsExtensions'
+import { useDismissibleLayer } from '../shared/hooks/useDismissibleLayer'
+import { safeParseJson } from '../shared/utils/json'
+import { findRequestByIds } from '../core/services/appBootstrapService'
+import { loadLocalStorageJson, saveLocalStorageJson } from '../shared/utils/localStorageJson'
 
 //TODO:
 // Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
@@ -61,17 +65,8 @@ type SavedActiveSelection = { collectionId: string, requestId: string }
 
 type TreeToggleAction = 'expand' | 'collapse'
 
-function safeParseJson<T>(raw: string | null): T | null {
-  try {
-    if (!raw) return null
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
-
 function loadActiveSelection(): SavedActiveSelection | null {
-  const parsed = safeParseJson<any>(localStorage.getItem(ACTIVE_SELECTION_KEY))
+  const parsed = loadLocalStorageJson<any>(ACTIVE_SELECTION_KEY, null)
   if (!parsed || typeof parsed !== 'object') return null
   const collectionId = typeof parsed.collectionId === 'string' ? parsed.collectionId : ''
   const requestId = typeof parsed.requestId === 'string' ? parsed.requestId : ''
@@ -80,7 +75,7 @@ function loadActiveSelection(): SavedActiveSelection | null {
 }
 
 function saveActiveSelection(sel: SavedActiveSelection) {
-  localStorage.setItem(ACTIVE_SELECTION_KEY, JSON.stringify(sel))
+  saveLocalStorageJson(ACTIVE_SELECTION_KEY, sel)
 }
 
 function clearActiveSelection() {
@@ -88,37 +83,16 @@ function clearActiveSelection() {
 }
 
 function loadTreeSortMode(): TreeSortMode {
-  const raw = localStorage.getItem(TREE_SORT_MODE_KEY)
+  const raw = loadLocalStorageJson<string | null>(TREE_SORT_MODE_KEY, null)
   return raw === 'asc' || raw === 'desc' || raw === 'none' ? raw : 'none'
 }
 
 function saveTreeSortMode(mode: TreeSortMode) {
-  localStorage.setItem(TREE_SORT_MODE_KEY, mode)
+  saveLocalStorageJson(TREE_SORT_MODE_KEY, mode)
 }
 
 function invertTreeToggleAction(action: TreeToggleAction): TreeToggleAction {
   return action === 'expand' ? 'collapse' : 'expand'
-}
-
-function findRequestByIds(collections: Collection[], collectionId: string, requestId: string) {
-  const col = collections.find(c => c.id === collectionId)
-  if (!col) return null
-  const collection = col
-  const direct = (collection.requests ?? []).find(r => r.id === requestId)
-  if (direct) return { col: collection, req: direct }
-  function walk(folders: any[]): { col: Collection, req: RequestItem } | null {
-    for (const folder of folders) {
-      const req = (folder?.requests ?? []).find((r: RequestItem) => r.id === requestId)
-      if (req) return { col: collection, req }
-      const nested = Array.isArray(folder?.folders) ? folder.folders : []
-      const found = walk(nested)
-      if (found) return found
-    }
-    return null
-  }
-  const found = walk(col.folders as any)
-  if (found) return found
-  return null
 }
 
 function mergeHistoryItemsById(preferred: RequestHistoryItem[], fallback: RequestHistoryItem[]) {
@@ -526,68 +500,39 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (!sqlConnTypeMenuOpenId) return
-    function onPointerDown(e: PointerEvent) {
-      const target = e.target as HTMLElement | null
-      if (target?.closest(`[data-sql-type-wrap="${sqlConnTypeMenuOpenId}"]`)) return
-      setSqlConnTypeMenuOpenId(null)
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setSqlConnTypeMenuOpenId(null)
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [sqlConnTypeMenuOpenId])
+  useDismissibleLayer({
+    open: !!sqlConnTypeMenuOpenId,
+    onDismiss: () => setSqlConnTypeMenuOpenId(null),
+    isInsideTarget: target => {
+      const el = target as HTMLElement | null
+      return !!el?.closest(`[data-sql-type-wrap="${sqlConnTypeMenuOpenId}"]`)
+    },
+  })
 
-  useEffect(() => {
-    if (!sqlConnSslMenuOpenId) return
-    function onPointerDown(e: PointerEvent) {
-      const target = e.target as HTMLElement | null
-      if (target?.closest(`[data-sql-ssl-wrap="${sqlConnSslMenuOpenId}"]`)) return
-      setSqlConnSslMenuOpenId(null)
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setSqlConnSslMenuOpenId(null)
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [sqlConnSslMenuOpenId])
+  useDismissibleLayer({
+    open: !!sqlConnSslMenuOpenId,
+    onDismiss: () => setSqlConnSslMenuOpenId(null),
+    isInsideTarget: target => {
+      const el = target as HTMLElement | null
+      return !!el?.closest(`[data-sql-ssl-wrap="${sqlConnSslMenuOpenId}"]`)
+    },
+  })
 
-  useEffect(() => {
-    if (!sqlConnDeleteArmedId) return
-    function onPointerDown(e: PointerEvent) {
-      const target = e.target as HTMLElement | null
-      if (target?.closest(`[data-sql-delete-btn="${sqlConnDeleteArmedId}"]`)) return
+  useDismissibleLayer({
+    open: !!sqlConnDeleteArmedId,
+    onDismiss: () => {
       setSqlConnDeleteArmedId(null)
       if (sqlConnDeleteArmTimerRef.current) {
         window.clearTimeout(sqlConnDeleteArmTimerRef.current)
         sqlConnDeleteArmTimerRef.current = null
       }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return
-      setSqlConnDeleteArmedId(null)
-      if (sqlConnDeleteArmTimerRef.current) {
-        window.clearTimeout(sqlConnDeleteArmTimerRef.current)
-        sqlConnDeleteArmTimerRef.current = null
-      }
-    }
-    window.addEventListener('pointerdown', onPointerDown, true)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown, true)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [sqlConnDeleteArmedId])
+    },
+    isInsideTarget: target => {
+      const el = target as HTMLElement | null
+      return !!el?.closest(`[data-sql-delete-btn="${sqlConnDeleteArmedId}"]`)
+    },
+    capturePointerDown: true,
+  })
 
   useEffect(() => {
     void (async () => {

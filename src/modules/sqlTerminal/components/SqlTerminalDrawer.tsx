@@ -3,6 +3,7 @@ import type { Collection } from '../../collectionTree'
 import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 
 type DbConnOption = {
   id: string
@@ -283,49 +284,23 @@ export function SqlTerminalDrawer(props: {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  useEffect(() => {
-    if (!menuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: menuOpen,
+    onDismiss: () => setMenuOpen(false),
+    isInsideTarget: target => {
       const wrap = menuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setMenuOpen(false)
-    }
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [menuOpen])
-
-  useEffect(() => {
-    if (!schemaMenuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: schemaMenuOpen,
+    onDismiss: () => setSchemaMenuOpen(false),
+    isInsideTarget: target => {
       const wrap = schemaMenuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setSchemaMenuOpen(false)
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setSchemaMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [schemaMenuOpen])
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
   useEffect(() => {
     if (heightPx == null) return

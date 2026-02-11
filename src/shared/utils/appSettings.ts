@@ -1,5 +1,6 @@
 import type { GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../types/environment'
 import { DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS } from '../types/environment'
+import { safeParseJson } from './json'
 
 export type CaCertificate = {
   id: string
@@ -30,16 +31,8 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
 
-function safeParse(raw: string | null): unknown {
-  try {
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
 export function loadAppSettings(storage: Storage = localStorage): AppSettings {
-  const parsed = safeParse(storage.getItem(APP_SETTINGS_KEY))
+  const parsed = safeParseJson<unknown>(storage.getItem(APP_SETTINGS_KEY))
   if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_APP_SETTINGS }
 
   const rec = parsed as Record<string, unknown>

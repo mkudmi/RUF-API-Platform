@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { tauriInvoke } from '../../../shared/utils/tauri'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 
 type TerminalEntry =
   | { kind: 'in'; text: string }
@@ -208,20 +209,14 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  useEffect(() => {
-    if (!open) return
-    if (!showAddMenu) return
-    function onPointerDown(e: PointerEvent) {
+  useDismissibleLayer({
+    open: open && showAddMenu,
+    onDismiss: () => setShowAddMenu(false),
+    isInsideTarget: target => {
       const wrap = addMenuWrapRef.current
-      if (!wrap) return
-      const target = e.target as Node | null
-      if (!target) return
-      if (wrap.contains(target)) return
-      setShowAddMenu(false)
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    return () => window.removeEventListener('pointerdown', onPointerDown)
-  }, [open, showAddMenu])
+      return !!(wrap && target && wrap.contains(target))
+    },
+  })
 
   useEffect(() => {
     if (!open) return

@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useMemo, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import type { VariableSuggestion } from '../utils/variables'
+import { useDismissibleLayer } from '../hooks/useDismissibleLayer'
 
 type BaseProps = {
   value: string
@@ -199,15 +200,17 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       }
     }, [value])
 
+    useDismissibleLayer({
+      open: menuOpen,
+      onDismiss: () => setMenuOpen(false),
+      isInsideTarget: target => {
+        const wrap = rootRef.current
+        return !!(target && wrap && wrap.contains(target))
+      },
+    })
+
     useEffect(() => {
       if (!menuOpen) return
-
-      function onPointerDown(e: PointerEvent) {
-        const t = e.target as Node | null
-        const wrap = rootRef.current
-        if (t && wrap && wrap.contains(t)) return
-        setMenuOpen(false)
-      }
 
       function onGlobalScrollOrResize() {
         const el = inputRef.current
@@ -215,11 +218,9 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
         updateAnchorFromEl(el, lastCursorRef.current)
       }
 
-      window.addEventListener('pointerdown', onPointerDown)
       window.addEventListener('scroll', onGlobalScrollOrResize, true)
       window.addEventListener('resize', onGlobalScrollOrResize)
       return () => {
-        window.removeEventListener('pointerdown', onPointerDown)
         window.removeEventListener('scroll', onGlobalScrollOrResize, true)
         window.removeEventListener('resize', onGlobalScrollOrResize)
       }

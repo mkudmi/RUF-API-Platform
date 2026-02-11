@@ -5,6 +5,8 @@ import type { Environment } from '../../../shared/types/environment'
 import { copyText } from '../../../shared/utils/clipboard'
 import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
 import { buildPostmanCollectionFromRufCollection } from '../../export/rufCollection/rufCollectionExporter'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -21,20 +23,15 @@ type TreeOpenState = {
 }
 
 function loadTreeOpenState(): TreeOpenState {
-  try {
-    const raw = localStorage.getItem(TREE_OPEN_STATE_KEY)
-    if (!raw) return { collections: [], folders: [] }
-    const parsed = JSON.parse(raw) as any
-    const collections = Array.isArray(parsed?.collections) ? parsed.collections.filter((x: any) => typeof x === 'string') : []
-    const folders = Array.isArray(parsed?.folders) ? parsed.folders.filter((x: any) => typeof x === 'string') : []
-    return { collections, folders }
-  } catch {
-    return { collections: [], folders: [] }
-  }
+  const parsed = loadLocalStorageJson<unknown>(TREE_OPEN_STATE_KEY, { collections: [], folders: [] })
+  const record = (parsed && typeof parsed === 'object') ? (parsed as any) : {}
+  const collections = Array.isArray(record.collections) ? record.collections.filter((x: unknown): x is string => typeof x === 'string') : []
+  const folders = Array.isArray(record.folders) ? record.folders.filter((x: unknown): x is string => typeof x === 'string') : []
+  return { collections, folders }
 }
 
 function saveTreeOpenState(state: TreeOpenState) {
-  localStorage.setItem(TREE_OPEN_STATE_KEY, JSON.stringify(state))
+  saveLocalStorageJson(TREE_OPEN_STATE_KEY, state)
 }
 
 function sanitizeFileNameBase(rawName: string) {
@@ -302,71 +299,32 @@ export function CollectionsTree(props: {
     })
   }, [editing])
 
-  useEffect(() => {
-    if (!openMenuCollectionId) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: !!openMenuCollectionId,
+    onDismiss: () => setOpenMenuCollectionId(null),
+    isInsideTarget: target => {
       const wrap = collectionMenuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setOpenMenuCollectionId(null)
-    }
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpenMenuCollectionId(null)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [openMenuCollectionId])
-
-  useEffect(() => {
-    if (!openMenuFolderId) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: !!openMenuFolderId,
+    onDismiss: () => setOpenMenuFolderId(null),
+    isInsideTarget: target => {
       const wrap = folderMenuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setOpenMenuFolderId(null)
-    }
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpenMenuFolderId(null)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [openMenuFolderId])
-
-  useEffect(() => {
-    if (!openMenuRequestId) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: !!openMenuRequestId,
+    onDismiss: () => setOpenMenuRequestId(null),
+    isInsideTarget: target => {
       const wrap = requestMenuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setOpenMenuRequestId(null)
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpenMenuRequestId(null)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [openMenuRequestId])
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
   useEffect(() => {
     if (!openMenuCollectionId && !openMenuFolderId && !openMenuRequestId) return

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
 import type { VariableSuggestion } from '../../../shared/utils/variables'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 
 type AuthType = 'none' | 'basic' | 'bearer'
 
@@ -79,27 +80,14 @@ export function AuthorizationTab(props: {
     })
   }, [props.value])
 
-  useEffect(() => {
-    if (!menuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: menuOpen,
+    onDismiss: () => setMenuOpen(false),
+    isInsideTarget: target => {
       const wrap = menuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      setMenuOpen(false)
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setMenuOpen(false)
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [menuOpen])
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
   function setType(nextType: AuthType) {
     setState(prev => {

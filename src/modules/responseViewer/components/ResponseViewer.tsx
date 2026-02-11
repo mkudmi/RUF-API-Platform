@@ -9,6 +9,7 @@ import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../..
 import { copyText } from '../../../shared/utils/clipboard'
 import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
 import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
+import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -429,27 +430,14 @@ export function ResponseViewer(props: {
     setSchemaMenuOpen(false)
   }, [clearSchemaCloseTimer])
 
-  useEffect(() => {
-    if (!schemaMenuOpen) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as Node | null
+  useDismissibleLayer({
+    open: schemaMenuOpen,
+    onDismiss: closeSchemaMenu,
+    isInsideTarget: target => {
       const wrap = schemaMenuWrapRef.current
-      if (t && wrap && wrap.contains(t)) return
-      closeSchemaMenu()
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeSchemaMenu()
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [closeSchemaMenu, schemaMenuOpen])
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
 
   function getSchemaText() {
     if (!isJson) return null
@@ -540,28 +528,17 @@ export function ResponseViewer(props: {
     return () => window.clearTimeout(t)
   }, [responseSearchOpen, tab])
 
-  useEffect(() => {
-    if (!responseSearchHistoryOpen) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as HTMLElement | null
-      if (!t) return
-      if (responseSearchHistoryPanelRef.current && responseSearchHistoryPanelRef.current.contains(t)) return
-      if (t.closest?.('[data-response-search-history-btn]')) return
-      closeResponseSearchHistoryMenu()
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeResponseSearchHistoryMenu()
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [responseSearchHistoryOpen])
+  useDismissibleLayer({
+    open: responseSearchHistoryOpen,
+    onDismiss: closeResponseSearchHistoryMenu,
+    isInsideTarget: target => {
+      const t = target as HTMLElement | null
+      if (!t) return false
+      if (responseSearchHistoryPanelRef.current && responseSearchHistoryPanelRef.current.contains(t)) return true
+      if (t.closest?.('[data-response-search-history-btn]')) return true
+      return false
+    },
+  })
 
   useEffect(() => {
     if (!historyInfoOpenId) return
@@ -569,28 +546,17 @@ export function ResponseViewer(props: {
     closeHistoryInfoMenu()
   }, [historyInfoOpenId, historyItems])
 
-  useEffect(() => {
-    if (!historyInfoOpenId) return
-
-    function onPointerDown(e: PointerEvent) {
-      const t = e.target as HTMLElement | null
-      if (!t) return
-      if (historyInfoPanelRef.current && historyInfoPanelRef.current.contains(t)) return
-      if (t.closest?.('[data-history-info-btn]')) return
-      closeHistoryInfoMenu()
-    }
-
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') closeHistoryInfoMenu()
-    }
-
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [historyInfoOpenId])
+  useDismissibleLayer({
+    open: !!historyInfoOpenId,
+    onDismiss: closeHistoryInfoMenu,
+    isInsideTarget: target => {
+      const t = target as HTMLElement | null
+      if (!t) return false
+      if (historyInfoPanelRef.current && historyInfoPanelRef.current.contains(t)) return true
+      if (t.closest?.('[data-history-info-btn]')) return true
+      return false
+    },
+  })
 
   const closeSizePopover = useCallback(() => {
     if (sizePopoverCloseTimerRef.current !== null) {

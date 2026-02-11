@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
 import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
@@ -17,6 +17,7 @@ import { JsonCodeEditor } from './JsonCodeEditor'
 import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
+import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -341,78 +342,6 @@ function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNa
     next[k] = v
   }
   return next
-}
-
-function ConfirmIconButton(props: {
-  className: string
-  onConfirm: () => void
-  disabled?: boolean
-  ariaLabel: string
-  confirmAriaLabel?: string
-  title?: string
-  confirmTitle?: string
-  icon: ReactNode
-  timeoutMs?: number
-}) {
-  const timeoutMs = props.timeoutMs ?? 5500
-  const [armed, setArmed] = useState(false)
-  const timerRef = useRef<number | null>(null)
-  const btnRef = useRef<HTMLButtonElement | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!armed) return
-    if (timerRef.current) window.clearTimeout(timerRef.current)
-    timerRef.current = window.setTimeout(() => setArmed(false), timeoutMs)
-    return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current)
-    }
-  }, [armed, timeoutMs])
-
-  useEffect(() => {
-    if (!armed) return
-
-    function onGlobalPointerDown(e: PointerEvent) {
-      const el = btnRef.current
-      if (!el) return
-      const target = e.target as Node | null
-      if (target && el.contains(target)) return
-      setArmed(false)
-    }
-
-    window.addEventListener('pointerdown', onGlobalPointerDown, true)
-    return () => window.removeEventListener('pointerdown', onGlobalPointerDown, true)
-  }, [armed])
-
-  return (
-    <button
-      type="button"
-      className={`${props.className} ${armed ? 'confirmActionArmed' : ''}`.trim()}
-      disabled={props.disabled}
-      aria-disabled={props.disabled}
-      aria-label={armed ? (props.confirmAriaLabel ?? props.ariaLabel) : props.ariaLabel}
-      title={armed ? (props.confirmTitle ?? props.title) : props.title}
-      ref={btnRef}
-      onClick={e => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (props.disabled) return
-        if (!armed) {
-          setArmed(true)
-          return
-        }
-        setArmed(false)
-        props.onConfirm()
-      }}
-    >
-      {armed ? <span className="confirmActionGlyph">!</span> : props.icon}
-    </button>
-  )
 }
 
 function normalizeEnumOptions(enumValues: Array<string | number | boolean> | undefined): string[] {

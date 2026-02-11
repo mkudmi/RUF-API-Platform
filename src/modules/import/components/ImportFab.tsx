@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
-import { buildImportedCollectionFromText } from '../buildImportedCollection'
-import { loadSpecFromUrl } from '../loadSpecFromUrl'
+import { importCollectionFromFile, importCollectionFromText, importCollectionFromUrl } from './importHelpers'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -32,10 +31,6 @@ export function ImportFab(props: {
   const [pendingCollection, setPendingCollection] = useState<Collection | null>(null)
   const [pendingName, setPendingName] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
-
-  async function importFromText(text: string, origin?: string) {
-    return buildImportedCollectionFromText({ text, sourceOrigin: origin })
-  }
 
   function openNameStep(col: Collection) {
     setPendingCollection(col)
@@ -95,9 +90,8 @@ export function ImportFab(props: {
     const file = e.target.files?.[0]
     if (!file) return
     try {
-      const text = await file.text()
-      const col = await importFromText(text)
-      openNameStep({ ...col, sourceType: 'file', sourceFileName: file.name })
+      const col = await importCollectionFromFile(file)
+      openNameStep(col)
     } catch (err: any) {
       setMenuError(err?.message || 'Failed to import file.')
     } finally {
@@ -119,7 +113,7 @@ export function ImportFab(props: {
         setJsonError('Paste the spec first.')
         return
       }
-      const col = await importFromText(jsonText)
+      const col = await importCollectionFromText({ text: jsonText })
       openNameStep(col)
     } catch (e: any) {
       setJsonError(e?.message || 'Failed to import.')
@@ -137,19 +131,8 @@ export function ImportFab(props: {
     setUrlError(null)
     setLoadingUrl(true)
     try {
-      const raw = specUrl.trim()
-      if (!raw) {
-        setUrlError('Enter a URL.')
-        return
-      }
-      const loaded = await loadSpecFromUrl(raw)
-      const text = loaded.text
-      if (!text.trim()) {
-        setUrlError('Empty response.')
-        return
-      }
-      const col = await importFromText(text, loaded.origin)
-      openNameStep({ ...col, sourceUrl: loaded.url, sourceType: 'url' })
+      const col = await importCollectionFromUrl({ rawUrl: specUrl })
+      openNameStep(col)
     } catch (e: any) {
       setUrlError(e?.message || 'Failed to load URL.')
     } finally {

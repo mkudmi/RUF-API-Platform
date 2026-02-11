@@ -1,15 +1,7 @@
 import type { RequestHistoryItem } from '../types/requestHistory'
+import { safeParseJson } from './json'
 
 const REQUEST_HISTORY_KEY = 'ruf_request_history_v1'
-
-function safeParseJson<T>(raw: string | null): T | null {
-  try {
-    if (!raw) return null
-    return JSON.parse(raw) as T
-  } catch {
-    return null
-  }
-}
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === 'object' && !Array.isArray(x)
@@ -64,4 +56,3 @@ export function appendRequestHistoryItem(args: {
   const nextItems = [args.item, ...prevItems].slice(0, Math.max(1, maxItemsPerRequest))
   return { ...args.historyByRequestId, [args.requestId]: nextItems }
 }
-
