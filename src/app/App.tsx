@@ -592,6 +592,7 @@ export default function App() {
 
   function onRequestSendStart(requestId: string) {
     setInFlightCountByRequestId(prev => ({ ...prev, [requestId]: (prev[requestId] ?? 0) + 1 }))
+    setResultByRequestId(prev => ({ ...prev, [requestId]: null }))
   }
 
   function onRequestSendEnd(requestId: string) {
