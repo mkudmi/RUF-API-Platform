@@ -22,7 +22,10 @@ const SQL_TERMINAL_SELECTED_CONN_KEY = 'ruf_sql_terminal_selected_conn_v1'
 const SQL_TERMINAL_SQL_KEY = 'ruf_sql_terminal_sql_v1'
 const SQL_TERMINAL_SPLIT_KEY = 'ruf_sql_terminal_split_v1'
 const SQL_TERMINAL_SCHEMA_KEY = 'ruf_sql_terminal_schema_v1'
+const SQL_TERMINAL_POSITION_KEY = 'ruf_sql_terminal_position_v1'
+const SQL_TERMINAL_WIDTH_KEY = 'ruf_sql_terminal_width_v1'
 const SQL_TERMINAL_MIN_HEIGHT_PX = 240
+const SQL_TERMINAL_MIN_WIDTH_PX = 360
 const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
 
 function getWindowTitlebarHeightPx() {
@@ -36,6 +39,17 @@ function getSqlTerminalMaxHeightPx() {
   if (typeof window === 'undefined') return 420
   const topReserved = getWindowTitlebarHeightPx()
   return Math.max(SQL_TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
+}
+
+function getSqlTerminalMaxWidthPx() {
+  if (typeof window === 'undefined') return 980
+  return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.floor(window.innerWidth - 280))
+}
+
+function getSqlTerminalBaseWidthPx() {
+  if (typeof window === 'undefined') return 680
+  const max = getSqlTerminalMaxWidthPx()
+  return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.round(Math.min(window.innerWidth * 0.68, max)))
 }
 
 function getSqlTerminalBaseHeightPx() {
@@ -347,6 +361,8 @@ export function SqlTerminalDrawer(props: {
   const [schemaMenuPlacement, setSchemaMenuPlacement] = useState<'below' | 'above'>('below')
   const [schemaMenuMaxHeight, setSchemaMenuMaxHeight] = useState<number>(220)
   const [heightPx, setHeightPx] = useState<number | null>(() => safeLoadNumber(SQL_TERMINAL_HEIGHT_KEY))
+  const [widthPx, setWidthPx] = useState<number | null>(() => safeLoadNumber(SQL_TERMINAL_WIDTH_KEY))
+  const [drawerPosition, setDrawerPosition] = useState<'bottom' | 'left'>(() => (safeLoadString(SQL_TERMINAL_POSITION_KEY) === 'left' ? 'left' : 'bottom'))
   const [selectedConnId, setSelectedConnId] = useState<string | null>(() => safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY))
   const [sql, setSql] = useState(() => safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '')
   const [output, setOutput] = useState<OutputEntry[]>([])
@@ -474,6 +490,15 @@ export function SqlTerminalDrawer(props: {
   }, [heightPx])
 
   useEffect(() => {
+    if (widthPx == null) return
+    safeSave(SQL_TERMINAL_WIDTH_KEY, String(widthPx))
+  }, [widthPx])
+
+  useEffect(() => {
+    safeSave(SQL_TERMINAL_POSITION_KEY, drawerPosition)
+  }, [drawerPosition])
+
+  useEffect(() => {
     if (!open) return
 
     function clampToViewport() {
@@ -481,6 +506,11 @@ export function SqlTerminalDrawer(props: {
       setHeightPx(prev => {
         if (prev == null) return prev
         return Math.min(prev, max)
+      })
+      const maxWidth = getSqlTerminalMaxWidthPx()
+      setWidthPx(prev => {
+        if (prev == null) return prev
+        return Math.min(prev, maxWidth)
       })
     }
 
@@ -700,6 +730,70 @@ export function SqlTerminalDrawer(props: {
     const current = heightPx ?? base
     const isMaximized = Math.abs(current - max) <= 2
     setHeightPx(isMaximized ? base : max)
+  }
+
+  function onRightResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (!open) return
+    if (drawerPosition !== 'left') return
+    e.preventDefault()
+    const handle = e.currentTarget
+    const pointerId = e.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ew-resize'
+    document.body.style.userSelect = 'none'
+    const startX = e.clientX
+    const max = getSqlTerminalMaxWidthPx()
+    const startWidth = widthPx ?? getSqlTerminalBaseWidthPx()
+
+    function clamp(n: number) {
+      return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.min(max, n))
+    }
+
+    function onMove(ev: PointerEvent) {
+      if ((ev.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
+      const dx = ev.clientX - startX
+      const next = clamp(Math.round(startWidth + dx))
+      setWidthPx(next)
+    }
+
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.right', 'Failed to release pointer capture', { error })
+      }
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.right', 'Failed to set pointer capture', { error })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
   }
 
   function pushOutput(add: OutputEntry[]) {
@@ -994,17 +1088,33 @@ export function SqlTerminalDrawer(props: {
 
   const drawerMaxHeightPx = getSqlTerminalMaxHeightPx()
   const drawerHeightPx = heightPx == null ? null : Math.min(heightPx, drawerMaxHeightPx)
+  const isLeftPosition = drawerPosition === 'left'
+  const drawerMaxWidthPx = getSqlTerminalMaxWidthPx()
+  const drawerWidthPx = Math.min(widthPx ?? getSqlTerminalBaseWidthPx(), drawerMaxWidthPx)
 
   return (
     <>
-      <div className={open ? 'terminalBackdrop terminalBackdropOpen' : 'terminalBackdrop'} onClick={onClose} />
+      <div
+        className={open ? `terminalBackdrop terminalBackdropOpen ${isLeftPosition ? 'sqlTerminalBackdropLeft' : ''}`.trim() : 'terminalBackdrop'}
+        onClick={onClose}
+        style={isLeftPosition ? { width: `${drawerWidthPx}px` } : undefined}
+      />
       <section
         ref={sectionRef}
-        className={open ? 'terminalDrawer terminalDrawerOpen sqlTerminalDrawer' : 'terminalDrawer sqlTerminalDrawer'}
+        className={
+          open
+            ? `terminalDrawer terminalDrawerOpen sqlTerminalDrawer ${isLeftPosition ? 'sqlTerminalDrawerLeft' : ''}`.trim()
+            : `terminalDrawer sqlTerminalDrawer ${isLeftPosition ? 'sqlTerminalDrawerLeft' : ''}`.trim()
+        }
         aria-hidden={!open}
-        style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
+        style={
+          isLeftPosition
+            ? { width: `${drawerWidthPx}px`, maxWidth: `${drawerMaxWidthPx}px` }
+            : (drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` })
+        }
       >
-        <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} />
+        {!isLeftPosition ? <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} /> : null}
+        {isLeftPosition ? <div className="sqlTerminalResizeHandleRight" onPointerDown={onRightResizeHandlePointerDown} /> : null}
 
         <header className="terminalHeader">
           <div className="terminalTitle mono" style={{ flex: '1 1 auto', minWidth: 0 }}>
@@ -1064,6 +1174,16 @@ export function SqlTerminalDrawer(props: {
           </div>
 
           <div className="terminalHeaderActions">
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={() => setDrawerPosition(prev => (prev === 'left' ? 'bottom' : 'left'))}
+              aria-label={isLeftPosition ? 'Move terminal to bottom' : 'Move terminal to left'}
+              title={isLeftPosition ? 'Move to bottom' : 'Move to left'}
+              disabled={busy || !open}
+            >
+              {isLeftPosition ? 'BT' : 'LF'}
+            </button>
             <button
               type="button"
               className="iconBtn"
