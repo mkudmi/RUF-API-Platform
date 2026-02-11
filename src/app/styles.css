@@ -34,7 +34,7 @@ html, body, #root {
   overscroll-behavior: none;
 }
 body { margin: 0; background: #0b0c10; color: var(--text-color); font-family: var(--font-ui); }
-*:not(:where(.appTitle, .appTitle *, .reqStar, .keyReqStar)) { color: var(--text-color) !important; }
+*:not(:where(.appTitle, .appTitle *, .reqStar, .keyReqStar, .treeMethodInFlight)) { color: var(--text-color) !important; }
 button, input, textarea, select { font-family: inherit; }
 a { color: inherit; }
 
