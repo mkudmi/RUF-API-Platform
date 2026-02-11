@@ -38,6 +38,12 @@ function getTerminalMaxHeightPx() {
   return Math.max(TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
 }
 
+function getTerminalBaseHeightPx() {
+  if (typeof window === 'undefined') return 420
+  const max = getTerminalMaxHeightPx()
+  return Math.round(Math.min(window.innerHeight * 0.38, max))
+}
+
 function splitLines(s: string): string[] {
   if (!s) return []
   return s.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')
@@ -326,6 +332,14 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     handle.addEventListener('lostpointercapture', onCancel)
   }
 
+  function onResizeHandleDoubleClick() {
+    const max = getTerminalMaxHeightPx()
+    const base = getTerminalBaseHeightPx()
+    const current = heightPx ?? base
+    const isMaximized = Math.abs(current - max) <= 2
+    setHeightPx(isMaximized ? base : max)
+  }
+
   async function runCommand(raw: string) {
     const cmd = raw.trim()
     if (!cmd) {
@@ -438,7 +452,7 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
         aria-hidden={!props.open}
         style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
       >
-        <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} />
+        <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} />
         <header className="terminalHeader">
           <div className="terminalTitle mono">
             Terminal
