@@ -1,4 +1,5 @@
 import { tauriInvoke } from './tauri'
+import { logError } from './logger'
 
 const KEY_PREFIXES = ['ruf_']
 const SAVE_DEBOUNCE_MS = 350
@@ -29,7 +30,8 @@ export async function initPersistentLocalStorageBridge() {
   let loaded: StorageLoadResult | null = null
   try {
     loaded = await tauriInvoke<StorageLoadResult>('storage_load')
-  } catch {
+  } catch (error) {
+    logError('initPersistentLocalStorageBridge.storage_load', error)
     return
   }
 
@@ -63,8 +65,8 @@ export async function initPersistentLocalStorageBridge() {
     try {
       const snapshot = collectPersistedEntries(storage)
       await tauriInvoke('storage_save', { args: { entries: snapshot } })
-    } catch {
-      // best-effort persistence; keep app behavior unchanged on failure
+    } catch (error) {
+      logError('initPersistentLocalStorageBridge.storage_save', error)
     } finally {
       saveInFlight = false
       if (saveQueued) {

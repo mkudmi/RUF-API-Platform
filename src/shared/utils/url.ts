@@ -1,3 +1,5 @@
+import { logWarn } from './logger'
+
 export function isAbsoluteUrl(url: string) {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url) || url.startsWith('//')
 }
@@ -25,7 +27,8 @@ export function computeEffectiveBaseUrl(envBaseUrl?: string, collectionBaseUrl?:
       if (!p || p === '/') return envNorm
       if (envNorm.endsWith(p)) return envNorm
       return joinUrlParts(envNorm, p)
-    } catch {
+    } catch (error) {
+      logWarn('computeEffectiveBaseUrl', 'Failed to parse absolute collection base URL', { error, colNorm })
       return envNorm
     }
   }

@@ -3,6 +3,7 @@ import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'
 import { platformFetch } from '../../shared/utils/platformFetch'
+import { logWarn } from '../../shared/utils/logger'
 
 export type RunResult = {
   ok: boolean
@@ -83,7 +84,8 @@ function estimateBodyBytes(body: BodyInit | null | undefined): number {
 function shouldValidateCertificates(): boolean {
   try {
     return loadAppSettings().validateCertificates
-  } catch {
+  } catch (error) {
+    logWarn('shouldValidateCertificates', 'Failed to read validateCertificates from settings', { error })
     return true
   }
 }
@@ -91,7 +93,8 @@ function shouldValidateCertificates(): boolean {
 function getCaCertsPem(): string[] {
   try {
     return (loadAppSettings().caCertificates || []).map(c => c.pem).filter(Boolean)
-  } catch {
+  } catch (error) {
+    logWarn('getCaCertsPem', 'Failed to read CA certificates from settings', { error })
     return []
   }
 }
@@ -102,7 +105,8 @@ function getRequestTimeoutMs(): number {
     const sec = Number.isFinite(secRaw) ? Math.round(secRaw) : 300
     if (sec <= 0) return 300
     return Math.max(1000, Math.min(600_000, sec * 1000))
-  } catch {
+  } catch (error) {
+    logWarn('getRequestTimeoutMs', 'Failed to read request timeout from settings', { error })
     return 300_000
   }
 }
@@ -197,7 +201,8 @@ function parseContentDispositionFileName(contentDisposition: string | undefined)
       const encoded = parts.slice(1).join("''")
       try {
         return decodeURIComponent(encoded)
-      } catch {
+      } catch (error) {
+        logWarn('parseContentDispositionFileName', 'Failed to decode RFC5987 filename* value', { error })
         return encoded
       }
     }
@@ -247,8 +252,8 @@ function inferFileNameFromUrl(url: string, contentType: string): string {
     const last = parts[parts.length - 1] || ''
     const decoded = last ? decodeURIComponent(last) : ''
     if (decoded && decoded !== '/' && decoded !== '.') return decoded
-  } catch {
-    // ignore
+  } catch (error) {
+    logWarn('inferFileNameFromUrl', 'Failed to infer file name from URL', { error, url })
   }
 
   const ext = inferFileExtensionFromContentType(contentType)

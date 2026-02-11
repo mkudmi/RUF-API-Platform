@@ -1,6 +1,7 @@
 import type { Environment } from '../../../shared/types/environment'
 import { tauriInvoke } from '../../../shared/utils/tauri'
 import { loadAppSettings } from '../../../shared/utils/appSettings'
+import { logWarn } from '../../../shared/utils/logger'
 
 export type DbType = 'postgres' | 'mysql'
 export type PgSslMode = 'disable' | 'allow' | 'prefer' | 'require' | 'verify-ca' | 'verify-full'
@@ -89,7 +90,8 @@ export function buildDbConnectionString(state: DbFormState): string {
       if (sslmode && sslmode !== 'prefer') u.searchParams.set('sslmode', sslmode)
     }
     return u.toString()
-  } catch {
+  } catch (error) {
+    logWarn('buildDbConnectionString', 'Failed to build DB connection URL', { error })
     return ''
   }
 }
@@ -124,7 +126,8 @@ export function parseDbConnectionString(rawConnectionString: string): DbFormStat
       username: decodeURIComponent(u.username || ''),
       password: decodeURIComponent(u.password || ''),
     }
-  } catch {
+  } catch (error) {
+    logWarn('parseDbConnectionString', 'Failed to parse DB connection string', { error })
     return null
   }
 }
@@ -136,7 +139,8 @@ export function getDbConnectionStringPreview(connectionString: string): string {
     if (!u.password) return connectionString
     u.password = '***'
     return u.toString()
-  } catch {
+  } catch (error) {
+    logWarn('getDbConnectionStringPreview', 'Failed to parse DB connection string for preview masking', { error })
     return connectionString
   }
 }
@@ -200,7 +204,8 @@ export async function runDbSql(opts: { type: string; connectionString: string; s
     try {
       const parsed = JSON.parse(result.rowsJson) as unknown
       return Array.isArray(parsed) ? parsed : null
-    } catch {
+    } catch (error) {
+      logWarn('runDbSql.rowsJson', 'Failed to parse rowsJson from DB response', { error })
       return null
     }
   })()

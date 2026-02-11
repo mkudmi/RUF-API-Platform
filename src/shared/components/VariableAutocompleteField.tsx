@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useMemo, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import type { VariableSuggestion } from '../utils/variables'
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer'
+import { logWarn } from '../utils/logger'
 
 type BaseProps = {
   value: string
@@ -83,7 +84,8 @@ function getCaretAnchorRect(
 
     const caretRect = caretSpan.getBoundingClientRect()
     return caretRect
-  } catch {
+  } catch (error) {
+    logWarn('VariableAutocompleteField.getCaretAnchorRect', 'Failed to compute caret anchor rect', { error })
     return null
   }
 }
@@ -195,8 +197,8 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       pendingSelectionRef.current = null
       try {
         el.setSelectionRange(pending.start, pending.end)
-      } catch {
-        // ignore
+      } catch (error) {
+        logWarn('VariableAutocompleteField.setSelectionRange', 'Failed to restore text selection', { error })
       }
     }, [value])
 
@@ -242,8 +244,8 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       if (!el) return
       try {
         el.scrollIntoView({ block: 'nearest' })
-      } catch {
-        // ignore
+      } catch (error) {
+        logWarn('VariableAutocompleteField.scrollIntoView', 'Failed to ensure active suggestion visibility', { error })
       }
     }, [activeIndex, menuOpen])
 

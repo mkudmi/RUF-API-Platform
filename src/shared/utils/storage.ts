@@ -1,5 +1,6 @@
 import type { Collection } from '../../modules/collectionTree'
 import type { Environment } from '../types/environment'
+import { logError } from './logger'
 
 const COLLECTIONS_KEY = 'ruf_collections_v1'
 const ENVS_BY_COLLECTION_KEY = 'ruf_env_by_collection_v1'
@@ -9,7 +10,8 @@ export function loadCollections(): Collection[] {
     const raw = localStorage.getItem(COLLECTIONS_KEY)
     if (!raw) return []
     return JSON.parse(raw) as Collection[]
-  } catch {
+  } catch (error) {
+    logError('loadCollections', error)
     return []
   }
 }
@@ -52,7 +54,8 @@ export function loadEnvironmentsByCollection(): Record<string, Environment> {
       out[id] = { baseUrlKey, variables, headers }
     }
     return out
-  } catch {
+  } catch (error) {
+    logError('loadEnvironmentsByCollection', error)
     return {}
   }
 }

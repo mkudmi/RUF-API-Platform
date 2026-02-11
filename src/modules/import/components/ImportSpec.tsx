@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import type { Collection } from '../../collectionTree'
 import { importCollectionFromFile, importCollectionFromText, loadImportSourceFromUrl } from './importHelpers'
+import { logWarn } from '../../../shared/utils/logger'
 
 export function ImportSpec(props: { onImported: (c: Collection) => void }) {
   const [error, setError] = useState<string | null>(null)
@@ -73,8 +74,8 @@ export function ImportSpec(props: { onImported: (c: Collection) => void }) {
       if (rawUrl) {
         try {
           normalizedUrl = new URL(rawUrl).toString()
-        } catch {
-          // ignore invalid url
+        } catch (error) {
+          logWarn('ImportSpec.submitPasted', 'Invalid source URL provided, continuing without sourceUrl', { error, rawUrl })
         }
       }
       await importFromText(pasteText, sourceOrigin, normalizedUrl)

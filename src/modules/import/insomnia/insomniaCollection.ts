@@ -1,6 +1,7 @@
 import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import { uid } from '../../../shared/utils/id'
 import { isAbsoluteUrl } from '../../../shared/utils/url'
+import { logWarn } from '../../../shared/utils/logger'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
@@ -93,7 +94,8 @@ function extractPathFromInsomniaUrl(rawUrl: string) {
     try {
       const u = new URL(s)
       return u.pathname || '/'
-    } catch {
+    } catch (error) {
+      logWarn('extractPathFromInsomniaUrl', 'Failed to parse absolute URL while extracting path', { error, raw: s })
       // fall through
     }
   }

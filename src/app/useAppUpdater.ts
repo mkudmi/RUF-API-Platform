@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater'
+import { logError } from '../shared/utils/logger'
 
 type PendingUpdate = Pick<Update, 'version' | 'download' | 'install'>
 
@@ -16,7 +17,8 @@ function readSuppressedUpdateVersion() {
     if (!version || !ts) return null
     if (Date.now() - ts > UPDATE_TOAST_SUPPRESS_TTL_MS) return null
     return version
-  } catch {
+  } catch (error) {
+    logError('readSuppressedUpdateVersion', error)
     return null
   }
 }
@@ -24,16 +26,16 @@ function readSuppressedUpdateVersion() {
 function writeSuppressedUpdateVersion(version: string) {
   try {
     window.localStorage.setItem(UPDATE_TOAST_SUPPRESS_KEY, JSON.stringify({ version, ts: Date.now() }))
-  } catch {
-    // ignore localStorage failures
+  } catch (error) {
+    logError('writeSuppressedUpdateVersion', error, { version })
   }
 }
 
 function clearSuppressedUpdateVersion() {
   try {
     window.localStorage.removeItem(UPDATE_TOAST_SUPPRESS_KEY)
-  } catch {
-    // ignore localStorage failures
+  } catch (error) {
+    logError('clearSuppressedUpdateVersion', error)
   }
 }
 
@@ -64,7 +66,8 @@ function safeStringify(value: unknown) {
       },
       2,
     )
-  } catch {
+  } catch (error) {
+    logError('safeStringify', error)
     return null
   }
 }

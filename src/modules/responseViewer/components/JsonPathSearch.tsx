@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { CloseIcon, CopyIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
+import { logError } from '../../../shared/utils/logger'
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e)
@@ -26,6 +27,7 @@ export function JsonPathSearch(props: {
       setCopied(label)
       setTimeout(() => setCopied(null), 800)
     } catch (e: unknown) {
+      logError('JsonPathSearch.onCopy', e, { label })
       setCopyError(errorMessage(e) || 'Failed to copy to clipboard.')
     }
   }

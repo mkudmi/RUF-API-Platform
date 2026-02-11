@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
 import { importCollectionFromFile, importCollectionFromText, importCollectionFromUrl } from './importHelpers'
+import { logError } from '../../../shared/utils/logger'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -93,6 +94,7 @@ export function ImportFab(props: {
       const col = await importCollectionFromFile(file)
       openNameStep(col)
     } catch (err: any) {
+      logError('ImportFab.onFileSelected', err, { fileName: file.name })
       setMenuError(err?.message || 'Failed to import file.')
     } finally {
       e.target.value = ''
@@ -116,6 +118,7 @@ export function ImportFab(props: {
       const col = await importCollectionFromText({ text: jsonText })
       openNameStep(col)
     } catch (e: any) {
+      logError('ImportFab.importJson', e)
       setJsonError(e?.message || 'Failed to import.')
     }
   }
@@ -134,6 +137,7 @@ export function ImportFab(props: {
       const col = await importCollectionFromUrl({ rawUrl: specUrl })
       openNameStep(col)
     } catch (e: any) {
+      logError('ImportFab.importUrl', e, { specUrl })
       setUrlError(e?.message || 'Failed to load URL.')
     } finally {
       setLoadingUrl(false)

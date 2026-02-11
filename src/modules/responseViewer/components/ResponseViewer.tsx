@@ -10,6 +10,7 @@ import { copyText } from '../../../shared/utils/clipboard'
 import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
 import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { logWarn } from '../../../shared/utils/logger'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -278,6 +279,7 @@ export function ResponseViewer(props: {
         await writable.close()
         return
       } catch (e: any) {
+        logWarn('ResponseViewer.onDownloadFile', 'showSaveFilePicker failed, falling back to anchor download', { error: e, suggestedName })
         if (e?.name === 'AbortError') return
       }
     }
@@ -501,6 +503,7 @@ export function ResponseViewer(props: {
         URL.revokeObjectURL(url)
       }
     } catch (e) {
+      logWarn('ResponseViewer.saveSchemaWithName', 'Schema save dialog aborted or failed', { error: e, fileName })
       if ((e as Error | null)?.name !== 'AbortError') throw e
     }
   }

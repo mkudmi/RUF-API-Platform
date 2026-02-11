@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml'
 import { normalizeToV3 } from './normalizeToV3'
+import { logWarn } from '../../../shared/utils/logger'
 
 export function parseJsonOrYaml(text: string): any {
   const trimmed = text.trim()
@@ -7,8 +8,8 @@ export function parseJsonOrYaml(text: string): any {
 
   try {
     return JSON.parse(trimmed)
-  } catch {
-    // ignore
+  } catch (error) {
+    logWarn('parseJsonOrYaml', 'JSON parse failed, attempting YAML parse', { error })
   }
 
   try {

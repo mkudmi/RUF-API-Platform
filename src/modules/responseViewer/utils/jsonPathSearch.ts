@@ -1,4 +1,5 @@
 import { JSONPath } from 'jsonpath-plus'
+import { logWarn } from '../../../shared/utils/logger'
 
 export type JsonValue = null | boolean | number | string | object | unknown[]
 
@@ -169,7 +170,7 @@ export function evaluateJsonSearch(json: JsonValue, query: string): { matches: u
     const matches = Array.isArray(res) ? res : [res]
     return { matches, error: null }
   } catch (e: unknown) {
+    logWarn('evaluateJsonSearch', 'Failed to evaluate JSON search query', { error: e, query: q })
     return { matches: [], error: errorMessage(e) || 'Invalid query.' }
   }
 }
-

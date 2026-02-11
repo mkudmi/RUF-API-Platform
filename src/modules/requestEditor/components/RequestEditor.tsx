@@ -18,6 +18,7 @@ import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
 import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
+import { logWarn } from '../../../shared/utils/logger'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -68,8 +69,8 @@ function inferBodyFormatFromBodyText(bodyText: string): Exclude<BodyFormat, 'aut
     try {
       JSON.parse(raw)
       return 'json'
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('inferBodyFormatFromBodyText.json', 'JSON parse failed during format inference', { error })
     }
   }
 
@@ -78,8 +79,8 @@ function inferBodyFormatFromBodyText(bodyText: string): Exclude<BodyFormat, 'aut
       const parser = new DOMParser()
       const doc = parser.parseFromString(raw, 'application/xml')
       if (!doc.getElementsByTagName('parsererror')?.length) return 'xml'
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('inferBodyFormatFromBodyText.xml', 'XML parse failed during format inference', { error })
     }
   }
 
@@ -92,8 +93,8 @@ function inferBodyFormatFromBodyText(bodyText: string): Exclude<BodyFormat, 'aut
     try {
       beautifyBody(raw, 'yaml')
       return 'yaml'
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('inferBodyFormatFromBodyText.yaml', 'YAML parse failed during format inference', { error })
     }
   }
 
@@ -2862,7 +2863,8 @@ export function RequestEditor(props: {
         if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
       }
       return out
-    } catch {
+    } catch (error) {
+      logWarn('parseFormFieldsFromBodyText', 'Failed to parse multipart helper JSON body', { error })
       return {}
     }
   }
@@ -3278,8 +3280,8 @@ export function RequestEditor(props: {
       const nextValue = beautifyBody(raw, resolvedBodyFormatForBeautify)
       if (ta) applyBodyTextareaReplacement(0, ta.value.length, nextValue, nextValue.length, nextValue.length)
       else setBodyText(nextValue)
-    } catch {
-      // keep silent: invalid input should not change button state
+    } catch (error) {
+      logWarn('beautifyBodyText', 'Failed to beautify request body text', { error })
     }
   }
 

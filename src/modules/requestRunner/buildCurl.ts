@@ -2,6 +2,7 @@ import type { RequestItem } from '../collectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'
+import { logWarn } from '../../shared/utils/logger'
 
 function applyVariables(text: string, vars: Record<string, string>) {
   return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
@@ -160,8 +161,8 @@ export function buildCurlCommand(args: {
   try {
     const validateCertificates = loadAppSettings().validateCertificates
     if (!validateCertificates) curlBase.push('--insecure')
-  } catch {
-    // ignore
+  } catch (error) {
+    logWarn('buildCurlCommand', 'Failed to read certificate validation settings', { error })
   }
 
   curlBase.push('-X', bashQuote(args.request.method))

@@ -1,6 +1,7 @@
 import type { Collection, Folder, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import { uid } from '../../../shared/utils/id'
 import { isAbsoluteUrl } from '../../../shared/utils/url'
+import { logWarn } from '../../../shared/utils/logger'
 
 const METHODS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 
@@ -86,7 +87,8 @@ function extractPathFromRawUrl(raw: string): string {
     try {
       const u = new URL(s)
       return u.pathname || '/'
-    } catch {
+    } catch (error) {
+      logWarn('extractPathFromRawUrl', 'Failed to parse absolute URL while extracting path', { error, raw: s })
       // fall through
     }
   }
@@ -222,7 +224,8 @@ function parseBody(body: any, headers: Record<string, string>) {
       try {
         const parsed = JSON.parse(raw)
         return { contentType: ct, example: parsed }
-      } catch {
+      } catch (error) {
+        logWarn('parseBody', 'Failed to parse JSON request body from Postman raw mode', { error })
         return { contentType: ct, example: raw }
       }
     }

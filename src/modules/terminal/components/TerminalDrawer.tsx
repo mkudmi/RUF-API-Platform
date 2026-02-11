@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { tauriInvoke } from '../../../shared/utils/tauri'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { logError, logWarn } from '../../../shared/utils/logger'
 
 type TerminalEntry =
   | { kind: 'in'; text: string }
@@ -91,7 +92,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       if (!raw) return null
       const n = Number(raw)
       return Number.isFinite(n) && n > 0 ? n : null
-    } catch {
+    } catch (error) {
+      logError('TerminalDrawer.loadHeight', error)
       return null
     }
   })
@@ -129,8 +131,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
     if (heightPx == null) return
     try {
       localStorage.setItem(TERMINAL_HEIGHT_KEY, String(heightPx))
-    } catch {
-      // ignore
+    } catch (error) {
+      logError('TerminalDrawer.saveHeight', error, { heightPx })
     }
   }, [heightPx])
 
@@ -172,8 +174,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
         const list = await tauriInvoke<TerminalShellInfo[]>('terminal_list_shells')
         if (cancelled) return
         setShells(list)
-      } catch {
-        // ignore
+      } catch (error) {
+        logError('TerminalDrawer.loadShells', error)
       }
     }
     loadShells()
@@ -190,8 +192,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
         const dir = await homeDir()
         if (cancelled) return
         setTabs(prev => prev.map(t => (t.cwd == null ? { ...t, cwd: dir } : t)))
-      } catch {
-        // ignore
+      } catch (error) {
+        logError('TerminalDrawer.initHomeDir', error)
       }
     }
     init()
@@ -298,8 +300,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
       document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch {
-        // ignore
+      } catch (error) {
+        logWarn('TerminalDrawer.releasePointerCapture', 'Failed to release pointer capture', { error })
       }
     }
 
@@ -313,8 +315,8 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
 
     try {
       handle.setPointerCapture(pointerId)
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('TerminalDrawer.setPointerCapture', 'Failed to set pointer capture', { error })
     }
 
     window.addEventListener('pointermove', onMove)

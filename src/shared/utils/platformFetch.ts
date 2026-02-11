@@ -1,4 +1,5 @@
 import { tauriInvoke } from './tauri'
+import { logError, logWarn } from './logger'
 
 function getUrlString(input: RequestInfo | URL): string | null {
   if (typeof input === 'string') return input
@@ -15,14 +16,16 @@ function normalizeHttpUrlLoose(url: string): string | null {
     const u = new URL(raw)
     if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString()
     return null
-  } catch {
+  } catch (error) {
+    logWarn('normalizeHttpUrlLoose', 'Primary URL parse failed, attempting typo recovery', { error, raw })
     // tolerate common typo: "http:/host/..." or "https:/host/..."
     const fixed = raw.replace(/^https?:\/(?!\/)/i, m => `${m}/`)
     try {
       const u = new URL(fixed)
       if (u.protocol === 'http:' || u.protocol === 'https:') return u.toString()
       return null
-    } catch {
+    } catch (fallbackError) {
+      logError('normalizeHttpUrlLoose', fallbackError, { raw, fixed })
       return null
     }
   }
@@ -205,6 +208,7 @@ export async function platformFetch(
     if (isNetworkUrl) {
       if (e?.name === 'AbortError') throw e
       const msg = e?.message ? String(e.message) : String(e)
+      logError('platformFetch.http_request', e, { url: normalizedNetworkUrl })
       throw new Error(`Backend http_request failed: ${msg}`)
     }
   }

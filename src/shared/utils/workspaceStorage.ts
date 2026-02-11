@@ -1,4 +1,5 @@
 import type { Workspace, WorkspaceFolder } from '../types/workspace'
+import { logError } from './logger'
 
 const WORKSPACE_KEY = 'ruf_workspace_v1'
 
@@ -39,7 +40,8 @@ export function loadWorkspace(): Workspace {
     }
 
     return { folders }
-  } catch {
+  } catch (error) {
+    logError('loadWorkspace', error)
     return { folders: [] }
   }
 }

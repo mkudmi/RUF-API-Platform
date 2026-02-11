@@ -1,4 +1,5 @@
 import { parseDocument } from 'yaml'
+import { logWarn } from '../../../shared/utils/logger'
 
 export type BeautifyBodyFormat = 'json' | 'xml' | 'yaml' | 'text'
 
@@ -115,7 +116,8 @@ function stripJsonTrailingCommas(input: string) {
 function parseJsonLenient(input: string) {
   try {
     return JSON.parse(input)
-  } catch {
+  } catch (error) {
+    logWarn('parseJsonLenient', 'Strict JSON parse failed, retrying with lenient cleanup', { error })
     const noComments = stripJsonCommentsAndNormalizeWhitespace(input)
     const noTrailingCommas = stripJsonTrailingCommas(noComments)
     return JSON.parse(noTrailingCommas)

@@ -1,6 +1,7 @@
 import type { Collection, Folder, RequestItem } from '../../collectionTree'
 import { uid } from '../../../shared/utils/id'
 import { isAbsoluteUrl } from '../../../shared/utils/url'
+import { logWarn } from '../../../shared/utils/logger'
 
 function firstText(el: Element | null | undefined): string {
   if (!el) return ''
@@ -136,7 +137,8 @@ export function buildCollectionFromWsdlText(text: string, nameOverride?: string)
         try {
           const u = new URL(endpoint)
           return u.pathname || '/'
-        } catch {
+        } catch (error) {
+          logWarn('buildCollectionFromWsdlText.endpointPath', 'Failed to parse WSDL endpoint URL pathname', { error, endpoint })
           return '/'
         }
       }
@@ -163,11 +165,11 @@ export function buildCollectionFromWsdlText(text: string, nameOverride?: string)
     try {
       const u = new URL(endpoint)
       return u.origin
-    } catch {
+    } catch (error) {
+      logWarn('buildCollectionFromWsdlText.baseUrl', 'Failed to parse WSDL endpoint base URL', { error, endpoint })
       return undefined
     }
   })()
 
   return { id: uid('col'), name, baseUrl, folders: [folder] }
 }
-

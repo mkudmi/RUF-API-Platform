@@ -7,6 +7,7 @@ import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart a
 import { buildPostmanCollectionFromRufCollection } from '../../export/rufCollection/rufCollectionExporter'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
+import { logWarn } from '../../../shared/utils/logger'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -80,6 +81,7 @@ async function saveTextWithSuggestedName(args: { suggestedName: string, text: st
     a.remove()
     URL.revokeObjectURL(url)
   } catch (e) {
+    logWarn('saveTextWithSuggestedName', 'Save dialog aborted or failed', { error: e })
     if ((e as Error | null)?.name !== 'AbortError') throw e
   }
 }

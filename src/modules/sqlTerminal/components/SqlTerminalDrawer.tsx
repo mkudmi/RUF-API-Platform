@@ -4,6 +4,7 @@ import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types
 import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { logError, logWarn } from '../../../shared/utils/logger'
 
 type DbConnOption = {
   id: string
@@ -43,7 +44,8 @@ function safeLoadNumber(key: string): number | null {
     if (!raw) return null
     const n = Number(raw)
     return Number.isFinite(n) && n > 0 ? n : null
-  } catch {
+  } catch (error) {
+    logError('SqlTerminal.safeLoadNumber', error, { key })
     return null
   }
 }
@@ -52,7 +54,8 @@ function safeLoadString(key: string): string | null {
   try {
     const raw = localStorage.getItem(key)
     return typeof raw === 'string' ? raw : null
-  } catch {
+  } catch (error) {
+    logError('SqlTerminal.safeLoadString', error, { key })
     return null
   }
 }
@@ -65,7 +68,8 @@ function safeLoadFraction(key: string): number | null {
     if (!Number.isFinite(n)) return null
     if (n <= 0 || n >= 1) return null
     return n
-  } catch {
+  } catch (error) {
+    logError('SqlTerminal.safeLoadFraction', error, { key })
     return null
   }
 }
@@ -73,16 +77,16 @@ function safeLoadFraction(key: string): number | null {
 function safeSave(key: string, value: string) {
   try {
     localStorage.setItem(key, value)
-  } catch {
-    // ignore
+  } catch (error) {
+    logError('SqlTerminal.safeSave', error, { key })
   }
 }
 
 function safeRemove(key: string) {
   try {
     localStorage.removeItem(key)
-  } catch {
-    // ignore
+  } catch (error) {
+    logError('SqlTerminal.safeRemove', error, { key })
   }
 }
 
@@ -389,7 +393,8 @@ export function SqlTerminalDrawer(props: {
         if (names.includes('public')) return 'public'
         return names[0] ?? ''
       })
-    } catch {
+    } catch (error) {
+      logError('SqlTerminal.loadSchemas', error, { connectionId: conn.id })
       setSchemas([])
       setSelectedSchema('')
     }
@@ -419,7 +424,8 @@ export function SqlTerminalDrawer(props: {
             .filter(Boolean)
         : []
       setTables(names)
-    } catch {
+    } catch (error) {
+      logError('SqlTerminal.loadTables', error, { connectionId: conn.id, schema })
       setTables([])
     }
   }
@@ -500,8 +506,8 @@ export function SqlTerminalDrawer(props: {
       document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch {
-        // ignore
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.vertical', 'Failed to release pointer capture', { error })
       }
     }
 
@@ -515,8 +521,8 @@ export function SqlTerminalDrawer(props: {
 
     try {
       handle.setPointerCapture(pointerId)
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.vertical', 'Failed to set pointer capture', { error })
     }
 
     window.addEventListener('pointermove', onMove)
@@ -601,8 +607,8 @@ export function SqlTerminalDrawer(props: {
       document.body.style.userSelect = prevUserSelect
       try {
         if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch {
-        // ignore
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.horizontal', 'Failed to release pointer capture', { error })
       }
     }
 
@@ -616,8 +622,8 @@ export function SqlTerminalDrawer(props: {
 
     try {
       handle.setPointerCapture(pointerId)
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.horizontal', 'Failed to set pointer capture', { error })
     }
 
     window.addEventListener('pointermove', onMove)

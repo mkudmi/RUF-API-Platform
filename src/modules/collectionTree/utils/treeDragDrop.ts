@@ -28,7 +28,8 @@ function readFallbackText(dt: DataTransfer): DraggedAny | null {
     const kind = parsed?.kind
     if (kind !== 'folder' && kind !== 'request' && kind !== 'collection' && kind !== 'workspace-folder') return null
     return parsed as DraggedAny
-  } catch {
+  } catch (error) {
+    logWarn('readFallbackText', 'Failed to parse fallback drag payload', { error })
     return null
   }
 }
@@ -70,7 +71,8 @@ export function readDraggedFolder(dt: DataTransfer): DraggedFolder | null {
     const folderId = typeof parsed?.folderId === 'string' ? parsed.folderId : ''
     if (!collectionId || !folderId) return null
     return { collectionId, folderId }
-  } catch {
+  } catch (error) {
+    logWarn('readDraggedFolder', 'Failed to parse dragged folder payload', { error })
     return null
   }
 }
@@ -91,7 +93,8 @@ export function readDraggedRequest(dt: DataTransfer): DraggedRequest | null {
     const requestId = typeof parsed?.requestId === 'string' ? parsed.requestId : ''
     if (!collectionId || !requestId) return null
     return { collectionId, requestId }
-  } catch {
+  } catch (error) {
+    logWarn('readDraggedRequest', 'Failed to parse dragged request payload', { error })
     return null
   }
 }
@@ -110,7 +113,8 @@ export function readDraggedCollection(dt: DataTransfer): DraggedCollection | nul
     const collectionId = typeof parsed?.collectionId === 'string' ? parsed.collectionId : ''
     if (!collectionId) return null
     return { collectionId }
-  } catch {
+  } catch (error) {
+    logWarn('readDraggedCollection', 'Failed to parse dragged collection payload', { error })
     return null
   }
 }
@@ -136,7 +140,9 @@ export function readDraggedWorkspaceFolder(dt: DataTransfer): DraggedWorkspaceFo
     const workspaceFolderId = typeof parsed?.workspaceFolderId === 'string' ? parsed.workspaceFolderId : ''
     if (!workspaceFolderId) return null
     return { workspaceFolderId }
-  } catch {
+  } catch (error) {
+    logWarn('readDraggedWorkspaceFolder', 'Failed to parse dragged workspace folder payload', { error })
     return null
   }
 }
+import { logWarn } from '../../../shared/utils/logger'

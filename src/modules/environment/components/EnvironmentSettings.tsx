@@ -13,6 +13,7 @@ import {
 } from '../utils/dbConnection'
 import type { DbType, PgSslMode } from '../utils/dbConnection'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { logError } from '../../../shared/utils/logger'
 
 type HeaderRow = { key: string; value: string }
 type VariableRow = { key: string; value: string }
@@ -258,6 +259,7 @@ export function EnvironmentSettings(props: {
       })
       close()
     } catch (e: any) {
+      logError('EnvironmentSettings.save', e)
       setError(e?.message || 'Invalid environment settings.')
     }
   }
@@ -293,6 +295,7 @@ export function EnvironmentSettings(props: {
         setDbTestLog(message)
       }
     } catch (e) {
+      logError('EnvironmentSettings.testDbConnection', e)
       const message = e instanceof Error ? e.message : 'Network error'
       setDbTestError('Connection failed')
       setDbTestLog(message)

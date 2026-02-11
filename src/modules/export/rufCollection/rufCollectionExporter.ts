@@ -3,6 +3,7 @@ import type { Environment } from '../../../shared/types/environment'
 import { uid } from '../../../shared/utils/id'
 import { computeEffectiveBaseUrl, isAbsoluteUrl } from '../../../shared/utils/url'
 import { isDbEnvKey } from '../../environment/utils/dbConnection'
+import { logWarn } from '../../../shared/utils/logger'
 
 function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
   const raw = url.trim().replace(/\/+$/, '')
@@ -92,7 +93,8 @@ function toPostmanUrlObject(req: RequestItem) {
         query,
         variable,
       }
-    } catch {
+    } catch (error) {
+      logWarn('toPostmanUrlObject', 'Failed to parse absolute URL while building Postman URL object', { error, raw })
       // fall through
     }
   }

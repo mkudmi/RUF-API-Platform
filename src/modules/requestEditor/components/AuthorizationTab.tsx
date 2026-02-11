@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
 import type { VariableSuggestion } from '../../../shared/utils/variables'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
+import { logWarn } from '../../../shared/utils/logger'
 
 type AuthType = 'none' | 'basic' | 'bearer'
 
@@ -34,10 +35,12 @@ function safeBase64EncodeUtf8(input: string) {
       bin += String.fromCharCode(...chunk)
     }
     return btoa(bin)
-  } catch {
+  } catch (error) {
+    logWarn('safeBase64EncodeUtf8', 'UTF-8 base64 encoding failed, falling back to btoa(input)', { error })
     try {
       return btoa(input)
-    } catch {
+    } catch (fallbackError) {
+      logWarn('safeBase64EncodeUtf8.fallback', 'Fallback base64 encoding failed', { fallbackError })
       return ''
     }
   }
@@ -48,10 +51,12 @@ function safeBase64Decode(input: string) {
     const bin = atob(input)
     const bytes = Uint8Array.from(bin, c => c.charCodeAt(0))
     return new TextDecoder().decode(bytes)
-  } catch {
+  } catch (error) {
+    logWarn('safeBase64Decode', 'UTF-8 base64 decoding failed, falling back to atob(input)', { error })
     try {
       return atob(input)
-    } catch {
+    } catch (fallbackError) {
+      logWarn('safeBase64Decode.fallback', 'Fallback base64 decoding failed', { fallbackError })
       return ''
     }
   }

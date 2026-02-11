@@ -43,6 +43,7 @@ import { useDismissibleLayer } from '../shared/hooks/useDismissibleLayer'
 import { safeParseJson } from '../shared/utils/json'
 import { findRequestByIds } from '../core/services/appBootstrapService'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../shared/utils/localStorageJson'
+import { logError, logWarn } from '../shared/utils/logger'
 
 //TODO:
 // Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
@@ -417,7 +418,8 @@ export default function App() {
         let sha256 = ''
         try {
           sha256 = await sha256Hex(pemToDerBytes(pem))
-        } catch {
+        } catch (error) {
+          logWarn('addCaCertificatesFromInput.sha256', 'Failed to compute certificate fingerprint', { error })
           sha256 = ''
         }
         if (sha256 && existingBySha.has(sha256.toLowerCase())) continue
@@ -453,8 +455,8 @@ export default function App() {
             if (next.sha256) existingBySha.add(next.sha256.toLowerCase())
             continue
           }
-        } catch {
-          // ignore
+        } catch (error) {
+          logError('addCaCertificatesFromInput.cert_inspect', error)
         }
 
         added.push(base)
@@ -539,7 +541,8 @@ export default function App() {
       try {
         const { getVersion } = await import('@tauri-apps/api/app')
         setAppVersion(await getVersion())
-      } catch {
+      } catch (error) {
+        logError('App.getVersion', error)
         setAppVersion(null)
       }
     })()
@@ -1005,13 +1008,14 @@ export default function App() {
   function cloneBodyExample(example: any): any {
     try {
       if (typeof structuredClone === 'function') return structuredClone(example)
-    } catch {
-      // ignore
+    } catch (error) {
+      logWarn('cloneBodyExample.structuredClone', 'structuredClone failed, using JSON fallback', { error })
     }
 
     try {
       return JSON.parse(JSON.stringify(example))
-    } catch {
+    } catch (error) {
+      logWarn('cloneBodyExample.jsonFallback', 'JSON deep clone failed, returning original value', { error })
       return example
     }
   }
@@ -2422,32 +2426,32 @@ export default function App() {
   async function minimizeWindow() {
     try {
       await withCurrentWindow(windowHandle => windowHandle.minimize())
-    } catch {
-      // ignore window API errors
+    } catch (error) {
+      logError('minimizeWindow', error)
     }
   }
 
   async function toggleWindowMaximize() {
     try {
       await withCurrentWindow(windowHandle => windowHandle.toggleMaximize())
-    } catch {
-      // ignore window API errors
+    } catch (error) {
+      logError('toggleWindowMaximize', error)
     }
   }
 
   async function closeWindow() {
     try {
       await withCurrentWindow(windowHandle => windowHandle.close())
-    } catch {
-      // ignore window API errors
+    } catch (error) {
+      logError('closeWindow', error)
     }
   }
 
   async function startWindowDragging() {
     try {
       await withCurrentWindow(windowHandle => windowHandle.startDragging())
-    } catch {
-      // ignore window API errors
+    } catch (error) {
+      logError('startWindowDragging', error)
     }
   }
 
