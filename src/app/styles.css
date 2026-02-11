@@ -22,6 +22,10 @@
   --font-ui: 'Nimbus Sans Round', system-ui, -apple-system, Segoe UI, Roboto, Arial;
   font-family: var(--font-ui);
 }
+
+html.platform-macos {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
 * { box-sizing: border-box; }
 html, body, #root {
   width: 100%;
@@ -120,6 +124,15 @@ input[type="password"]::-ms-clear {
   border-color: rgba(255, 90, 90, .35);
   background: rgba(255, 90, 90, .18);
   color: #fff;
+}
+
+html.platform-macos .windowTitlebar {
+  padding: 0 12px 0 12px;
+}
+
+html.platform-macos .windowRequestName {
+  font-size: 13px;
+  opacity: 0.86;
 }
 
 [data-tauri-drag-region] {
@@ -1774,6 +1787,19 @@ button:hover { background: rgba(255,255,255,.10); }
   box-shadow: 0 0 0 1px rgba(0,0,0,.2);
 }
 
+html.platform-macos .editor .tabs .tab,
+html.platform-macos .responseViewer .tabs .tab {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 500;
+}
+
+html.platform-macos .modalSettings .tabs .tab {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 500;
+}
+
 /* Request history */
 .historyList {
   display: flex;
@@ -1860,4 +1886,3 @@ button:hover { background: rgba(255,255,255,.10); }
   word-break: break-word;
 }
 .historyInfoEmpty { opacity: .75; padding: 2px 0 2px 4px; }
-

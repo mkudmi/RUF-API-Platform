@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon, SqlIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
@@ -139,6 +139,10 @@ function mergeHistoryItemsById(preferred: RequestHistoryItem[], fallback: Reques
 }
 
 export default function App() {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : ''
+  const platform = typeof navigator !== 'undefined' ? (navigator.platform || '').toLowerCase() : ''
+  const isMac = platform.includes('mac') || ua.includes('mac os')
+
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
   const importOpenRef = useRef<{
     openMenu: () => void
@@ -2441,7 +2445,12 @@ export default function App() {
 
   const isWorkspaceEmpty = collections.length === 0 && workspace.folders.length === 0
 
-  async function withCurrentWindow(action: (windowHandle: { minimize: () => Promise<void>, toggleMaximize: () => Promise<void>, close: () => Promise<void> }) => Promise<void>) {
+  async function withCurrentWindow(action: (windowHandle: {
+    minimize: () => Promise<void>
+    toggleMaximize: () => Promise<void>
+    close: () => Promise<void>
+    startDragging: () => Promise<void>
+  }) => Promise<void>) {
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     await action(getCurrentWindow())
   }
@@ -2470,15 +2479,62 @@ export default function App() {
     }
   }
 
+  async function startWindowDragging() {
+    try {
+      await withCurrentWindow(windowHandle => windowHandle.startDragging())
+    } catch {
+      // ignore window API errors
+    }
+  }
+
+  function onWindowTitlebarMouseDown(e: ReactMouseEvent<HTMLElement>) {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement | null
+    if (!target) return
+    if (target.closest('button, input, textarea, select, a, [role="button"], [data-no-window-drag]')) return
+    void startWindowDragging()
+  }
+
   const activeRequestName = active?.req.name ?? ''
   const activeRequestDescription = (active?.req.description ?? '').trim()
   const windowRequestText = activeRequestDescription
     ? `${activeRequestName} · ${activeRequestDescription}`
     : activeRequestName
+  const windowControls = (
+    <div className="windowControls">
+      <button
+        type="button"
+        className="windowControlBtn windowControlBtnMinimize"
+        onClick={() => { void minimizeWindow() }}
+        aria-label="Minimize window"
+        title="Minimize"
+      >
+        <MinimizeIcon size={14} />
+      </button>
+      <button
+        type="button"
+        className="windowControlBtn windowControlBtnMaximize"
+        onClick={() => { void toggleWindowMaximize() }}
+        aria-label="Toggle maximize window"
+        title="Maximize / Restore"
+      >
+        <MaximizeIcon size={12} />
+      </button>
+      <button
+        type="button"
+        className="windowControlBtn windowControlBtnClose"
+        onClick={() => { void closeWindow() }}
+        aria-label="Close window"
+        title="Close"
+      >
+        <CloseIcon size={14} />
+      </button>
+    </div>
+  )
 
   return (
     <div className="windowShell">
-      <header className="windowTitlebar" data-tauri-drag-region>
+      <header className="windowTitlebar" data-tauri-drag-region onMouseDown={onWindowTitlebarMouseDown}>
         <div className="windowBrandArea">
           <div className="sidebarBrandRow">
             <span className="appTitle">Ruf</span> <span className="small">API Platofrm</span>
@@ -2493,35 +2549,7 @@ export default function App() {
         <div className="windowRequestName" title={windowRequestText}>
           {windowRequestText}
         </div>
-        <div className="windowControls">
-          <button
-            type="button"
-            className="windowControlBtn"
-            onClick={() => { void minimizeWindow() }}
-            aria-label="Minimize window"
-            title="Minimize"
-          >
-            <MinimizeIcon size={14} />
-          </button>
-          <button
-            type="button"
-            className="windowControlBtn"
-            onClick={() => { void toggleWindowMaximize() }}
-            aria-label="Toggle maximize window"
-            title="Maximize / Restore"
-          >
-            <MaximizeIcon size={12} />
-          </button>
-          <button
-            type="button"
-            className="windowControlBtn windowControlBtnClose"
-            onClick={() => { void closeWindow() }}
-            aria-label="Close window"
-            title="Close"
-          >
-            <CloseIcon size={14} />
-          </button>
-        </div>
+        {!isMac ? windowControls : null}
       </header>
       <div
         className="layout"
@@ -3555,4 +3583,3 @@ export default function App() {
     </div>
   )
 }
-

@@ -649,7 +649,7 @@ export function ResponseViewer(props: {
   }, [closeSizePopover, sizePopoverOpen])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
+    <div className="responseViewer" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className={`badge ${statusClass(result.status)}`} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

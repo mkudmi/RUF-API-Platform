@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
@@ -11,6 +12,13 @@ fn main() {
                 let _ = app
                     .handle()
                     .plugin(tauri_plugin_updater::Builder::new().build());
+            }
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_decorations(true);
+                    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
+                }
             }
             Ok(())
         })

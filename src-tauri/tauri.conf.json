@@ -18,6 +18,9 @@
         "height": 800,
         "maximized": true,
         "decorations": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "acceptFirstMouse": true,
         "resizable": true,
         "dragDropEnabled": false
       }
@@ -62,4 +65,3 @@
     }
   }
 }
-
