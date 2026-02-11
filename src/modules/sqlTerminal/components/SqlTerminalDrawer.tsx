@@ -659,9 +659,44 @@ export function SqlTerminalDrawer(props: {
             .filter(Boolean)
         : []
       setTables(names)
+      void preloadColumnsForSchema(conn, schema, names)
     } catch (error) {
       logError('SqlTerminal.loadTables', error, { connectionId: conn.id, schema })
       setTables([])
+    }
+  }
+
+  async function preloadColumnsForSchema(conn: DbConnOption, schema: string, tableNames: string[]) {
+    if (conn.type !== 'postgres') return
+    if (!schema || !tableNames.length) return
+    try {
+      const sql = `select table_name as table_name, column_name as column_name from information_schema.columns where table_schema = ${quoteSqlStringLiteral(schema)} order by table_name, ordinal_position`
+      const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql, timeoutMs: 20_000 })
+      const rows = r.ok ? (r.rows ?? null) : null
+      if (!rows) return
+
+      const nextMap: Record<string, string[]> = {}
+      for (const row of rows) {
+        if (!row || typeof row !== 'object') continue
+        const rec = row as Record<string, unknown>
+        const tableName = String(rec.table_name ?? '').trim()
+        const columnName = String(rec.column_name ?? '').trim()
+        if (!tableName || !columnName) continue
+        const key = `${schema}.${tableName}`
+        const list = nextMap[key] ?? []
+        list.push(columnName)
+        nextMap[key] = list
+      }
+
+      // Preserve explicit empty tables as empty arrays so UI can quickly conclude "No matches".
+      for (const t of tableNames) {
+        const k = `${schema}.${t}`
+        if (!nextMap[k]) nextMap[k] = []
+      }
+
+      setColumnsByTableKey(prev => ({ ...prev, ...nextMap }))
+    } catch (error) {
+      logWarn('SqlTerminal.preloadColumnsForSchema', 'Failed to preload columns', { error, schema })
     }
   }
 
@@ -677,6 +712,8 @@ export function SqlTerminalDrawer(props: {
     if (!open) return
     if (!selectedConn) return
     if (selectedConn.type !== 'postgres') return
+    // Keep preload/cache scoped to the currently selected schema.
+    setColumnsByTableKey({})
     void loadTables(selectedConn, selectedSchema)
   }, [open, selectedConnId, selectedSchema])
 
