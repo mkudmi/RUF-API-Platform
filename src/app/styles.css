@@ -916,6 +916,19 @@ button:hover { background: rgba(255,255,255,.10); }
   top: 10px;
   left: auto;
 }
+.sqlTerminalTableSuggestColumn {
+  right: 10px;
+  top: 10px;
+  bottom: auto;
+}
+.sqlTerminalTableSuggestTable {
+  top: 0;
+  bottom: auto;
+  right: auto;
+  left: 0;
+  transform-origin: top left;
+  animation: sqlSuggestDropIn 120ms ease-out;
+}
 .sqlTerminalTableSuggest .selectMenuItem { padding: 6px 8px; border-radius: 8px; font-size: 12px; }
 
 .sqlTerminalEditorWrap {
@@ -927,6 +940,17 @@ button:hover { background: rgba(255,255,255,.10); }
 
 .sqlTerminalEditorWrap > .sqlTerminalEditor {
   height: 100%;
+}
+
+@keyframes sqlSuggestDropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .sqlTerminalLineNumbers {

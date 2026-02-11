@@ -16,6 +16,7 @@ type DbConnOption = {
 }
 
 type OutputEntry = { kind: 'sys' | 'out' | 'err' | 'in'; text: string }
+type PopupPosition = { top: number; left: number }
 
 const SQL_TERMINAL_HEIGHT_KEY = 'ruf_sql_terminal_height_v1'
 const SQL_TERMINAL_SELECTED_CONN_KEY = 'ruf_sql_terminal_selected_conn_v1'
@@ -378,17 +379,20 @@ export function SqlTerminalDrawer(props: {
   const [cursorPos, setCursorPos] = useState<number>(0)
   const [tableSuggestOpen, setTableSuggestOpen] = useState(false)
   const [suggestMode, setSuggestMode] = useState<'table' | 'column'>('table')
-  const [tableSuggestKind, setTableSuggestKind] = useState<'from' | 'into'>('from')
+  const [tableSuggestKind, setTableSuggestKind] = useState<'from' | 'into' | 'join'>('from')
   const [columnTargetTableKey, setColumnTargetTableKey] = useState<string | null>(null)
   const [columnLoading, setColumnLoading] = useState(false)
   const [tableSuggestPrefix, setTableSuggestPrefix] = useState<string>('')
   const [tableSuggestReplaceRange, setTableSuggestReplaceRange] = useState<{ start: number; end: number } | null>(null)
-  const [tableSuggestActiveIndex, setTableSuggestActiveIndex] = useState<number>(0)
+  const [tableSuggestActiveIndex, setTableSuggestActiveIndex] = useState<number | null>(null)
+  const [tableSuggestPopupPos, setTableSuggestPopupPos] = useState<PopupPosition | null>(null)
 
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const schemaMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const editorWrapRef = useRef<HTMLDivElement | null>(null)
   const sqlRef = useRef<HTMLTextAreaElement | null>(null)
   const lineNumbersRef = useRef<HTMLPreElement | null>(null)
+  const tableSuggestRef = useRef<HTMLDivElement | null>(null)
   const outputRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const runRef = useRef<(() => void) | null>(null)
@@ -430,6 +434,45 @@ export function SqlTerminalDrawer(props: {
     setCursorPos(sqlRef.current?.selectionStart ?? 0)
     syncLineNumberScroll()
   }, [syncLineNumberScroll])
+
+  const updateTableSuggestPopupPosition = useCallback(() => {
+    if (!tableSuggestOpen) return
+    const ta = sqlRef.current
+    const wrap = editorWrapRef.current
+    if (!ta || !wrap) return
+
+    const pos = ta.selectionStart ?? 0
+    const before = ta.value.slice(0, pos)
+    const lines = before.split('\n')
+    const lineIndex = Math.max(0, lines.length - 1)
+    const currentLine = lines[lineIndex] ?? ''
+    const cs = window.getComputedStyle(ta)
+    const font = `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`
+    const lineHeight = Number.parseFloat(cs.lineHeight) || 17.4
+    const paddingTop = Number.parseFloat(cs.paddingTop) || 0
+    const paddingLeft = Number.parseFloat(cs.paddingLeft) || 0
+
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.font = font
+    const textWidth = ctx.measureText(currentLine).width
+
+    const caretX = paddingLeft + textWidth - ta.scrollLeft
+    const caretY = paddingTop + lineIndex * lineHeight - ta.scrollTop
+
+    const popupW = tableSuggestRef.current?.offsetWidth ?? 220
+    const popupH = tableSuggestRef.current?.offsetHeight ?? 220
+    const wrapW = wrap.clientWidth
+    const wrapH = wrap.clientHeight
+    const margin = 8
+
+    const unclampedLeft = Math.round(caretX + 12)
+    const unclampedTop = Math.round(caretY + lineHeight + 6)
+    const left = Math.max(margin, Math.min(wrapW - popupW - margin, unclampedLeft))
+    const top = Math.max(margin, Math.min(wrapH - popupH - margin, unclampedTop))
+    setTableSuggestPopupPos({ top, left })
+  }, [tableSuggestOpen])
 
   useEffect(() => {
     if (!open) return
@@ -924,8 +967,8 @@ export function SqlTerminalDrawer(props: {
     const range = tableSuggestReplaceRange
     const t = tableSuggestions[index]
     if (!range || !t) return
-    const needsLeadingSpace = /(from|into)$/i.test(sql.slice(0, range.start))
-    const tableRef = tableSuggestKind === 'from' ? `${t} ${makeTableAlias(t)}` : t
+    const needsLeadingSpace = /(from|into|join)$/i.test(sql.slice(0, range.start))
+    const tableRef = tableSuggestKind === 'into' ? t : `${t} ${makeTableAlias(t)}`
     const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
     const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
     setSql(next)
@@ -941,18 +984,45 @@ export function SqlTerminalDrawer(props: {
     })
   }, [sql, tableSuggestKind, tableSuggestReplaceRange, tableSuggestions])
 
+  const applyColumnSuggestionAt = useCallback((index: number) => {
+    const range = tableSuggestReplaceRange
+    const c = columnSuggestions[index]
+    if (!range || !c) return
+    const next = `${sql.slice(0, range.start)}${c}${sql.slice(range.end)}`
+    setSql(next)
+    setTableSuggestOpen(false)
+    requestAnimationFrame(() => {
+      const ta = sqlRef.current
+      if (!ta) return
+      const newPos = range.start + c.length
+      ta.focus()
+      ta.selectionStart = newPos
+      ta.selectionEnd = newPos
+      setCursorPos(newPos)
+    })
+  }, [columnSuggestions, sql, tableSuggestReplaceRange])
+
   useEffect(() => {
-    if (!tableSuggestOpen || suggestMode !== 'table') return
-    setTableSuggestActiveIndex(0)
+    if (!tableSuggestOpen) return
+    setTableSuggestActiveIndex(null)
   }, [tableSuggestOpen, suggestMode, tableSuggestPrefix])
+
+  useEffect(() => {
+    if (!tableSuggestOpen) {
+      setTableSuggestPopupPos(null)
+      return
+    }
+    requestAnimationFrame(updateTableSuggestPopupPosition)
+  }, [tableSuggestOpen, suggestMode, cursorPos, sql, tableSuggestions.length, columnSuggestions.length, updateTableSuggestPopupPosition])
 
   useEffect(() => {
     if (!open) return
     const ta = sqlRef.current
     if (!ta) return
 
-    const pos = cursorPos
+    const pos = ta.selectionStart ?? cursorPos
     const before = sql.slice(0, pos)
+    const currentLineBefore = before.slice(before.lastIndexOf('\n') + 1)
 
     // Column suggestion: <alias_or_table>.<prefix>
     const colMatch = before.match(/(?:^|[^a-zA-Z0-9_"])([a-zA-Z0-9_"]+)\.([a-zA-Z0-9_"]*)$/i)
@@ -967,24 +1037,27 @@ export function SqlTerminalDrawer(props: {
         setColumnTargetTableKey(key)
         setTableSuggestPrefix(colPrefix)
         setTableSuggestReplaceRange({ start: pos - (colMatch[2] ?? '').length, end: pos })
+        setTableSuggestPopupPos(null)
+        setTableSuggestActiveIndex(null)
         void loadColumnsForTable(selectedConn, selectedSchema, tableName)
         setTableSuggestOpen(true)
         return
       }
     }
 
-    // Table suggestion: FROM/INTO ...<prefix>
-    const tableMatch = before.match(/(?:^|[\s(])(from|into)(?:\s+([a-zA-Z0-9_".]*))?$/i)
+    // Table suggestion: FROM/INTO/JOIN ...<prefix>
+    const tableMatch = currentLineBefore.match(/(?:^|[\s(])(from|into|join)(?:\s+([a-zA-Z0-9_".]*))?$/i)
     if (!tableMatch || !tables.length) {
       setTableSuggestOpen(false)
       setTableSuggestReplaceRange(null)
       setTableSuggestPrefix('')
       setColumnTargetTableKey(null)
-      setTableSuggestActiveIndex(0)
+      setTableSuggestActiveIndex(null)
       return
     }
 
-    const kind = (tableMatch[1] || 'from').toLowerCase() === 'into' ? 'into' : 'from'
+    const matchKind = (tableMatch[1] || 'from').toLowerCase()
+    const kind: 'from' | 'into' | 'join' = matchKind === 'into' ? 'into' : (matchKind === 'join' ? 'join' : 'from')
     const prefix = tableMatch[2] ?? ''
     const start = pos - prefix.length
     const end = pos
@@ -993,7 +1066,8 @@ export function SqlTerminalDrawer(props: {
     setTableSuggestPrefix(prefix.replaceAll('"', ''))
     setTableSuggestReplaceRange({ start, end })
     setColumnTargetTableKey(null)
-    setTableSuggestActiveIndex(0)
+    setTableSuggestPopupPos(null)
+    setTableSuggestActiveIndex(null)
     setTableSuggestOpen(true)
   }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
 
@@ -1284,7 +1358,7 @@ export function SqlTerminalDrawer(props: {
                 ▶
               </button>
             </div>
-            <div className="sqlTerminalEditorWrap" style={editorWrapStyle}>
+            <div ref={editorWrapRef} className={`sqlTerminalEditorWrap ${tableSuggestOpen && suggestMode === 'table' ? 'sqlTerminalEditorWrapSuggestingTable' : ''}`.trim()} style={editorWrapStyle}>
               <div className="sqlTerminalLineNumbers" aria-hidden="true">
                 <pre ref={lineNumbersRef} className="sqlTerminalLineNumbersInner mono">
                   {lineNumbers.map(n => (
@@ -1315,13 +1389,17 @@ export function SqlTerminalDrawer(props: {
                     }
                   }
 
+                  setCursorPos(caret)
                   setSql(nextText)
                   requestAnimationFrame(refreshEditorCaretState)
                 }}
                 onKeyUp={refreshEditorCaretState}
                 onClick={refreshEditorCaretState}
                 onSelect={refreshEditorCaretState}
-                onScroll={syncLineNumberScroll}
+                onScroll={() => {
+                  syncLineNumberScroll()
+                  updateTableSuggestPopupPosition()
+                }}
                 onKeyDown={e => {
                   const isUndo = (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'z') || (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z')
                   const isRedo =
@@ -1372,23 +1450,26 @@ export function SqlTerminalDrawer(props: {
                     return
                   }
 
-                  if (tableSuggestOpen && suggestMode === 'table' && tableSuggestions.length) {
+                  const activeSuggestions = suggestMode === 'column' ? columnSuggestions : tableSuggestions
+                  if (tableSuggestOpen && activeSuggestions.length) {
                     if (e.key === 'ArrowDown') {
                       e.preventDefault()
                       e.stopPropagation()
-                      setTableSuggestActiveIndex(prev => (prev + 1) % tableSuggestions.length)
+                      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev + 1) % activeSuggestions.length))
                       return
                     }
                     if (e.key === 'ArrowUp') {
                       e.preventDefault()
                       e.stopPropagation()
-                      setTableSuggestActiveIndex(prev => (prev - 1 + tableSuggestions.length) % tableSuggestions.length)
+                      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev - 1 + activeSuggestions.length) % activeSuggestions.length))
                       return
                     }
                     if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+                      if (tableSuggestActiveIndex == null) return
                       e.preventDefault()
                       e.stopPropagation()
-                      applyTableSuggestionAt(tableSuggestActiveIndex)
+                      if (suggestMode === 'column') applyColumnSuggestionAt(tableSuggestActiveIndex)
+                      else applyTableSuggestionAt(tableSuggestActiveIndex)
                       return
                     }
                   }
@@ -1402,10 +1483,12 @@ export function SqlTerminalDrawer(props: {
                 spellCheck={false}
               />
 
-              {open && tableSuggestOpen && tableSuggestReplaceRange ? (
+              {open && tableSuggestOpen && tableSuggestReplaceRange && tableSuggestPopupPos ? (
                 <div
-                  className="sqlTerminalTableSuggest selectMenuPanel"
+                  ref={tableSuggestRef}
+                  className={`sqlTerminalTableSuggest selectMenuPanel ${suggestMode === 'table' ? 'sqlTerminalTableSuggestTable' : 'sqlTerminalTableSuggestColumn'}`.trim()}
                   role="listbox"
+                  style={{ top: `${tableSuggestPopupPos.top}px`, left: `${tableSuggestPopupPos.left}px`, right: 'auto' }}
                   onPointerDown={e => {
                     e.preventDefault()
                     e.stopPropagation()
@@ -1417,27 +1500,15 @@ export function SqlTerminalDrawer(props: {
                 >
                   {suggestMode === 'column' ? (
                     columnSuggestions.length ? (
-                      columnSuggestions.map(c => (
+                      columnSuggestions.map((c, idx) => (
                         <button
                           key={c}
                           type="button"
-                          className="selectMenuItem"
+                          className={`selectMenuItem ${idx === tableSuggestActiveIndex ? 'selectMenuItemActive' : ''}`.trim()}
                           role="option"
                           onClick={() => {
-                            const range = tableSuggestReplaceRange
-                            if (!range) return
-                            const next = `${sql.slice(0, range.start)}${c}${sql.slice(range.end)}`
-                            setSql(next)
-                            setTableSuggestOpen(false)
-                            requestAnimationFrame(() => {
-                              const ta = sqlRef.current
-                              if (!ta) return
-                              const newPos = range.start + c.length
-                              ta.focus()
-                              ta.selectionStart = newPos
-                              ta.selectionEnd = newPos
-                              setCursorPos(newPos)
-                            })
+                            setTableSuggestActiveIndex(idx)
+                            applyColumnSuggestionAt(idx)
                           }}
                         >
                           <span className="mono">{c}</span>
