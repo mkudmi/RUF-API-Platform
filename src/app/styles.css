@@ -1604,9 +1604,28 @@ button:hover { background: rgba(255,255,255,.10); }
   max-height: 240px;
   overflow: auto;
 }
-.editorTextarea { width: 100%; margin-top: 10px; resize: vertical; }
+.editorTextarea { width: 100%; margin-top: 10px; resize: vertical; font-size: 13px; line-height: 1.3; }
 .editorTextarea:focus { outline: none; box-shadow: none; }
 .editorTextarea:focus-visible { outline: 2px solid rgba(255,255,255,.20); outline-offset: 2px; }
+html.platform-macos .bodyResizeHandle {
+  height: 12px;
+  margin-top: -2px;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+  position: relative;
+}
+html.platform-macos .bodyResizeHandle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  width: 48px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255,255,255,.22);
+}
 
 .bodyBeautifyBtn {
   height: 32px;

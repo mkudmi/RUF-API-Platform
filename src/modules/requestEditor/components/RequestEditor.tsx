@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
 import type { Environment } from '../../../shared/types/environment'
 import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
@@ -21,6 +21,11 @@ import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveVa
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+const IS_MAC = typeof navigator !== 'undefined'
+  && (
+    (navigator.platform || '').toLowerCase().includes('mac')
+    || navigator.userAgent.toLowerCase().includes('mac os')
+  )
 
 function normalizeBodyFormat(raw: unknown): BodyFormat {
   if (raw === 'auto' || raw === 'json' || raw === 'xml' || raw === 'yaml' || raw === 'text') return raw
@@ -3450,6 +3455,30 @@ export function RequestEditor(props: {
     applyBodyTextareaReplacement(startLine, endLine, nextMid, nextSelStart, nextSelEnd)
   }
 
+  function onPlainBodyResizeHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!IS_MAC) return
+    const textarea = bodyTextareaRef.current
+    if (!textarea) return
+    const textareaEl: HTMLTextAreaElement = textarea
+    e.preventDefault()
+    const startY = e.clientY
+    const startHeight = textareaEl.getBoundingClientRect().height
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+
+    function onMove(ev: PointerEvent) {
+      const next = Math.max(140, startHeight + (ev.clientY - startY))
+      textareaEl.style.height = `${next}px`
+    }
+
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, { once: true })
+  }
+
   async function copyUrlText() {
     await copyText(displayUrl)
     setCopyOk(true)
@@ -4577,15 +4606,17 @@ export function RequestEditor(props: {
             onSubmitShortcut={triggerSendShortcut}
           />
         ) : (
-          <VariableAutocompleteField
-            as="textarea"
-            ref={bodyTextareaRef as any}
-            className="mono editorTextarea"
-            value={bodyText}
-            spellCheck={false}
-            suggestions={variableSuggestions}
-            onChangeValue={setBodyText}
-            onKeyDown={e => {
+          <>
+            <VariableAutocompleteField
+              as="textarea"
+              ref={bodyTextareaRef as any}
+              className="mono editorTextarea"
+              style={IS_MAC ? { resize: 'none' } : undefined}
+              value={bodyText}
+              spellCheck={false}
+              suggestions={variableSuggestions}
+              onChangeValue={setBodyText}
+              onKeyDown={e => {
               if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 if (triggerSendShortcut()) {
                   e.preventDefault()
@@ -4655,8 +4686,10 @@ export function RequestEditor(props: {
                 applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
               }
             }}
-            rows={18}
-          />
+              rows={18}
+            />
+            {IS_MAC ? <div className="bodyResizeHandle" onPointerDown={onPlainBodyResizeHandlePointerDown} /> : null}
+          </>
         )}
       </details>
 

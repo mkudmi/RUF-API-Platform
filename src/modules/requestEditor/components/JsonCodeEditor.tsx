@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, type PointerEvent as ReactPointerEvent } from 'react'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -88,6 +88,12 @@ type Props = {
   onSubmitShortcut?: () => void
 }
 
+const IS_MAC = typeof navigator !== 'undefined'
+  && (
+    (navigator.platform || '').toLowerCase().includes('mac')
+    || navigator.userAgent.toLowerCase().includes('mac os')
+  )
+
 function measureDefaultBodyTextareaHeight() {
   const probe = document.createElement('textarea')
   probe.className = 'mono editorTextarea'
@@ -109,6 +115,10 @@ export function JsonCodeEditor(props: Props) {
   const { value, onChangeValue, onSubmitShortcut } = props
   const rootRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const [editorHeight, setEditorHeight] = useState(() => {
+    const measured = measureDefaultBodyTextareaHeight()
+    return measured > 0 ? measured : 320
+  })
 
   const extensions = useMemo(() => [
     history(),
@@ -152,8 +162,8 @@ export function JsonCodeEditor(props: Props) {
       parent: root,
     })
     view.dom.classList.add('mono')
-    const initialHeight = measureDefaultBodyTextareaHeight()
-    if (initialHeight > 0) view.dom.style.height = `${initialHeight}px`
+    view.dom.style.height = `${editorHeight}px`
+    if (IS_MAC) view.dom.style.resize = 'none'
     viewRef.current = view
 
     return () => {
@@ -165,6 +175,12 @@ export function JsonCodeEditor(props: Props) {
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
+    view.dom.style.height = `${editorHeight}px`
+  }, [editorHeight])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
     const current = view.state.doc.toString()
     if (current === value) return
     view.dispatch({
@@ -172,5 +188,31 @@ export function JsonCodeEditor(props: Props) {
     })
   }, [value])
 
-  return <div ref={rootRef} />
+  const onResizeHandlePointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!IS_MAC) return
+    e.preventDefault()
+    const startY = e.clientY
+    const startHeight = editorHeight
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+
+    function onMove(ev: PointerEvent) {
+      const next = Math.max(140, startHeight + (ev.clientY - startY))
+      setEditorHeight(next)
+    }
+
+    function onUp() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, { once: true })
+  }, [editorHeight])
+
+  return (
+    <div>
+      <div ref={rootRef} />
+      {IS_MAC ? <div className="bodyResizeHandle" onPointerDown={onResizeHandlePointerDown} /> : null}
+    </div>
+  )
 }
