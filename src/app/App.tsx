@@ -183,7 +183,7 @@ export default function App() {
   const createCollectionSubfolderInputRef = useRef<HTMLInputElement | null>(null)
   const [collectionSubfolderName, setCollectionSubfolderName] = useState('New Folder')
   const [collectionSubfolderError, setCollectionSubfolderError] = useState<string | null>(null)
-  const [collectionSubfolderTarget, setCollectionSubfolderTarget] = useState<{ collectionId: string, parentFolderId: string } | null>(null)
+  const [collectionSubfolderTarget, setCollectionSubfolderTarget] = useState<{ collectionId: string, parentFolderId: string | null } | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -1275,13 +1275,33 @@ export default function App() {
     })
   }
 
-  function addFolderToCollection(collectionId: string) {
-    const folder = { id: uid('folder'), name: 'New Folder', requests: [], folders: [] }
+  function addFolderToCollectionWithName(collectionId: string, name: string) {
+    const nextName = name.trim()
+    if (!nextName) return
+    const folder = { id: uid('folder'), name: nextName, requests: [], folders: [] }
     setCollections(prev => {
       const next = prev.map(c => (c.id === collectionId ? { ...c, folders: [folder, ...c.folders] } : c))
       saveCollections(next)
       return next
     })
+  }
+
+  function openCreateCollectionSubfolderDialog(collectionId: string, parentFolderId: string | null) {
+    setCollectionSubfolderError(null)
+    setCollectionSubfolderName('New Folder')
+    setCollectionSubfolderTarget({ collectionId, parentFolderId })
+    createCollectionSubfolderDialogRef.current?.showModal()
+    requestAnimationFrame(() => {
+      const input = createCollectionSubfolderInputRef.current
+      if (!input) return
+      input.focus()
+      const end = input.value.length
+      input.setSelectionRange(end, end)
+    })
+  }
+
+  function addFolderToCollection(collectionId: string) {
+    openCreateCollectionSubfolderDialog(collectionId, null)
   }
 
   function addRequestToFolder(collectionId: string, folderId: string) {
@@ -1384,17 +1404,7 @@ export default function App() {
   }
 
   function addFolderToFolder(collectionId: string, parentFolderId: string) {
-    setCollectionSubfolderError(null)
-    setCollectionSubfolderName('New Folder')
-    setCollectionSubfolderTarget({ collectionId, parentFolderId })
-    createCollectionSubfolderDialogRef.current?.showModal()
-    requestAnimationFrame(() => {
-      const input = createCollectionSubfolderInputRef.current
-      if (!input) return
-      input.focus()
-      const end = input.value.length
-      input.setSelectionRange(end, end)
-    })
+    openCreateCollectionSubfolderDialog(collectionId, parentFolderId)
   }
 
   function closeCreateCollectionSubfolder() {
@@ -1410,7 +1420,8 @@ export default function App() {
       setCollectionSubfolderError('Enter a folder name.')
       return
     }
-    addFolderToFolderWithName(target.collectionId, target.parentFolderId, name)
+    if (target.parentFolderId) addFolderToFolderWithName(target.collectionId, target.parentFolderId, name)
+    else addFolderToCollectionWithName(target.collectionId, name)
     closeCreateCollectionSubfolder()
   }
 
