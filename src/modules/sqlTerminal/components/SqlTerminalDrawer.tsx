@@ -5,6 +5,7 @@ import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
+import { SqlTerminalPositionIcon } from '../../../shared/icons'
 
 type DbConnOption = {
   id: string
@@ -1225,7 +1226,7 @@ export function SqlTerminalDrawer(props: {
         }
       >
         {!isLeftPosition ? <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} /> : null}
-        {isLeftPosition ? <div className="sqlTerminalResizeHandleRight" onPointerDown={onRightResizeHandlePointerDown} /> : null}
+        {isLeftPosition ? <div className="terminalResizeHandle sqlTerminalResizeHandleRight" onPointerDown={onRightResizeHandlePointerDown} /> : null}
 
         <header className="terminalHeader">
           <div className="terminalTitle mono" style={{ flex: '1 1 auto', minWidth: 0 }}>
@@ -1293,7 +1294,7 @@ export function SqlTerminalDrawer(props: {
               title={isLeftPosition ? 'Move to bottom' : 'Move to left'}
               disabled={busy || !open}
             >
-              {isLeftPosition ? 'BT' : 'LF'}
+              <SqlTerminalPositionIcon left={isLeftPosition} />
             </button>
             <button
               type="button"
@@ -1395,7 +1396,7 @@ export function SqlTerminalDrawer(props: {
                 ▶
               </button>
             </div>
-            <div ref={editorWrapRef} className={`sqlTerminalEditorWrap ${tableSuggestOpen && suggestMode === 'table' ? 'sqlTerminalEditorWrapSuggestingTable' : ''}`.trim()} style={editorWrapStyle}>
+            <div ref={editorWrapRef} className="sqlTerminalEditorWrap" style={editorWrapStyle}>
               <div className="sqlTerminalLineNumbers" aria-hidden="true">
                 <pre ref={lineNumbersRef} className="sqlTerminalLineNumbersInner mono">
                   {lineNumbers.map(n => (
@@ -1523,7 +1524,7 @@ export function SqlTerminalDrawer(props: {
               {open && tableSuggestOpen && tableSuggestReplaceRange && tableSuggestPopupPos ? (
                 <div
                   ref={tableSuggestRef}
-                  className={`sqlTerminalTableSuggest selectMenuPanel ${suggestMode === 'table' ? 'sqlTerminalTableSuggestTable' : 'sqlTerminalTableSuggestColumn'}`.trim()}
+                  className={`sqlTerminalTableSuggest selectMenuPanel ${suggestMode === 'table' ? 'sqlTerminalTableSuggestTable' : ''}`.trim()}
                   role="listbox"
                   style={{ top: `${tableSuggestPopupPos.top}px`, left: `${tableSuggestPopupPos.left}px`, right: 'auto' }}
                   onPointerDown={e => {

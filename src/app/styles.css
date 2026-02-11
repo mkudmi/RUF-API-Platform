@@ -831,16 +831,23 @@ button:hover { background: rgba(255,255,255,.10); }
   right: auto;
 }
 
-.sqlTerminalResizeHandleRight {
+.sqlTerminalDrawerLeft .terminalResizeHandle.sqlTerminalResizeHandleRight {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 8px;
+  width: 10px;
   cursor: ew-resize;
   z-index: 2;
-  background: rgba(255,255,255,.03);
-  border-left: 1px solid rgba(255,255,255,.10);
+}
+
+.sqlTerminalDrawerLeft .terminalResizeHandle.sqlTerminalResizeHandleRight::before {
+  left: 50%;
+  right: auto;
+  top: 50%;
+  width: 3px;
+  height: 48px;
+  transform: translate(-50%, -50%);
 }
 
 .sqlTerminalBody {
@@ -915,11 +922,6 @@ button:hover { background: rgba(255,255,255,.10); }
   right: 10px;
   top: 10px;
   left: auto;
-}
-.sqlTerminalTableSuggestColumn {
-  right: 10px;
-  top: 10px;
-  bottom: auto;
 }
 .sqlTerminalTableSuggestTable {
   top: 0;

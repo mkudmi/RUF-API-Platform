@@ -350,3 +350,24 @@ export function SortDescIcon(props: { size?: number }) {
     </svg>
   )
 }
+
+export function SqlTerminalPositionIcon(props: { left: boolean; size?: number }) {
+  const { left } = props
+  const size = props.size ?? 16
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.2" opacity="0.9" />
+      {left ? (
+        <>
+          <rect x="2.6" y="2.6" width="4.2" height="10.8" rx="0.8" fill="currentColor" opacity="0.9" />
+          <path d="M10.7 8h2.7M11.8 6.9 10.7 8l1.1 1.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      ) : (
+        <>
+          <rect x="2.6" y="9.2" width="10.8" height="4.2" rx="0.8" fill="currentColor" opacity="0.9" />
+          <path d="M8 5.3V2.6M6.9 4.2 8 5.3l1.1-1.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )}
+    </svg>
+  )
+}
