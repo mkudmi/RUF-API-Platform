@@ -154,6 +154,111 @@ function formatTime(d: Date) {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
+function getCurrentSqlStatement(sql: string, caret: number): string | null {
+  if (!sql) return null
+
+  const len = sql.length
+  const safeCaret = Math.max(0, Math.min(caret, len))
+  const segments: Array<{ start: number; end: number }> = []
+
+  let stmtStart = 0
+  let i = 0
+  let inSingle = false
+  let inDouble = false
+  let inLineComment = false
+  let inBlockComment = false
+
+  while (i < len) {
+    const ch = sql[i]
+    const next = i + 1 < len ? sql[i + 1] : ''
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false
+      i += 1
+      continue
+    }
+
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false
+        i += 2
+        continue
+      }
+      i += 1
+      continue
+    }
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2
+        continue
+      }
+      if (ch === "'") inSingle = false
+      i += 1
+      continue
+    }
+
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2
+        continue
+      }
+      if (ch === '"') inDouble = false
+      i += 1
+      continue
+    }
+
+    if (ch === '-' && next === '-') {
+      inLineComment = true
+      i += 2
+      continue
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true
+      i += 2
+      continue
+    }
+    if (ch === "'") {
+      inSingle = true
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inDouble = true
+      i += 1
+      continue
+    }
+
+    if (ch === ';') {
+      segments.push({ start: stmtStart, end: i })
+      stmtStart = i + 1
+    }
+    i += 1
+  }
+
+  segments.push({ start: stmtStart, end: len })
+
+  let fallback: { start: number; end: number } | null = null
+
+  for (const seg of segments) {
+    const raw = sql.slice(seg.start, seg.end)
+    const leading = raw.match(/^\s*/)?.[0].length ?? 0
+    const trailing = raw.match(/\s*$/)?.[0].length ?? 0
+    const start = seg.start + leading
+    const end = seg.end - trailing
+    if (end <= start) continue
+
+    if (safeCaret >= start && safeCaret <= end) {
+      return sql.slice(start, end).trim()
+    }
+
+    if (safeCaret > end) fallback = { start, end }
+  }
+
+  if (fallback) return sql.slice(fallback.start, fallback.end).trim()
+  return null
+}
+
 function buildDbConnOptions(
   collections: Collection[],
   envByCollection: Record<string, Environment>,
@@ -713,14 +818,20 @@ export function SqlTerminalDrawer(props: {
       return
     }
 
-    const raw = sql.trim()
+    const ta = sqlRef.current
+    const selectionStart = ta ? Math.max(0, Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
+    const selectionEnd = ta ? Math.max(0, Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
+    const selectedSql = selectionEnd > selectionStart ? sql.slice(selectionStart, selectionEnd).trim() : ''
+    const statementSql = selectedSql ? '' : (getCurrentSqlStatement(sql, ta?.selectionStart ?? cursorPos) ?? '')
+    const raw = (selectedSql || statementSql || sql).trim()
     if (!raw) {
       pushOutput([{ kind: 'sys', text: 'Nothing to run.' }])
       return
     }
 
     const startedAt = new Date()
-    pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type})` }])
+    const scopeLabel = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
+    pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type}) [${scopeLabel}]` }])
     setResultRows(null)
     setResultColumns(null)
     setResultHint(null)
@@ -953,7 +1064,7 @@ export function SqlTerminalDrawer(props: {
                 onClick={() => void run()}
                 disabled={busy || !open || !selectedConn || !sql.trim()}
                 aria-label="Run SQL"
-                title={busy ? 'Running…' : 'Run (Ctrl+Enter)'}
+                title={busy ? 'Running…' : 'Run (Ctrl+Enter). Selection/current statement. Trailing ; is optional.'}
               >
                 ▶
               </button>
@@ -1035,7 +1146,11 @@ export function SqlTerminalDrawer(props: {
                     void run()
                   }
                 }}
-                placeholder={connOptions.length ? 'Write SQL here… (Ctrl+Enter to run)' : 'Configure DB connection in App Settings or Collection Environment…'}
+                placeholder={
+                  connOptions.length
+                    ? 'Write SQL here… (Ctrl+Enter: selection/current statement; trailing ; optional)'
+                    : 'Configure DB connection in App Settings or Collection Environment…'
+                }
                 spellCheck={false}
               />
 
