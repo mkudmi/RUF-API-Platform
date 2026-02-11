@@ -1,0 +1,41 @@
+import { SqlIcon } from '../../shared/icons'
+import { SqlTerminalDrawer } from '../../modules/sqlTerminal'
+import { TerminalDrawer } from '../../modules/terminal'
+import type { AppSidebarToolExtension } from './types'
+
+const terminalTool: AppSidebarToolExtension = {
+  id: 'terminal',
+  label: 'Terminal',
+  title: 'Terminal',
+  icon: <span className="iconGlyph">&gt;_</span>,
+  order: 10,
+  buttonClassName: 'terminalBtn',
+  render: ctx => (
+    <TerminalDrawer
+      open={ctx.openDrawerId === 'terminal'}
+      onClose={ctx.closeDrawer}
+    />
+  ),
+}
+
+const sqlTerminalTool: AppSidebarToolExtension = {
+  id: 'sql-terminal',
+  label: 'SQL Terminal',
+  title: 'SQL Terminal',
+  icon: <span className="iconGlyph"><SqlIcon size={16} /></span>,
+  order: 20,
+  buttonClassName: 'terminalBtn sqlTerminalBtn',
+  render: ctx => (
+    <SqlTerminalDrawer
+      open={ctx.openDrawerId === 'sql-terminal'}
+      onClose={ctx.closeDrawer}
+      collections={ctx.collections}
+      environmentsByCollection={ctx.environmentsByCollection}
+      extraConnections={ctx.globalSqlConnections}
+    />
+  ),
+}
+
+export function getDefaultSidebarToolExtensions(): AppSidebarToolExtension[] {
+  return [terminalTool, sqlTerminalTool]
+}

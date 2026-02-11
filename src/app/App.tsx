@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon, SqlIcon } from '../shared/icons'
+import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -22,8 +22,6 @@ import {
   setConnectionTypeAndMaybeDefaultPort as setConnectionTypeAndMaybeDefaultPortItem,
   updateGlobalSqlConnectionItem,
 } from '../modules/environment/utils/globalSqlConnections'
-import { TerminalDrawer } from '../modules/terminal'
-import { SqlTerminalDrawer } from '../modules/sqlTerminal'
 import type { Environment, GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../shared/types/environment'
 import { DEFAULT_ENVIRONMENT, DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS } from '../shared/types/environment'
 import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnvironmentsByCollection } from '../shared/utils/storage'
@@ -39,6 +37,8 @@ import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
 import { useAppUpdater } from './useAppUpdater'
 import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
+import { buildSidebarToolExtensions } from './extensions'
+import { buildSettingsTabExtensions } from './settingsExtensions'
 
 //TODO:
 // Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
@@ -59,7 +59,6 @@ const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
-type SettingsTab = 'general' | 'certificates' | 'update' | 'sql'
 type TreeToggleAction = 'expand' | 'collapse'
 
 function safeParseJson<T>(raw: string | null): T | null {
@@ -151,7 +150,7 @@ export default function App() {
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
   const initialAppSettings = useMemo(() => loadAppSettings(), [])
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  const [settingsTab, setSettingsTab] = useState('general')
   const [requestTimeoutSec, setRequestTimeoutSec] = useState<number | null>(() => (
     initialAppSettings.requestTimeoutSec > 0 ? initialAppSettings.requestTimeoutSec : null
   ))
@@ -278,8 +277,7 @@ export default function App() {
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>({})
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
-  const [terminalOpen, setTerminalOpen] = useState(false)
-  const [sqlTerminalOpen, setSqlTerminalOpen] = useState(false)
+  const [openDrawerId, setOpenDrawerId] = useState<string | null>(null)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: TreeToggleAction, nonce: number } | null>(null)
   const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
@@ -308,9 +306,30 @@ export default function App() {
     () => getPrimaryGlobalSqlSettings(globalSqlConnections),
     [globalSqlConnections],
   )
+  const sidebarToolExtensions = useMemo(() => buildSidebarToolExtensions(), [])
+  const settingsTabExtensions = useMemo(() => buildSettingsTabExtensions(), [])
+  const activeSettingsTabExtension = useMemo(
+    () => settingsTabExtensions.find(tab => tab.id === settingsTab) ?? null,
+    [settingsTab, settingsTabExtensions],
+  )
+
+  useEffect(() => {
+    if (!settingsTabExtensions.some(tab => tab.id === settingsTab)) {
+      setSettingsTab(settingsTabExtensions[0]?.id ?? 'general')
+    }
+  }, [settingsTab, settingsTabExtensions])
+
+  function toggleDrawer(drawerId: string) {
+    setOpenDrawerId(prev => (prev === drawerId ? null : drawerId))
+  }
+
+  function closeDrawer() {
+    setOpenDrawerId(null)
+  }
 
   function openSettings() {
-    setSettingsTab('general')
+    const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
+    setSettingsTab(defaultTabId)
     settingsDialogRef.current?.showModal()
   }
 
@@ -2620,28 +2639,18 @@ export default function App() {
             >
               <span className="iconGlyph">&#9881;</span>
             </button>
-            <button
-              className="iconBtn terminalBtn"
-              onClick={() => {
-                setTerminalOpen(v => !v)
-                setSqlTerminalOpen(false)
-              }}
-              aria-label="Terminal"
-              title="Terminal"
-            >
-              <span className="iconGlyph">&gt;_</span>
-            </button>
-            <button
-              className="iconBtn terminalBtn sqlTerminalBtn"
-              onClick={() => {
-                setSqlTerminalOpen(v => !v)
-                setTerminalOpen(false)
-              }}
-              aria-label="SQL Terminal"
-              title="SQL Terminal"
-            >
-              <span className="iconGlyph"><SqlIcon size={16} /></span>
-            </button>
+            {sidebarToolExtensions.map(tool => (
+              <button
+                key={tool.id}
+                className={`iconBtn ${tool.buttonClassName ?? ''}`.trim()}
+                onClick={() => toggleDrawer(tool.id)}
+                aria-label={tool.label}
+                title={tool.title}
+                aria-pressed={openDrawerId === tool.id}
+              >
+                {tool.icon}
+              </button>
+            ))}
             <button
               className="iconBtn treeToggleBtn"
               onClick={() => {
@@ -2963,13 +2972,16 @@ export default function App() {
         <hr className="modalDivider" />
 
         <div className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
-          <button className={`tab ${settingsTab === 'general' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('general')}>General</button>
-          <button className={`tab ${settingsTab === 'certificates' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('certificates')}>Certificates</button>
-          <button className={`tab ${settingsTab === 'update' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('update')}>Update</button>
-          <button className={`tab ${settingsTab === 'sql' ? 'tabActive' : ''}`} onClick={() => setSettingsTab('sql')}>SQL</button>
+          {settingsTabExtensions.map(tab => (
+            <button key={tab.id} className={`tab ${settingsTab === tab.id ? 'tabActive' : ''}`} onClick={() => setSettingsTab(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {settingsTab === 'general' ? (
+        {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({ closeSettings, appVersion }) : null}
+
+        {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
           <div style={{ display: 'grid', gap: 10 }}>
             <div className="formRow">
               <div className="formLabel">Request timeout (seconds)</div>
@@ -2996,7 +3008,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {settingsTab === 'certificates' ? (
+        {!activeSettingsTabExtension?.render && settingsTab === 'certificates' ? (
           <div style={{ display: 'grid', gap: 10 }}>
             <label className="checkRow">
               <input
@@ -3087,7 +3099,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {settingsTab === 'update' ? (
+        {!activeSettingsTabExtension?.render && settingsTab === 'update' ? (
           <div style={{ display: 'grid', gap: 10 }}>
             <div className="small">App version: <span className="mono">v{appVersion ?? '-'}</span></div>
             {pendingUpdateVersion ? <div className="small">Available: <span className="mono">v{pendingUpdateVersion}</span></div> : null}
@@ -3162,7 +3174,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {settingsTab === 'sql' ? (
+        {!activeSettingsTabExtension?.render && settingsTab === 'sql' ? (
           <div style={{ display: 'grid', gap: 10 }}>
             <div className="small">SQL connections</div>
 
@@ -3540,14 +3552,17 @@ export default function App() {
         </div>
       </dialog>
 
-      <TerminalDrawer open={terminalOpen} onClose={() => setTerminalOpen(false)} />
-      <SqlTerminalDrawer
-        open={sqlTerminalOpen}
-        onClose={() => setSqlTerminalOpen(false)}
-        collections={collections}
-        environmentsByCollection={envByCollection}
-        extraConnections={globalSqlConnections}
-      />
+      {sidebarToolExtensions.map(tool => (
+        <div key={tool.id}>
+          {tool.render({
+            openDrawerId,
+            closeDrawer,
+            collections,
+            environmentsByCollection: envByCollection,
+            globalSqlConnections,
+          })}
+        </div>
+      ))}
 
       {showUpdateToast && hasPendingUpdate ? (
         <div className="updateToast" role="dialog" aria-label="Update available">

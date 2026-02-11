@@ -11,13 +11,12 @@ import { runRequest, type RunResult } from '../../requestRunner/runRequest'
 import { buildCurlCommand } from '../../requestRunner/buildCurl'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, runDbSql } from '../../environment'
-import { SqlScriptsTab } from './SqlScriptsTab'
-import { AuthorizationTab } from './AuthorizationTab'
 import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../../shared/utils/variables'
 import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
 import { JsonCodeEditor } from './JsonCodeEditor'
 import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
+import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -304,14 +303,6 @@ function headerNameExistsCaseInsensitive(headers: Record<string, string>, name: 
     if (k.toLowerCase() === needle) return true
   }
   return false
-}
-
-function getHeaderValueCaseInsensitive(headers: Record<string, string>, name: string): string {
-  const needle = name.toLowerCase()
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === needle) return v ?? ''
-  }
-  return ''
 }
 
 function defaultInactiveQueryParamNamesFromSpec(params: RequestParam[]): Record<string, true> {
@@ -1524,6 +1515,7 @@ function HeaderDraftRow(props: {
 export function RequestEditor(props: {
   environment?: Environment
   globalSqlConnections?: GlobalSqlConnectionItem[]
+  tabExtensions?: RequestEditorTabExtension[]
   collection: Collection
   request: RequestItem
   inFlightCount?: number
@@ -1574,7 +1566,7 @@ export function RequestEditor(props: {
   const [customMethodOptions, setCustomMethodOptions] = useState<string[]>([])
   const [isAddingMethod, setIsAddingMethod] = useState(false)
   const [methodAddDraft, setMethodAddDraft] = useState('')
-  const [headersTab, setHeadersTab] = useState<'headers' | 'authorization' | 'sql' | 'params'>('headers')
+  const [activeTabId, setActiveTabId] = useState('headers')
 
   function normalizeMethodOption(raw: string) {
     return raw.trim().toUpperCase()
@@ -2744,8 +2736,65 @@ export function RequestEditor(props: {
     return hasActiveCommittedHeaders || hasActiveHeaderDraftRows
   }, [committedHeaders, headerDraftRows, inactiveHeaderNames])
 
-  const hasAuthorizationTabData = !!getHeaderValueCaseInsensitive(committedHeaders, 'authorization').trim()
-  const hasSqlTabData = !!preSqlScript.trim() || !!postSqlScript.trim()
+  const tabExtensionContext = useMemo<RequestEditorTabContext>(() => ({
+    collection: props.collection,
+    request: props.request,
+    environment: props.environment,
+    globalSqlConnections: props.globalSqlConnections,
+    variableSuggestions,
+    committedHeaders,
+    setHeaderValue: setHeaderValueForRequest,
+    sqlConnections,
+    selectedSqlConnectionId,
+    setSelectedSqlConnectionId,
+    preSqlScript,
+    postSqlScript,
+    preSqlScriptIsActive,
+    postSqlScriptIsActive,
+    setPreSqlScript,
+    setPostSqlScript,
+    setPreSqlScriptIsActive,
+    setPostSqlScriptIsActive,
+  }), [
+    committedHeaders,
+    postSqlScript,
+    postSqlScriptIsActive,
+    preSqlScript,
+    preSqlScriptIsActive,
+    props.collection,
+    props.environment,
+    props.globalSqlConnections,
+    props.request,
+    selectedSqlConnectionId,
+    sqlConnections,
+    variableSuggestions,
+  ])
+
+  const requestEditorTabExtensions = useMemo(
+    () => buildRequestEditorTabExtensions(props.tabExtensions),
+    [props.tabExtensions],
+  )
+
+  const tabs = useMemo(() => {
+    const coreTabs = [
+      { id: 'params', label: 'Params', hasData: hasParamsTabData },
+      { id: 'headers', label: 'Headers', hasData: hasHeadersTabData },
+    ]
+
+    const extTabs = requestEditorTabExtensions.map(tab => ({
+      id: tab.id,
+      label: tab.label,
+      hasData: !!tab.hasData?.(tabExtensionContext),
+    }))
+
+    return [...coreTabs, ...extTabs]
+  }, [hasHeadersTabData, hasParamsTabData, requestEditorTabExtensions, tabExtensionContext])
+
+  useEffect(() => {
+    if (!tabs.some(tab => tab.id === activeTabId)) {
+      setActiveTabId(tabs[0]?.id ?? 'headers')
+    }
+  }, [activeTabId, tabs])
 
   const effectiveContentType = useMemo(() => {
     const activeHeaders = removeInactiveHeaders(effectiveHeaders, inactiveHeaderNames)
@@ -3938,73 +3987,25 @@ export function RequestEditor(props: {
       )}
 
       <div className="tabs">
-        <button
-          type="button"
-          className={`tab ${headersTab === 'params' ? 'tabActive' : ''}`}
-          onClick={() => setHeadersTab('params')}
-          aria-pressed={headersTab === 'params'}
-        >
-          <span className="tabLabelWithIndicator">
-            <span>Params</span>
-            {hasParamsTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`tab ${headersTab === 'headers' ? 'tabActive' : ''}`}
-          onClick={() => setHeadersTab('headers')}
-          aria-pressed={headersTab === 'headers'}
-        >
-          <span className="tabLabelWithIndicator">
-            <span>Headers</span>
-            {hasHeadersTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`tab ${headersTab === 'authorization' ? 'tabActive' : ''}`}
-          onClick={() => setHeadersTab('authorization')}
-          aria-pressed={headersTab === 'authorization'}
-        >
-          <span className="tabLabelWithIndicator">
-            <span>Authorization</span>
-            {hasAuthorizationTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`tab ${headersTab === 'sql' ? 'tabActive' : ''}`}
-          onClick={() => setHeadersTab('sql')}
-          aria-pressed={headersTab === 'sql'}
-        >
-          <span className="tabLabelWithIndicator">
-            <span>SQL</span>
-            {hasSqlTabData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
-          </span>
-        </button>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`tab ${activeTabId === tab.id ? 'tabActive' : ''}`}
+            onClick={() => setActiveTabId(tab.id)}
+            aria-pressed={activeTabId === tab.id}
+          >
+            <span className="tabLabelWithIndicator">
+              <span>{tab.label}</span>
+              {tab.hasData ? <span className="tabIndicatorDot" aria-hidden="true" /> : null}
+            </span>
+          </button>
+        ))}
       </div>
 
-      {headersTab === 'sql' ? (
-        <SqlScriptsTab
-          sqlConnections={sqlConnections}
-          selectedSqlConnectionId={selectedSqlConnectionId}
-          onChangeSqlConnectionId={setSelectedSqlConnectionId}
-          preSqlScript={preSqlScript}
-          postSqlScript={postSqlScript}
-          preSqlScriptIsActive={preSqlScriptIsActive}
-          postSqlScriptIsActive={postSqlScriptIsActive}
-          onChangePreSqlScriptIsActive={setPreSqlScriptIsActive}
-          onChangePostSqlScriptIsActive={setPostSqlScriptIsActive}
-          onChangePreSqlScript={setPreSqlScript}
-          onChangePostSqlScript={setPostSqlScript}
-        />
-      ) : headersTab === 'authorization' ? (
-        <AuthorizationTab
-          value={committedHeaders.Authorization ?? ''}
-          variableSuggestions={variableSuggestions}
-          onChangeValue={next => setHeaderValueForRequest('Authorization', next)}
-        />
-      ) : headersTab === 'params' ? (
+      {requestEditorTabExtensions.some(tab => tab.id === activeTabId) ? (
+        <>{requestEditorTabExtensions.find(tab => tab.id === activeTabId)?.render(tabExtensionContext) ?? null}</>
+      ) : activeTabId === 'params' ? (
         <div className="accordion">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <div style={{ fontWeight: 600, opacity: 0.95 }}>Params</div>
