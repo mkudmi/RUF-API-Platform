@@ -29,6 +29,15 @@ const SQL_TERMINAL_WIDTH_KEY = 'ruf_sql_terminal_width_v1'
 const SQL_TERMINAL_MIN_HEIGHT_PX = 240
 const SQL_TERMINAL_MIN_WIDTH_PX = 360
 const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
+const SQL_TERMINAL_PAGE_SIZE = 200
+
+type ResultPagingState = {
+  enabled: boolean
+  loading: boolean
+  hasMore: boolean
+  loadAll: boolean
+  baseSql: string
+}
 
 function getWindowTitlebarHeightPx() {
   if (typeof document === 'undefined') return WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
@@ -129,6 +138,14 @@ function looksLikeSelectOrWith(sql: string) {
   return /^select\b/i.test(s) || /^with\b/i.test(s)
 }
 
+function trimTrailingSemicolons(sql: string) {
+  return sql.replaceAll(/;+\s*$/g, '').trimEnd()
+}
+
+function wrapSqlForPage(baseSql: string, offset: number, limit: number) {
+  return `select * from (\n${trimTrailingSemicolons(baseSql)}\n) __ruf_terminal_result offset ${Math.max(0, offset)} limit ${Math.max(1, limit)}`
+}
+
 function makeTableAlias(tableName: string): string {
   const raw = (tableName || '').replaceAll('"', '').trim()
   if (!raw) return 't'
@@ -164,6 +181,18 @@ function parseFromAndJoinAliases(sql: string): Record<string, string> {
     out[tableName] = tableName
   }
   return out
+}
+
+function applySchemaToTableRefs(sql: string, schema: string) {
+  if (!schema.trim()) return sql
+  const schemaIdent = quoteIdentPostgres(schema.trim())
+  const re = /\b(from|join|into)\s+((?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?)(\s+(?:as\s+)?(?!(?:on|using|where|group|order|limit|inner|left|right|full|cross|join|set|values|returning|union|having|offset)\b)(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?/gi
+  return sql.replace(re, (_m, kw: string, tableRef: string, aliasRaw: string | undefined) => {
+    const table = (tableRef || '').trim()
+    if (!table || table.startsWith('(') || table.includes('.')) return _m
+    const alias = aliasRaw ?? ''
+    return `${kw} ${schemaIdent}.${table}${alias}`
+  })
 }
 
 function clampHistory<T>(arr: T[], max: number): T[] {
@@ -372,6 +401,7 @@ export function SqlTerminalDrawer(props: {
   const [resultColumns, setResultColumns] = useState<string[] | null>(null)
   const [resultHint, setResultHint] = useState<string | null>(null)
   const [lastRunSchemaTableLabel, setLastRunSchemaTableLabel] = useState<string | null>(null)
+  const [paging, setPaging] = useState<ResultPagingState>({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
   const [splitLeftFraction, setSplitLeftFraction] = useState<number>(() => safeLoadFraction(SQL_TERMINAL_SPLIT_KEY) ?? 0.42)
   const [schemas, setSchemas] = useState<string[]>([])
   const [selectedSchema, setSelectedSchema] = useState<string>(() => safeLoadString(SQL_TERMINAL_SCHEMA_KEY) ?? '')
@@ -585,10 +615,7 @@ export function SqlTerminalDrawer(props: {
     const el = outputRef.current
     if (!el) return
     const hasTableResult = (resultColumns?.length ?? 0) > 0 || (resultRows?.length ?? 0) > 0
-    if (hasTableResult) {
-      el.scrollTop = 0
-      return
-    }
+    if (hasTableResult) return
     el.scrollTop = el.scrollHeight
   }, [open, output.length, resultColumns, resultRows])
 
@@ -1135,21 +1162,31 @@ export function SqlTerminalDrawer(props: {
     setResultRows(null)
     setResultColumns(null)
     setResultHint(null)
+    setPaging({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
+    if (outputRef.current) outputRef.current.scrollTop = 0
 
     setBusy(true)
     try {
       const renderedSql = applyVariables(raw, conn.variables)
+      const renderedSqlWithSchema =
+        conn.type === 'postgres' && selectedSchema
+          ? applySchemaToTableRefs(renderedSql, selectedSchema)
+          : renderedSql
+      const isSelectLike = looksLikeSelectOrWith(renderedSqlWithSchema)
+      const isPagedSelect = conn.type === 'postgres' && isSelectLike
+      const baseSql = trimTrailingSemicolons(renderedSqlWithSchema)
+      const sqlForResultFetch = isPagedSelect ? wrapSqlForPage(baseSql, 0, SQL_TERMINAL_PAGE_SIZE + 1) : renderedSqlWithSchema
       const sqlToRun =
         conn.type === 'postgres' && selectedSchema
-          ? (looksLikeSelectOrWith(renderedSql)
-              ? (renderedSql.trimStart().toLowerCase().startsWith('with')
-                  ? renderedSql.replace(
+          ? (looksLikeSelectOrWith(sqlForResultFetch)
+              ? (sqlForResultFetch.trimStart().toLowerCase().startsWith('with')
+                  ? sqlForResultFetch.replace(
                       /^\s*with\b/i,
                       m => `${m} __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true)),`,
                     )
-                  : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true))\n${renderedSql}`)
-              : `set search_path to ${quoteIdentPostgres(selectedSchema)};\n${renderedSql}`)
-          : renderedSql
+                  : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true))\n${sqlForResultFetch}`)
+              : `set search_path to ${quoteIdentPostgres(selectedSchema)};\n${sqlForResultFetch}`)
+          : sqlForResultFetch
       const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
       const prefix = r.ok ? 'OK' : 'ERROR'
       pushOutput([{ kind: r.ok ? 'out' : 'err', text: `${prefix}: ${r.message || ''} (${r.durationMs}ms)` }])
@@ -1159,14 +1196,19 @@ export function SqlTerminalDrawer(props: {
       }
 
       if (r.ok && Array.isArray(rows)) {
-        if (rows.length && typeof rows[0] === 'object' && rows[0] != null && !Array.isArray(rows[0])) {
-          setResultRows(rows as Array<Record<string, unknown>>)
-          setResultHint(`${rows.length} row(s)`)
+        const hasMore = isPagedSelect && rows.length > SQL_TERMINAL_PAGE_SIZE
+        const visibleRows = hasMore ? rows.slice(0, SQL_TERMINAL_PAGE_SIZE) : rows
+        if (visibleRows.length && typeof visibleRows[0] === 'object' && visibleRows[0] != null && !Array.isArray(visibleRows[0])) {
+          setResultRows(visibleRows as Array<Record<string, unknown>>)
+          setResultHint(`${visibleRows.length} row(s)${hasMore ? '+' : ''}`)
+          setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
         } else if (!rows.length && (r.columns?.length ?? 0) > 0) {
           setResultRows([])
           setResultHint('0 row(s)')
+          setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
         } else if (!rows.length) {
           setResultHint('0 row(s)')
+          setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
         }
       } else if (r.ok && typeof r.rowsAffected === 'number') {
         setResultHint(`${r.rowsAffected} affected`)
@@ -1177,6 +1219,87 @@ export function SqlTerminalDrawer(props: {
       setBusy(false)
       requestAnimationFrame(() => sqlRef.current?.focus())
     }
+  }
+
+  async function loadMoreRows(loadAll: boolean) {
+    if (busy) return
+    if (!paging.enabled || !paging.hasMore || paging.loading) return
+    const conn = selectedConn
+    if (!conn || conn.type !== 'postgres') return
+
+    const alreadyLoaded = resultRows?.length ?? 0
+    const currentBaseSql = paging.baseSql
+    setPaging(prev => ({ ...prev, loading: true, loadAll }))
+
+    let offset = alreadyLoaded
+    const loadedChunks: Array<Record<string, unknown>> = []
+    let hasMore = false
+
+    try {
+      while (true) {
+        const sqlForResultFetch = wrapSqlForPage(currentBaseSql, offset, SQL_TERMINAL_PAGE_SIZE + 1)
+        const sqlToRun =
+          selectedSchema
+            ? (looksLikeSelectOrWith(sqlForResultFetch)
+                ? (sqlForResultFetch.trimStart().toLowerCase().startsWith('with')
+                    ? sqlForResultFetch.replace(
+                        /^\s*with\b/i,
+                        m => `${m} __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true)),`,
+                      )
+                    : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true))\n${sqlForResultFetch}`)
+                : `set search_path to ${quoteIdentPostgres(selectedSchema)};\n${sqlForResultFetch}`)
+            : sqlForResultFetch
+
+        const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
+        if (!r.ok) {
+          pushOutput([{ kind: 'err', text: `ERROR: ${r.message || ''} (${r.durationMs}ms)` }])
+          hasMore = true
+          break
+        }
+
+        const rows = r.rows ?? []
+        if (!Array.isArray(rows) || !rows.length) {
+          hasMore = false
+          break
+        }
+
+        const nextHasMore = rows.length > SQL_TERMINAL_PAGE_SIZE
+        const visibleRows = (nextHasMore ? rows.slice(0, SQL_TERMINAL_PAGE_SIZE) : rows).filter(
+          x => typeof x === 'object' && x != null && !Array.isArray(x),
+        ) as Array<Record<string, unknown>>
+
+        if (!visibleRows.length) {
+          hasMore = false
+          break
+        }
+
+        loadedChunks.push(...visibleRows)
+        offset += visibleRows.length
+        hasMore = nextHasMore
+
+        if (!loadAll || !nextHasMore) break
+      }
+    } catch (e: unknown) {
+      pushOutput([{ kind: 'err', text: e instanceof Error ? e.message : String(e) }])
+      hasMore = true
+    } finally {
+      setResultRows(prev => {
+        const base = prev ?? []
+        const next = [...base, ...loadedChunks]
+        setResultHint(`${next.length} row(s)${hasMore ? '+' : ''}`)
+        return next
+      })
+      setPaging(prev => ({ ...prev, loading: false, hasMore, loadAll: loadAll && hasMore }))
+    }
+  }
+
+  function onOutputScroll() {
+    const el = outputRef.current
+    if (!el) return
+    if (busy || paging.loading || !paging.enabled || !paging.hasMore || paging.loadAll) return
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (remaining > 120) return
+    void loadMoreRows(false)
   }
 
   const selectedLabel = selectedConn ? `${selectedConn.label}: ${selectedConn.connectionPreview}` : (connOptions.length ? 'Select DB…' : 'No DB connections')
@@ -1304,6 +1427,8 @@ export function SqlTerminalDrawer(props: {
                 setResultRows(null)
                 setResultColumns(null)
                 setResultHint(null)
+                setLastRunSchemaTableLabel(null)
+                setPaging({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
                 setLastRunSchemaTableLabel(null)
                 setSql('')
                 requestAnimationFrame(() => sqlRef.current?.focus())
@@ -1589,6 +1714,18 @@ export function SqlTerminalDrawer(props: {
               <span>Output</span>
               {lastRunSchemaTableLabel ? <span className="sqlTerminalPaneTitleCenter" title={lastRunSchemaTableLabel}>{lastRunSchemaTableLabel}</span> : null}
               {resultHint ? <span style={{ opacity: 0.75 }}>{resultHint}</span> : null}
+              {paging.enabled ? (
+                <button
+                  type="button"
+                  className="iconBtn"
+                  disabled={busy || paging.loading || !paging.hasMore}
+                  onClick={() => void loadMoreRows(true)}
+                  title={paging.hasMore ? 'Load full result' : 'All rows loaded'}
+                  aria-label="Load all rows"
+                >
+                  {paging.loading && paging.loadAll ? '…' : 'All'}
+                </button>
+              ) : null}
             </div>
             <div
               ref={outputRef}
@@ -1596,6 +1733,7 @@ export function SqlTerminalDrawer(props: {
               role="log"
               aria-live="polite"
               onPointerDown={() => sqlRef.current?.focus()}
+              onScroll={onOutputScroll}
             >
               {effectiveResultColumns.length ? (
                 <div className="sqlTerminalTableWrap">
@@ -1610,7 +1748,7 @@ export function SqlTerminalDrawer(props: {
                       </tr>
                     </thead>
                     <tbody>
-                      {(resultRows ?? []).slice(0, 500).map((row, idx) => (
+                      {(resultRows ?? []).map((row, idx) => (
                         <tr key={idx}>
                           {effectiveResultColumns.map(c => {
                             const v = (row as Record<string, unknown>)[c]
@@ -1625,11 +1763,7 @@ export function SqlTerminalDrawer(props: {
                       ))}
                     </tbody>
                   </table>
-                  {(resultRows?.length ?? 0) > 500 ? (
-                    <div className="terminalLine terminalLine_sys" style={{ marginTop: 8 }}>
-                      Showing first 500 rows.
-                    </div>
-                  ) : null}
+                  {paging.loading && !paging.loadAll ? <div className="terminalLine terminalLine_sys" style={{ marginTop: 8 }}>Loading more…</div> : null}
                 </div>
               ) : output.length ? (
                 output.map((e, i) => (
