@@ -229,22 +229,24 @@ function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?
       const su = new URL(args.serviceBaseUrl)
       const p = trimTrailingSlash(su.pathname || '')
       if (p.endsWith('/swagger-ui/index.html') || p.endsWith('/swagger-ui')) push(`${su.origin}${p}`)
-      push(`${su.origin}${p}/swagger-ui/index.html`)
-      push(`${su.origin}/swagger-ui/index.html`)
       push(`${su.origin}/`)
+      push(`${su.origin}/swagger-ui/index.html`)
+      if (p && p !== '/' && !p.endsWith('/swagger-ui') && !p.endsWith('/swagger-ui/index.html')) {
+        push(`${su.origin}${p}/swagger-ui/index.html`)
+      }
     }
   } catch {}
 
   try {
     const u = new URL(args.sourceUrl)
     const p = u.pathname || ''
+    push(`${u.origin}/`)
+    push(`${u.origin}/swagger-ui/index.html`)
     const m = p.match(/^(.*?)(?:\/v[23]\/api-docs(?:\/.*)?|\/api-docs(?:\/.*)?|\/openapi\.json(?:\/.*)?)$/i)
     if (m) {
       const prefix = trimTrailingSlash(m[1] || '')
-      push(`${u.origin}${prefix}/swagger-ui/index.html`)
+      if (prefix && prefix !== '/') push(`${u.origin}${prefix}/swagger-ui/index.html`)
     }
-    push(`${u.origin}/swagger-ui/index.html`)
-    push(`${u.origin}/`)
   } catch {}
 
   return out
@@ -488,9 +490,13 @@ export default function App() {
     }
   }, [settingsTab, settingsTabExtensions])
 
+  function refreshCacheSize() {
+    setCacheSizeBytes(getLocalStorageCacheSizeBytes())
+  }
+
   useEffect(() => {
     if (settingsTab !== 'general') return
-    setCacheSizeBytes(getLocalStorageCacheSizeBytes())
+    refreshCacheSize()
   }, [settingsTab])
 
   function toggleDrawer(drawerId: string) {
@@ -504,7 +510,7 @@ export default function App() {
   function openSettings() {
     const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
     setSettingsTab(defaultTabId)
-    if (defaultTabId === 'general') setCacheSizeBytes(getLocalStorageCacheSizeBytes())
+    if (defaultTabId === 'general') refreshCacheSize()
     settingsDialogRef.current?.showModal()
     requestAnimationFrame(() => {
       const activeTabButton = settingsTabsRef.current?.querySelector('button.tabActive') as HTMLButtonElement | null
@@ -526,7 +532,7 @@ export default function App() {
     setApplyDraftState(null)
     swaggerUiBaseCacheRef.current = {}
     swaggerOperationCacheRef.current = {}
-    setCacheSizeBytes(getLocalStorageCacheSizeBytes())
+    refreshCacheSize()
   }
 
   function updateGlobalSqlConnection(connectionId: string, updater: (prev: GlobalSqlConnectionItem) => GlobalSqlConnectionItem) {
@@ -2753,13 +2759,13 @@ export default function App() {
   const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
   const caCertificatesPem = useMemo(() => caCertificates.map(c => c.pem), [caCertificates])
 
-  async function detectSwaggerUiBase(candidates: string[]) {
+  async function detectSwaggerUiBase(candidates: string[], requestTimeoutMs = 2500) {
     for (const candidate of candidates) {
       try {
         const res = await platformFetch(candidate, undefined, {
           insecureTls: !validateCertificates,
           caCertsPem: caCertificatesPem,
-          timeoutMs: 2500,
+          timeoutMs: requestTimeoutMs,
         })
         if (!res.ok) continue
         const contentType = (res.headers.get('content-type') || '').toLowerCase()
@@ -2841,16 +2847,24 @@ export default function App() {
       serviceBaseUrl: ctx.serviceBaseUrl,
     })
     const cachedBase = swaggerUiBaseCacheRef.current[ctx.sourceUrl]
-    const swaggerUiBase = cachedBase || baseCandidates[0] || ctx.sourceUrl
+    const quickDetectedBasePromise = cachedBase || baseCandidates.length <= 1
+      ? Promise.resolve<string | null>(null)
+      : withTimeout(detectSwaggerUiBase(baseCandidates, 450), 900)
     const opCacheKey = buildSwaggerOpCacheKey(ctx)
     const cachedOperation = swaggerOperationCacheRef.current[opCacheKey]
-    const resolvedOperation = await getCachedOrResolvedSwaggerOperation({
+    const resolvedOperationPromise = getCachedOrResolvedSwaggerOperation({
       cacheKey: opCacheKey,
       sourceUrl: ctx.sourceUrl,
       method: ctx.method,
       path: ctx.path,
       timeoutMs: cachedOperation ? undefined : 1200,
     })
+    const [quickDetectedBase, resolvedOperation] = await Promise.all([
+      quickDetectedBasePromise,
+      resolvedOperationPromise,
+    ])
+    if (quickDetectedBase) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = quickDetectedBase
+    const swaggerUiBase = cachedBase || quickDetectedBase || baseCandidates[0] || ctx.sourceUrl
     const initialTag = resolvedOperation?.tag || ctx.fallbackTag
     const initialOperationId = resolvedOperation?.operationId || ctx.fallbackOperationId
     const finalUrl = buildSwaggerUiUrl({ swaggerUiBase, tag: initialTag, operationId: initialOperationId })
@@ -2867,7 +2881,7 @@ export default function App() {
     }
 
     void (async () => {
-      if (!cachedBase && baseCandidates.length > 1) {
+      if (!cachedBase && !quickDetectedBase && baseCandidates.length > 1) {
         const detected = await detectSwaggerUiBase(baseCandidates)
         if (detected) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = detected
       }
