@@ -195,6 +195,12 @@
           "markdownDescription": "Allows loading and saving app local storage mirror to files."
         },
         {
+          "description": "Allows opening external http/https URLs in the system browser.",
+          "type": "string",
+          "const": "system-open-url",
+          "markdownDescription": "Allows opening external http/https URLs in the system browser."
+        },
+        {
           "description": "Allows executing commands via the built-in terminal.",
           "type": "string",
           "const": "terminal-exec",
