@@ -67,7 +67,7 @@ function formatBytes(bytes: number) {
 
 function formatResponseTime(timeMs: number) {
   if (!Number.isFinite(timeMs) || timeMs < 0) return '0 ms'
-  if (timeMs > 1000) return `${(timeMs / 1000).toFixed(2)} s`
+  if (timeMs > 999) return `${(timeMs / 1000).toFixed(2)} s`
   return `${Math.round(timeMs)} ms`
 }
 
