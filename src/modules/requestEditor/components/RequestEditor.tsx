@@ -4539,6 +4539,7 @@ export function RequestEditor(props: {
             value={bodyText}
             onChangeValue={setBodyText}
             onSubmitShortcut={triggerSendShortcut}
+            variableSuggestions={variableSuggestions}
           />
         ) : (
           <>
