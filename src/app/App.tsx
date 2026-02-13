@@ -62,6 +62,50 @@ function clamp(n: number, min: number, max: number) {
 const ACTIVE_SELECTION_KEY = 'ruf_active_request_v1'
 const RESPONSE_TAB_BY_REQUEST_KEY = 'ruf_response_tab_by_request_v1'
 const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
+const APP_CACHE_KEYS = [
+  ACTIVE_SELECTION_KEY,
+  RESPONSE_TAB_BY_REQUEST_KEY,
+  TREE_SORT_MODE_KEY,
+  'ruf_sidebar_width_v1',
+  'ruf_editor_width_v1',
+  'ruf_tree_open_state_v1',
+  'ruf_workspace_open_state_v1',
+  'ruf_terminal_height_v1',
+  'ruf_sql_terminal_height_v1',
+  'ruf_sql_terminal_selected_conn_v1',
+  'ruf_sql_terminal_sql_v1',
+  'ruf_sql_terminal_split_v1',
+  'ruf_sql_terminal_schema_v1',
+  'ruf_sql_terminal_position_v1',
+  'ruf_sql_terminal_width_v1',
+  'ruf_request_history_v1',
+  'ruf_request_drafts_v1',
+  'ruf_value_history_v1',
+  'ruf_response_search_history_v1',
+  'ruf.update.toastSuppress',
+] as const
+
+function utf8ByteLength(value: string) {
+  try {
+    return new TextEncoder().encode(value).length
+  } catch {
+    return value.length
+  }
+}
+
+function getLocalStorageCacheSizeBytes() {
+  let total = 0
+  for (const key of APP_CACHE_KEYS) {
+    const value = localStorage.getItem(key)
+    if (typeof value !== 'string') continue
+    total += utf8ByteLength(key) + utf8ByteLength(value)
+  }
+  return total
+}
+
+function formatMegabytes(bytes: number) {
+  return `${(Math.max(0, bytes) / (1024 * 1024)).toFixed(2)} MB`
+}
 
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
@@ -401,6 +445,7 @@ export default function App() {
   const [historyByRequestId, setHistoryByRequestId] = useState<Record<string, RequestHistoryItem[]>>({})
   const [applyDraftState, setApplyDraftState] = useState<{ requestId: string, token: string, draft: RequestDraft } | null>(null)
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [cacheSizeBytes, setCacheSizeBytes] = useState(0)
   const [openDrawerId, setOpenDrawerId] = useState<string | null>(null)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: TreeToggleAction, nonce: number } | null>(null)
@@ -443,6 +488,11 @@ export default function App() {
     }
   }, [settingsTab, settingsTabExtensions])
 
+  useEffect(() => {
+    if (settingsTab !== 'general') return
+    setCacheSizeBytes(getLocalStorageCacheSizeBytes())
+  }, [settingsTab])
+
   function toggleDrawer(drawerId: string) {
     setOpenDrawerId(prev => (prev === drawerId ? null : drawerId))
   }
@@ -454,6 +504,7 @@ export default function App() {
   function openSettings() {
     const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
     setSettingsTab(defaultTabId)
+    if (defaultTabId === 'general') setCacheSizeBytes(getLocalStorageCacheSizeBytes())
     settingsDialogRef.current?.showModal()
     requestAnimationFrame(() => {
       const activeTabButton = settingsTabsRef.current?.querySelector('button.tabActive') as HTMLButtonElement | null
@@ -463,6 +514,19 @@ export default function App() {
 
   function closeSettings() {
     settingsDialogRef.current?.close()
+  }
+
+  function clearAppCache() {
+    for (const key of APP_CACHE_KEYS) {
+      localStorage.removeItem(key)
+    }
+    setHistoryByRequestId({})
+    setResponseTabByRequest({})
+    setTreeSortMode('none')
+    setApplyDraftState(null)
+    swaggerUiBaseCacheRef.current = {}
+    swaggerOperationCacheRef.current = {}
+    setCacheSizeBytes(getLocalStorageCacheSizeBytes())
   }
 
   function updateGlobalSqlConnection(connectionId: string, updater: (prev: GlobalSqlConnectionItem) => GlobalSqlConnectionItem) {
@@ -3349,6 +3413,13 @@ export default function App() {
                   setRequestTimeoutSec(Math.max(1, Math.min(600, Math.round(n))))
                 }}
               />
+            </div>
+            <div className="formRow">
+              <div className="formLabel">Application cache</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button type="button" onClick={clearAppCache} disabled={cacheSizeBytes <= 0}>Clear cache</button>
+                <span className="small mono">{formatMegabytes(cacheSizeBytes)}</span>
+              </div>
             </div>
           </div>
         ) : null}
