@@ -23,10 +23,18 @@ pub async fn system_open_url(args: SystemOpenUrlArgs) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "windows")]
-    let status = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
-        .status()
-        .map_err(|e| e.to_string())?;
+    let status = {
+        let primary = std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .status();
+        match primary {
+            Ok(s) if s.success() => s,
+            _ => std::process::Command::new("explorer.exe")
+                .arg(url)
+                .status()
+                .map_err(|e| e.to_string())?,
+        }
+    };
 
     #[cfg(all(unix, not(target_os = "macos")))]
     let status = std::process::Command::new("xdg-open")

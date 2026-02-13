@@ -143,30 +143,77 @@ function normalizePathTemplate(path: string) {
   return withLeading.replaceAll(/\{[^}]+\}/g, '{}')
 }
 
-function buildSwaggerUiUrl(args: { sourceUrl: string; tag: string; operationId: string }) {
+function trimTrailingSlash(path: string) {
+  if (!path) return ''
+  return path.replace(/\/+$/g, '')
+}
+
+function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?: string }) {
+  const out: string[] = []
+  const push = (v: string) => {
+    const normalized = v.trim()
+    if (!normalized || out.includes(normalized)) return
+    out.push(normalized)
+  }
+
+  try {
+    if (args.serviceBaseUrl && isAbsoluteUrl(args.serviceBaseUrl)) {
+      const su = new URL(args.serviceBaseUrl)
+      const p = trimTrailingSlash(su.pathname || '')
+      if (p.endsWith('/swagger-ui/index.html') || p.endsWith('/swagger-ui')) push(`${su.origin}${p}`)
+      push(`${su.origin}${p}/swagger-ui/index.html`)
+      push(`${su.origin}/swagger-ui/index.html`)
+      push(`${su.origin}/`)
+    }
+  } catch {}
+
   try {
     const u = new URL(args.sourceUrl)
-    const path = u.pathname || ''
-    let basePath = '/'
-
-    // Common SpringDoc endpoints: /v3/api-docs, /v2/api-docs -> /swagger-ui/index.html
-    if (path.includes('/v3/api-docs') || path.includes('/v2/api-docs')) {
-      basePath = '/swagger-ui/index.html'
+    const p = u.pathname || ''
+    const m = p.match(/^(.*?)(?:\/v[23]\/api-docs(?:\/.*)?|\/api-docs(?:\/.*)?|\/openapi\.json(?:\/.*)?)$/i)
+    if (m) {
+      const prefix = trimTrailingSlash(m[1] || '')
+      push(`${u.origin}${prefix}/swagger-ui/index.html`)
     }
+    push(`${u.origin}/swagger-ui/index.html`)
+    push(`${u.origin}/`)
+  } catch {}
 
-    const base = `${u.origin}${basePath}`
-    return `${base}#/${encodeURIComponent(args.tag)}/${encodeURIComponent(args.operationId)}`
-  } catch {
-    return `${args.sourceUrl}#/${encodeURIComponent(args.tag)}/${encodeURIComponent(args.operationId)}`
-  }
+  return out
+}
+
+function buildSwaggerUiUrl(args: { swaggerUiBase: string; tag: string; operationId: string }) {
+  return `${args.swaggerUiBase}#/${encodeURIComponent(args.tag)}/${encodeURIComponent(args.operationId)}`
+}
+
+function isLikelySwaggerUiHtml(text: string) {
+  const t = text.toLowerCase()
+  return t.includes('swagger-ui') || t.includes('swagger ui') || t.includes('swagger')
 }
 
 type SwaggerContext = {
   sourceUrl: string
+  serviceBaseUrl: string
   method: string
   path: string
   fallbackTag: string
   fallbackOperationId: string
+}
+
+function buildSwaggerOpCacheKey(ctx: SwaggerContext) {
+  return `${ctx.sourceUrl}::${ctx.method}::${normalizePathTemplate(ctx.path)}`
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timer: number | null = null
+  try {
+    const timeoutPromise = new Promise<null>(resolve => {
+      timer = window.setTimeout(() => resolve(null), timeoutMs)
+    })
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    if (timer != null) window.clearTimeout(timer)
+  }
 }
 
 function mergeHistoryItemsById(preferred: RequestHistoryItem[], fallback: RequestHistoryItem[]) {
@@ -2604,12 +2651,37 @@ export default function App() {
     const sourceUrl = (active.col.sourceUrl || '').trim()
     if (!sourceUrl || !isAbsoluteUrl(sourceUrl)) return null
 
+    const env = envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT
+    const baseUrlKey = (env.baseUrlKey || DEFAULT_ENVIRONMENT.baseUrlKey).trim() || DEFAULT_ENVIRONMENT.baseUrlKey
+    const serviceBaseUrl = (env.variables?.[baseUrlKey] ?? '').trim()
     const path = (active.req.path || '').trim()
     const method = (active.req.method || 'get').trim().toLowerCase()
     const fallbackTag = getSwaggerTagFromPath(path)
     const fallbackOperationId = toSwaggerOperationIdGuess(active.req.name || '', method, path)
-    return { sourceUrl, method, path, fallbackTag, fallbackOperationId }
-  }, [active])
+    return { sourceUrl, serviceBaseUrl, method, path, fallbackTag, fallbackOperationId }
+  }, [active, envByCollection])
+  const swaggerUiBaseCacheRef = useRef<Record<string, string>>({})
+  const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
+
+  async function detectSwaggerUiBase(candidates: string[]) {
+    for (const candidate of candidates) {
+      try {
+        const res = await platformFetch(candidate, undefined, {
+          insecureTls: !validateCertificates,
+          caCertsPem: caCertificates.map(c => c.pem),
+          timeoutMs: 2500,
+        })
+        if (!res.ok) continue
+        const contentType = (res.headers.get('content-type') || '').toLowerCase()
+        if (contentType.includes('text/html')) return candidate
+        const body = await res.text()
+        if (isLikelySwaggerUiHtml(body)) return candidate
+      } catch {
+        // try next
+      }
+    }
+    return null
+  }
 
   async function resolveOperationIdFromSource(args: { sourceUrl: string; method: string; path: string }) {
     try {
@@ -2651,24 +2723,34 @@ export default function App() {
     const ctx = activeSwaggerContext
     if (!ctx) return
 
-    let finalUrl = buildSwaggerUiUrl({
+    const baseCandidates = buildSwaggerUiBaseCandidates({
       sourceUrl: ctx.sourceUrl,
-      tag: ctx.fallbackTag,
-      operationId: ctx.fallbackOperationId,
+      serviceBaseUrl: ctx.serviceBaseUrl,
     })
+    const cachedBase = swaggerUiBaseCacheRef.current[ctx.sourceUrl]
+    const swaggerUiBase = cachedBase || baseCandidates[0] || ctx.sourceUrl
+    const opCacheKey = buildSwaggerOpCacheKey(ctx)
+    const cachedOperation = swaggerOperationCacheRef.current[opCacheKey]
+    let initialTag = cachedOperation?.tag || ctx.fallbackTag
+    let initialOperationId = cachedOperation?.operationId || ctx.fallbackOperationId
 
-    const resolved = await resolveOperationIdFromSource({
-      sourceUrl: ctx.sourceUrl,
-      method: ctx.method,
-      path: ctx.path,
-    })
-    if (resolved?.operationId) {
-      finalUrl = buildSwaggerUiUrl({
-        sourceUrl: ctx.sourceUrl,
-        tag: resolved.tag,
-        operationId: resolved.operationId,
-      })
+    if (!cachedOperation) {
+      const resolvedNow = await withTimeout(
+        resolveOperationIdFromSource({
+          sourceUrl: ctx.sourceUrl,
+          method: ctx.method,
+          path: ctx.path,
+        }),
+        1200,
+      )
+      if (resolvedNow?.operationId) {
+        const resolvedEntry = { tag: resolvedNow.tag, operationId: resolvedNow.operationId }
+        swaggerOperationCacheRef.current[opCacheKey] = resolvedEntry
+        initialTag = resolvedEntry.tag
+        initialOperationId = resolvedEntry.operationId
+      }
     }
+    const finalUrl = buildSwaggerUiUrl({ swaggerUiBase, tag: initialTag, operationId: initialOperationId })
 
     try {
       await tauriInvoke<void>('system_open_url', { args: { url: finalUrl } })
@@ -2680,6 +2762,23 @@ export default function App() {
         logError('openActiveRequestSwagger.fallback', fallbackError, { url: finalUrl })
       }
     }
+
+    void (async () => {
+      if (!cachedBase && baseCandidates.length > 1) {
+        const detected = await detectSwaggerUiBase(baseCandidates)
+        if (detected) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = detected
+      }
+      if (!cachedOperation) {
+        const resolved = await resolveOperationIdFromSource({
+          sourceUrl: ctx.sourceUrl,
+          method: ctx.method,
+          path: ctx.path,
+        })
+        if (resolved?.operationId) {
+          swaggerOperationCacheRef.current[opCacheKey] = { tag: resolved.tag, operationId: resolved.operationId }
+        }
+      }
+    })()
   }
   const windowControls = (
     <div className="windowControls">

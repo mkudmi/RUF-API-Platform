@@ -148,7 +148,7 @@ input[type="password"]::-ms-clear {
 .windowSwaggerBtn:hover {
   border-color: #89bf04;
   background: #89bf04;
-  color: #0f1117;
+  color: #000 !important;
 }
 .windowSwaggerBtn:focus-visible {
   outline: 2px solid rgba(255,255,255,.35);
