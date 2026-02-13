@@ -8,6 +8,7 @@ import { json } from '@codemirror/lang-json'
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import type { VariableSuggestion } from '../../../shared/utils/variables'
+import { logWarn } from '../../../shared/utils/logger'
 
 const jsonHighlightStyle = HighlightStyle.define([
   { tag: tags.propertyName, class: 'cm-json-key' },
@@ -430,7 +431,12 @@ export function JsonCodeEditor(props: Props) {
     if (!el) return
     try {
       el.scrollIntoView({ block: 'nearest' })
-    } catch {}
+    } catch (error) {
+      logWarn('JsonCodeEditor.scrollIntoView', 'Failed to scroll active variable suggestion into view', {
+        error,
+        activeIndex,
+      })
+    }
   }, [activeIndex, menuOpen])
 
   useEffect(() => {

@@ -235,7 +235,12 @@ function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?
         push(`${su.origin}${p}/swagger-ui/index.html`)
       }
     }
-  } catch {}
+  } catch (error) {
+    logWarn('buildSwaggerUiBaseCandidates.serviceBaseUrl', 'Failed to parse serviceBaseUrl while building Swagger UI candidates', {
+      error,
+      serviceBaseUrl: args.serviceBaseUrl,
+    })
+  }
 
   try {
     const u = new URL(args.sourceUrl)
@@ -247,7 +252,12 @@ function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?
       const prefix = trimTrailingSlash(m[1] || '')
       if (prefix && prefix !== '/') push(`${u.origin}${prefix}/swagger-ui/index.html`)
     }
-  } catch {}
+  } catch (error) {
+    logWarn('buildSwaggerUiBaseCandidates.sourceUrl', 'Failed to parse sourceUrl while building Swagger UI candidates', {
+      error,
+      sourceUrl: args.sourceUrl,
+    })
+  }
 
   return out
 }
