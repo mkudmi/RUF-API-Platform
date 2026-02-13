@@ -173,6 +173,6 @@ export function buildCollectionFromV3(spec: any, name = 'Imported API', sourceOr
     id: uid('col'),
     name,
     baseUrl,
-    folders: Array.from(folderMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    folders: Array.from(folderMap.values()),
   }
 }

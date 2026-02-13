@@ -320,7 +320,7 @@ export function buildCollectionFromPostman(postman: any, nameOverride?: string):
 
   const topItems: any[] = Array.isArray(postman?.item) ? postman.item : []
   const folders: Folder[] = []
-  const rootRequests: RequestItem[] = []
+  let rootFolder: Folder | null = null
 
   for (const it of topItems) {
     if (it && typeof it === 'object' && Array.isArray(it.item) && !it.request) {
@@ -328,11 +328,12 @@ export function buildCollectionFromPostman(postman: any, nameOverride?: string):
       continue
     }
     const req = buildRequestFromItem(it)
-    if (req) rootRequests.push(req)
-  }
-
-  if (rootRequests.length) {
-    folders.unshift({ id: uid('folder'), name: 'root', requests: rootRequests, folders: [] })
+    if (!req) continue
+    if (!rootFolder) {
+      rootFolder = { id: uid('folder'), name: 'root', requests: [], folders: [] }
+      folders.push(rootFolder)
+    }
+    rootFolder.requests.push(req)
   }
 
   return {

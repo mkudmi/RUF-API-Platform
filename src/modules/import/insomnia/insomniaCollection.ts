@@ -222,7 +222,7 @@ export function buildCollectionFromInsomnia(doc: any, nameOverride?: string): Co
   // Insomnia v5 export: nested `collection` tree
   if (Array.isArray(doc?.collection)) {
     const folders: Folder[] = []
-    const rootRequests: RequestItem[] = []
+    let rootFolder: Folder | null = null
 
     const collectionNodes = doc.collection as any[]
     let topNodes: any[] = collectionNodes
@@ -247,11 +247,12 @@ export function buildCollectionFromInsomnia(doc: any, nameOverride?: string): Co
         continue
       }
       const req = buildRequestFromNode(node as any)
-      if (req) rootRequests.push(req)
-    }
-
-    if (rootRequests.length) {
-      folders.unshift({ id: uid('folder'), name: 'root', requests: rootRequests, folders: [] })
+      if (!req) continue
+      if (!rootFolder) {
+        rootFolder = { id: uid('folder'), name: 'root', requests: [], folders: [] }
+        folders.push(rootFolder)
+      }
+      rootFolder.requests.push(req)
     }
 
     return {
