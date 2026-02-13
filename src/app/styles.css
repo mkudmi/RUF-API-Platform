@@ -17,6 +17,10 @@
 :root {
   --radius: 6px;
   --window-titlebar-height: 38px;
+  --window-request-center-max-width: min(42vw, 560px);
+  --window-request-name-max-width: min(38vw, 500px);
+  --window-recent-tab-width: 180px;
+  --window-recent-tab-overlap: 0.5;
   --text-color: #ffffff;
   --font-brand: 'Verdanto', system-ui, -apple-system, Segoe UI, Roboto, Arial;
   --font-ui: 'Nimbus Sans Round', system-ui, -apple-system, Segoe UI, Roboto, Arial;
@@ -70,7 +74,7 @@ input[type="password"]::-ms-clear {
   align-items: center;
   gap: 10px;
   min-height: 0;
-  padding: 0 8px 0 12px;
+  padding: 0 12px;
   border-bottom: 1px solid rgba(255,255,255,.08);
   background: rgba(11,12,16,.96);
 }
@@ -84,7 +88,7 @@ input[type="password"]::-ms-clear {
 
 .windowRequestName {
   min-width: 0;
-  max-width: min(50vw, 620px);
+  max-width: var(--window-request-name-max-width);
   font-weight: 600;
   font-size: 14px;
   opacity: .92;
@@ -97,7 +101,7 @@ input[type="password"]::-ms-clear {
 
 .windowRequestCenter {
   min-width: 0;
-  max-width: min(54vw, 700px);
+  max-width: var(--window-request-center-max-width);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -227,36 +231,41 @@ html.platform-macos .windowRequestName {
 .windowRecentTabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   min-width: 0;
   max-width: min(36vw, 420px);
   overflow: hidden;
 }
 .windowRecentTab {
-  flex: 0 1 180px;
+  flex: 0 0 var(--window-recent-tab-width);
   min-width: 0;
-  max-width: 180px;
+  max-width: var(--window-recent-tab-width);
   height: 26px;
   padding: 0 10px;
   border-radius: var(--radius);
   border: 1px solid rgba(255,255,255,.14);
-  background: rgba(255,255,255,.05);
-  color: rgba(255,255,255,.92);
+  background: rgb(39, 42, 52);
+  color: rgb(255,255,255);
   font-size: 12px;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  position: relative;
+}
+.windowRecentTab + .windowRecentTab {
+  margin-left: calc(var(--window-recent-tab-width) * -1 * var(--window-recent-tab-overlap));
 }
 .windowRecentTab:hover {
   border-color: rgba(255,255,255,.24);
-  background: rgba(255,255,255,.11);
+  background: rgb(53, 57, 69);
+  z-index: 2;
 }
 .windowRecentTab:focus-visible {
   outline: 2px solid rgba(255,255,255,.36);
   outline-offset: 2px;
+  z-index: 2;
 }
-
 .sidebarPlusWrap { margin-left: auto; position: relative; flex: 0 0 auto;}
 .sidebarPlusBtn {
   width: 30px;

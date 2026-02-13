@@ -2932,7 +2932,7 @@ export default function App() {
       <header className="windowTitlebar" data-tauri-drag-region onMouseDown={onWindowTitlebarMouseDown}>
         <div className="windowBrandArea">
           <div className="sidebarBrandRow">
-            <span className="appTitle">Ruf</span> <span className="small">API Platofrm</span>
+            <span className="appTitle">Ruf</span>
             <SidebarCreateMenu
               onImport={() => importOpenRef.current?.openMenu()}
               onCreateCollection={openCreateProject}
