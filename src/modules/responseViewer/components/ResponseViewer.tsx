@@ -65,6 +65,12 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
+function formatResponseTime(timeMs: number) {
+  if (!Number.isFinite(timeMs) || timeMs < 0) return '0 ms'
+  if (timeMs > 1000) return `${(timeMs / 1000).toFixed(2)} s`
+  return `${Math.round(timeMs)} ms`
+}
+
 function formatDateTime24(ts: number) {
   const d = new Date(ts)
   const dd = String(d.getDate()).padStart(2, '0')
@@ -625,7 +631,7 @@ export function ResponseViewer(props: {
             HTTP {result.status}{result.statusText ? ` ${compactStatusText(result.statusText)}` : ''}
           </span>
           <span className="small" style={{ opacity: 0.6, whiteSpace: 'nowrap', flex: '0 0 auto' }}>·</span>
-          <span className="small" style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}>{result.timeMs} ms</span>
+          <span className="small" style={{ whiteSpace: 'nowrap', flex: '0 0 auto' }}>{formatResponseTime(result.timeMs)}</span>
           <span className="small" style={{ opacity: 0.6, whiteSpace: 'nowrap', flex: '0 0 auto' }}>·</span>
           <span
             ref={sizePopoverAnchorRef}
