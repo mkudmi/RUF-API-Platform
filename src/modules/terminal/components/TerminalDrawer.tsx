@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { tauriInvoke } from '../../../shared/utils/tauri'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
+import { CloseIcon } from '../../../shared/icons'
 
 type TerminalEntry =
   | { kind: 'in'; text: string }
@@ -522,7 +523,7 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
           <div className="terminalHeaderActions">
             <button
               type="button"
-              className="iconBtn"
+              className="iconBtn terminalClearBtn"
               onClick={() => {
                 if (!activeTab) return
                 setTabs(prev => prev.map(t => (t.id === activeTab.id ? { ...t, entries: [] } : t)))
@@ -532,10 +533,10 @@ export function TerminalDrawer(props: { open: boolean; onClose: () => void }) {
               title="Clear"
               disabled={busy || !activeTab}
             >
-              ⟲
+              <span className="terminalClearGlyph">⟲</span>
             </button>
-            <button type="button" className="iconBtn" onClick={props.onClose} aria-label="Close" title="Close">
-              ✕
+            <button type="button" className="iconBtn headerDeleteBtn terminalCloseBtn" onClick={props.onClose} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
             </button>
           </div>
         </header>

@@ -65,6 +65,14 @@ const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
 type SavedActiveSelection = { collectionId: string, requestId: string }
 
 type TreeToggleAction = 'expand' | 'collapse'
+type RecentRequestVisit = { collectionId: string, requestId: string }
+type RecentRequestTabResolved = RecentRequestVisit & {
+  key: string
+  collectionName: string
+  requestName: string
+  col: Collection
+  req: RequestItem
+}
 
 function loadActiveSelection(): SavedActiveSelection | null {
   const parsed = loadLocalStorageJson<any>(ACTIVE_SELECTION_KEY, null)
@@ -167,6 +175,10 @@ export default function App() {
   const [collections, setCollections] = useState<Collection[]>(() => initialBootstrap.collections)
   const [workspace, setWorkspace] = useState<Workspace>(() => initialBootstrap.workspace)
   const [active, setActive] = useState<{ col: Collection, req: RequestItem } | null>(() => initialBootstrap.active)
+  const [recentRequestVisits, setRecentRequestVisits] = useState<RecentRequestVisit[]>([])
+  const previousActiveVisitRef = useRef<RecentRequestVisit | null>(
+    initialBootstrap.active ? { collectionId: initialBootstrap.active.col.id, requestId: initialBootstrap.active.req.id } : null,
+  )
   const [resultByRequestId, setResultByRequestId] = useState<Record<string, RunResult | null>>({})
   const [inFlightCountByRequestId, setInFlightCountByRequestId] = useState<Record<string, number>>({})
   const [envByCollection, setEnvByCollection] = useState<Record<string, Environment>>(() => initialBootstrap.envByCollection)
@@ -681,6 +693,10 @@ export default function App() {
   }, [])
 
   const activeRequestId = useMemo(() => active?.req.id, [active])
+  const activeVisit = useMemo<RecentRequestVisit | null>(() => {
+    if (!active) return null
+    return { collectionId: active.col.id, requestId: active.req.id }
+  }, [active])
   const activeResponseTab = useMemo(() => {
     if (!activeRequestId) return 'body' as const
     return responseTabByRequest[activeRequestId] ?? 'body'
@@ -697,6 +713,40 @@ export default function App() {
     if (!reloadFromFileCollectionId) return null
     return collections.find(c => c.id === reloadFromFileCollectionId) ?? null
   }, [collections, reloadFromFileCollectionId])
+  const recentRequestTabs = useMemo<RecentRequestTabResolved[]>(
+    () =>
+      recentRequestVisits
+        .map(visit => {
+          const found = findRequestByIds(collections, visit.collectionId, visit.requestId)
+          if (!found) return null
+          return {
+            key: `${visit.collectionId}:${visit.requestId}`,
+            ...visit,
+            collectionName: found.col.name || found.col.id,
+            requestName: found.req.name || 'Untitled request',
+            col: found.col,
+            req: found.req,
+          }
+        })
+        .filter((item): item is RecentRequestTabResolved => !!item),
+    [collections, recentRequestVisits],
+  )
+  const previousRequestTab = recentRequestTabs[recentRequestTabs.length - 1] ?? null
+
+  useEffect(() => {
+    const prev = previousActiveVisitRef.current
+    const current = activeVisit
+
+    if (prev && (!current || prev.collectionId !== current.collectionId || prev.requestId !== current.requestId)) {
+      setRecentRequestVisits(existing => {
+        const withoutCurrent = existing.filter(item => !current || item.collectionId !== current.collectionId || item.requestId !== current.requestId)
+        const withoutPrevDup = withoutCurrent.filter(item => item.collectionId !== prev.collectionId || item.requestId !== prev.requestId)
+        return [...withoutPrevDup, prev].slice(-2)
+      })
+    }
+
+    previousActiveVisitRef.current = current
+  }, [activeVisit])
 
   useEffect(() => {
     if (!active) return
@@ -2527,10 +2577,40 @@ export default function App() {
               onCreateFolder={openCreateWorkspaceFolder}
             />
             <ImportFab onImported={addCollection} openRef={importOpenRef} showTrigger={false} />
+            {recentRequestTabs.length ? (
+              <div className="windowRecentTabs" data-no-window-drag>
+                {recentRequestTabs.map(tab => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    className="windowRecentTab"
+                    title={`${tab.requestName} · ${tab.collectionName}`}
+                    onClick={() => pick(tab.req, tab.col)}
+                  >
+                    {tab.requestName}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
-        <div className="windowRequestName" title={windowRequestText}>
-          {windowRequestText}
+        <div className="windowRequestCenter" data-no-window-drag tabIndex={0}>
+          <button
+            type="button"
+            className="windowBackBtn"
+            onClick={() => {
+              if (!previousRequestTab) return
+              pick(previousRequestTab.req, previousRequestTab.col)
+            }}
+            disabled={!previousRequestTab}
+            aria-label="Back to previous request"
+            title={previousRequestTab ? `Back: ${previousRequestTab.requestName}` : 'No previous request'}
+          >
+            ←
+          </button>
+          <div className="windowRequestName" title={windowRequestText}>
+            {windowRequestText}
+          </div>
         </div>
         {!isMac ? windowControls : null}
       </header>
@@ -2760,7 +2840,9 @@ export default function App() {
       >
         <div className="modalHeader">
           <b>Create Collection</b>
-          <button className="iconBtn" onClick={closeCreateProject} aria-label="Close">✕</button>
+          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateProject} aria-label="Close" title="Close">
+            <CloseIcon size={18} />
+          </button>
         </div>
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
@@ -2786,7 +2868,9 @@ export default function App() {
       >
         <div className="modalHeader">
           <b>Create Folder</b>
-          <button className="iconBtn" onClick={closeCreateWorkspaceFolder} aria-label="Close">✕</button>
+          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateWorkspaceFolder} aria-label="Close" title="Close">
+            <CloseIcon size={18} />
+          </button>
         </div>
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
@@ -2819,7 +2903,9 @@ export default function App() {
       >
         <div className="modalHeader">
           <b>Create Folder</b>
-          <button className="iconBtn" onClick={closeCreateCollectionSubfolder} aria-label="Close">âœ•</button>
+          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateCollectionSubfolder} aria-label="Close" title="Close">
+            <CloseIcon size={18} />
+          </button>
         </div>
 
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>

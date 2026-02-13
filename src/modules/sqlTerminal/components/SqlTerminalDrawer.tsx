@@ -5,7 +5,7 @@ import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
-import { SqlTerminalPositionIcon } from '../../../shared/icons'
+import { CloseIcon, SqlTerminalPositionIcon } from '../../../shared/icons'
 
 type DbConnOption = {
   id: string
@@ -1421,7 +1421,7 @@ export function SqlTerminalDrawer(props: {
             </button>
             <button
               type="button"
-              className="iconBtn"
+              className="iconBtn terminalClearBtn"
               onClick={() => {
                 setOutput([])
                 setResultRows(null)
@@ -1437,10 +1437,10 @@ export function SqlTerminalDrawer(props: {
               title="Clear"
               disabled={busy || !open}
             >
-              ⟲
+              <span className="terminalClearGlyph">⟲</span>
             </button>
-            <button type="button" className="iconBtn" onClick={onClose} aria-label="Close" title="Close">
-              ✕
+            <button type="button" className="iconBtn headerDeleteBtn terminalCloseBtn" onClick={onClose} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
             </button>
           </div>
         </header>

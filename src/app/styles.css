@@ -91,10 +91,48 @@ input[type="password"]::-ms-clear {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: center;
+  text-align: left;
   user-select: none;
-  pointer-events: none;
+}
+
+.windowRequestCenter {
+  min-width: 0;
+  max-width: min(54vw, 700px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   justify-self: center;
+}
+
+.windowBackBtn {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: rgba(255,255,255,.92);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  flex: 0 0 auto;
+  transition: border-color .14s ease, background-color .14s ease;
+}
+
+.windowBackBtn:hover:not(:disabled) {
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.13);
+}
+
+.windowBackBtn:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.windowBackBtn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.35);
+  outline-offset: 2px;
 }
 
 .windowControls {
@@ -166,6 +204,38 @@ html.platform-macos .windowRequestName {
 .sidebarBrandRow { display: flex; gap: 8px; align-items: center; min-width: 0; overflow: visible; }
 .sidebarBrandRow > .iconBtn { display: none; }
 .sidebarBrandRow .appTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.windowRecentTabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(36vw, 420px);
+  overflow: hidden;
+}
+.windowRecentTab {
+  flex: 0 1 180px;
+  min-width: 0;
+  max-width: 180px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.windowRecentTab:hover {
+  border-color: rgba(255,255,255,.24);
+  background: rgba(255,255,255,.11);
+}
+.windowRecentTab:focus-visible {
+  outline: 2px solid rgba(255,255,255,.36);
+  outline-offset: 2px;
+}
 
 .sidebarPlusWrap { margin-left: auto; position: relative; flex: 0 0 auto;}
 .sidebarPlusBtn {
@@ -239,6 +309,11 @@ html.platform-macos .windowRequestName {
   cursor: pointer;
 }
 .sidebarPlusMenuItem:hover { background: rgba(255,255,255,.08); }
+html.platform-macos .sidebarPlusMenu,
+html.platform-macos .sidebarPlusMenuItem {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 13px;
+}
 
 .sidebarTreeWrap {
   flex: 1;
@@ -603,7 +678,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .importMenuBtn {
   width: 100%;
   aspect-ratio: 1 / 1;
-  border-radius: 0;
+  border-radius: var(--radius);
   padding: 12px;
   display: flex;
   align-items: center;
@@ -1810,6 +1885,25 @@ html.platform-macos .bodyResizeHandle::before {
   align-items: center;
   justify-content: center;
 }
+.importCloseBtn {
+  width: 36px;
+  height: 36px;
+}
+.terminalCloseBtn {
+  width: 36px;
+  height: 36px;
+}
+.terminalClearBtn .terminalClearGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-1px);
+  font-size: 17px;
+  line-height: 1;
+}
+html.platform-macos .terminalClearBtn .terminalClearGlyph {
+  font-size: 19px;
+}
 
 .rowDeleteBtn {
   width: 44px;
@@ -1947,6 +2041,9 @@ html.platform-macos .modalSettings .tabs .tab {
   font-size: 14px;
   line-height: 1.2;
   font-weight: 500;
+}
+.modalSettings .formLabel {
+  font-size: 13px;
 }
 
 /* Request history */

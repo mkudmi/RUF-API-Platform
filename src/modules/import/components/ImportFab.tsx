@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
 import { importCollectionFromFile, importCollectionFromText, importCollectionFromUrl } from './importHelpers'
 import { logError } from '../../../shared/utils/logger'
+import { CloseIcon } from '../../../shared/icons'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -33,6 +34,13 @@ export function ImportFab(props: {
   const [pendingName, setPendingName] = useState('')
   const [nameError, setNameError] = useState<string | null>(null)
 
+  function clearDialogElementFocus() {
+    if (!menuRef.current?.open) return
+    const active = document.activeElement as HTMLElement | null
+    if (!active) return
+    if (active === menuRef.current || menuRef.current.contains(active)) active.blur()
+  }
+
   function openNameStep(col: Collection) {
     setPendingCollection(col)
     setPendingName(col.name ?? '')
@@ -43,6 +51,9 @@ export function ImportFab(props: {
   function openNameStepFromOutside(col: Collection) {
     openNameStep(col)
     menuRef.current?.showModal()
+    const rafId = requestAnimationFrame(() => clearDialogElementFocus())
+    window.setTimeout(() => clearDialogElementFocus(), 0)
+    window.setTimeout(() => cancelAnimationFrame(rafId), 0)
   }
 
   function confirmAddCollection() {
@@ -63,6 +74,9 @@ export function ImportFab(props: {
     setView('menu')
     setMenuError(null)
     menuRef.current?.showModal()
+    const rafId = requestAnimationFrame(() => clearDialogElementFocus())
+    window.setTimeout(() => clearDialogElementFocus(), 0)
+    window.setTimeout(() => cancelAnimationFrame(rafId), 0)
   }
 
   useEffect(() => {
@@ -72,6 +86,16 @@ export function ImportFab(props: {
       props.openRef!.current = null
     }
   }, [props.openRef])
+
+  useEffect(() => {
+    if (!menuRef.current?.open) return
+    const rafId = requestAnimationFrame(() => clearDialogElementFocus())
+    const timeoutId = window.setTimeout(() => clearDialogElementFocus(), 0)
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.clearTimeout(timeoutId)
+    }
+  }, [view])
 
   function closeMenu() {
     menuRef.current?.close()
@@ -164,10 +188,18 @@ export function ImportFab(props: {
         )
       ) : null}
 
-      <dialog ref={menuRef} className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}>
+      <dialog
+        ref={menuRef}
+        className={variant === 'button' ? 'modal modalSmall' : 'modal fabMenu'}
+        onClick={e => {
+          if (e.target === e.currentTarget) closeMenu()
+        }}
+      >
         <div className="modalHeader">
           <b>{view === 'name' ? 'Add collection' : 'Import'}</b>
-          <button className="iconBtn" onClick={closeMenu} aria-label="Close">✕</button>
+          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeMenu} aria-label="Close" title="Close" tabIndex={-1}>
+            <CloseIcon size={18} />
+          </button>
         </div>
 
         {view === 'menu' && (
@@ -240,7 +272,6 @@ export function ImportFab(props: {
                 value={pendingName}
                 onChange={e => setPendingName(e.target.value)}
                 onFocus={e => e.currentTarget.select()}
-                autoFocus
                 placeholder="My API"
               />
             </div>
