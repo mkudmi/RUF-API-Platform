@@ -864,6 +864,17 @@ export function CollectionsTree(props: {
                         role="menuitem"
                         onClick={() => {
                           setOpenMenuRequestId(null)
+                          void copyText(r.name)
+                        }}
+                      >
+                        Copy Name
+                      </button>
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuRequestId(null)
                           props.onDuplicateRequest(col.id, r.id)
                         }}
                       >
@@ -1170,6 +1181,17 @@ export function CollectionsTree(props: {
                             role="menuitem"
                             onClick={() => {
                               setOpenMenuCollectionId(null)
+                              void copyText(col.name)
+                            }}
+                          >
+                            Copy Name
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuCollectionId(null)
                               props.onDuplicateCollection(col.id)
                             }}
                           >
@@ -1465,6 +1487,17 @@ export function CollectionsTree(props: {
                           e.stopPropagation()
                         }}
                       >
+                        <button
+                          type="button"
+                          className="treeMenuItem"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenuRequestId(null)
+                            void copyText(r.name)
+                          }}
+                        >
+                          Copy Name
+                        </button>
                         <button
                           type="button"
                           className="treeMenuItem"

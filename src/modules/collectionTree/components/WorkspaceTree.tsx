@@ -6,6 +6,7 @@ import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from 
 import { getEffectiveWorkspaceSearchTreeOpenCommand, getSearchOpenWorkspaceFolders, getVisibleWorkspaceSearchTree, normalizeWorkspaceTreeSearch } from '../utils/workspaceTreeSearch'
 import { CollectionsTree } from './CollectionsTree'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
+import { copyText } from '../../../shared/utils/clipboard'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'
 
@@ -460,6 +461,17 @@ export function WorkspaceTree(props: {
                       </button>
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    className="treeMenuItem"
+                    role="menuitem"
+                    onClick={() => {
+                      setOpenMenuWorkspaceFolderId(null)
+                      void copyText(folder.name)
+                    }}
+                  >
+                    Copy Name
+                  </button>
                   <button
                     type="button"
                     className="treeMenuItem"
