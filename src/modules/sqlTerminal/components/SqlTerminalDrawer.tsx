@@ -1713,18 +1713,22 @@ export function SqlTerminalDrawer(props: {
             <div className="sqlTerminalPaneTitle mono">
               <span>Output</span>
               {lastRunSchemaTableLabel ? <span className="sqlTerminalPaneTitleCenter" title={lastRunSchemaTableLabel}>{lastRunSchemaTableLabel}</span> : null}
-              {resultHint ? <span style={{ opacity: 0.75 }}>{resultHint}</span> : null}
-              {paging.enabled ? (
-                <button
-                  type="button"
-                  className="iconBtn"
-                  disabled={busy || paging.loading || !paging.hasMore}
-                  onClick={() => void loadMoreRows(true)}
-                  title={paging.hasMore ? 'Load full result' : 'All rows loaded'}
-                  aria-label="Load all rows"
-                >
-                  {paging.loading && paging.loadAll ? '…' : 'All'}
-                </button>
+              {(resultHint || paging.enabled) ? (
+                <div className="sqlTerminalPaneTitleRight">
+                  {resultHint ? <span className="sqlTerminalRowsHint">{resultHint}</span> : null}
+                  {paging.enabled ? (
+                    <button
+                      type="button"
+                      className="iconBtn"
+                      disabled={busy || paging.loading || !paging.hasMore}
+                      onClick={() => void loadMoreRows(true)}
+                      title={paging.hasMore ? 'Load full result' : 'All rows loaded'}
+                      aria-label="Load all rows"
+                    >
+                      {paging.loading && paging.loadAll ? '…' : 'All'}
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <div

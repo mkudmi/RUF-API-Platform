@@ -1001,6 +1001,19 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 
 .sqlTerminalPaneTitleLeft { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sqlTerminalPaneTitleRight {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+.sqlTerminalRowsHint {
+  opacity: 0.75;
+}
 .sqlTerminalSchemaMenu { width: min(220px, 36vw); min-width: 140px; }
 .sqlTerminalSchemaPanel { overscroll-behavior: contain; }
 .sqlTerminalSchemaPanelAbove { top: auto; bottom: calc(100% + 6px); }
