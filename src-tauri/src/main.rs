@@ -30,6 +30,7 @@ fn main() {
             commands::cert::cert_inspect,
             commands::storage::storage_load,
             commands::storage::storage_save,
+            commands::system::system_open_url,
             commands::terminal::terminal_exec,
             commands::terminal::terminal_resolve_cwd,
             commands::terminal::terminal_list_shells,

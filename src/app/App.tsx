@@ -5,6 +5,7 @@ import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type 
 import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
+import { parseJsonOrYaml } from '../modules/import/openapi/openapiLoader'
 import { EnvironmentSettings } from '../modules/environment'
 import {
   buildDbConnectionString,
@@ -102,6 +103,70 @@ function saveTreeSortMode(mode: TreeSortMode) {
 
 function invertTreeToggleAction(action: TreeToggleAction): TreeToggleAction {
   return action === 'expand' ? 'collapse' : 'expand'
+}
+
+function toSwaggerOperationIdGuess(name: string, fallbackMethod: string, fallbackPath: string) {
+  const raw = (name || '').trim()
+  if (!raw) {
+    const pathPart = fallbackPath
+      .split('/')
+      .filter(Boolean)
+      .map(part => part.replaceAll(/[{}]/g, ''))
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('')
+    return `${fallbackMethod.toLowerCase()}${pathPart || 'Operation'}`
+  }
+  const cleaned = raw
+    .replaceAll(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .trim()
+  if (!cleaned) return `${fallbackMethod.toLowerCase()}Operation`
+  const words = cleaned.split(/\s+/g).filter(Boolean)
+  return words
+    .map((w, i) => {
+      const lower = w.toLowerCase()
+      return i === 0 ? lower : (lower.charAt(0).toUpperCase() + lower.slice(1))
+    })
+    .join('')
+}
+
+function getSwaggerTagFromPath(path: string) {
+  const first = (path || '')
+    .split('/')
+    .map(x => x.trim())
+    .find(Boolean)
+  if (!first) return 'default'
+  return first.replaceAll(/[{}]/g, '') || 'default'
+}
+
+function normalizePathTemplate(path: string) {
+  const withLeading = (path || '').trim().startsWith('/') ? (path || '').trim() : `/${(path || '').trim()}`
+  return withLeading.replaceAll(/\{[^}]+\}/g, '{}')
+}
+
+function buildSwaggerUiUrl(args: { sourceUrl: string; tag: string; operationId: string }) {
+  try {
+    const u = new URL(args.sourceUrl)
+    const path = u.pathname || ''
+    let basePath = '/'
+
+    // Common SpringDoc endpoints: /v3/api-docs, /v2/api-docs -> /swagger-ui/index.html
+    if (path.includes('/v3/api-docs') || path.includes('/v2/api-docs')) {
+      basePath = '/swagger-ui/index.html'
+    }
+
+    const base = `${u.origin}${basePath}`
+    return `${base}#/${encodeURIComponent(args.tag)}/${encodeURIComponent(args.operationId)}`
+  } catch {
+    return `${args.sourceUrl}#/${encodeURIComponent(args.tag)}/${encodeURIComponent(args.operationId)}`
+  }
+}
+
+type SwaggerContext = {
+  sourceUrl: string
+  method: string
+  path: string
+  fallbackTag: string
+  fallbackOperationId: string
 }
 
 function mergeHistoryItemsById(preferred: RequestHistoryItem[], fallback: RequestHistoryItem[]) {
@@ -2533,6 +2598,89 @@ export default function App() {
   const windowRequestText = activeRequestDescription
     ? `${activeRequestName} · ${activeRequestDescription}`
     : activeRequestName
+  const activeSwaggerContext = useMemo<SwaggerContext | null>(() => {
+    if (!active) return null
+    if (active.col.sourceType !== 'url') return null
+    const sourceUrl = (active.col.sourceUrl || '').trim()
+    if (!sourceUrl || !isAbsoluteUrl(sourceUrl)) return null
+
+    const path = (active.req.path || '').trim()
+    const method = (active.req.method || 'get').trim().toLowerCase()
+    const fallbackTag = getSwaggerTagFromPath(path)
+    const fallbackOperationId = toSwaggerOperationIdGuess(active.req.name || '', method, path)
+    return { sourceUrl, method, path, fallbackTag, fallbackOperationId }
+  }, [active])
+
+  async function resolveOperationIdFromSource(args: { sourceUrl: string; method: string; path: string }) {
+    try {
+      const res = await platformFetch(args.sourceUrl, undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
+      if (!res.ok) return null
+      const text = await res.text()
+      const parsed = parseJsonOrYaml(text)
+      const pathsObj = (parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).paths : null) as Record<string, unknown> | null
+      if (!pathsObj || typeof pathsObj !== 'object') return null
+
+      const methodKey = args.method.toLowerCase()
+      const exact = pathsObj[args.path] ?? pathsObj[(args.path.startsWith('/') ? args.path : `/${args.path}`)]
+      const normalizedTarget = normalizePathTemplate(args.path)
+
+      const candidates: unknown[] = []
+      if (exact) candidates.push(exact)
+      for (const [k, v] of Object.entries(pathsObj)) {
+        if (normalizePathTemplate(k) === normalizedTarget) candidates.push(v)
+      }
+
+      for (const item of candidates) {
+        if (!item || typeof item !== 'object') continue
+        const op = (item as Record<string, unknown>)[methodKey]
+        if (!op || typeof op !== 'object') continue
+        const opObj = op as Record<string, unknown>
+        const operationId = typeof opObj.operationId === 'string' ? opObj.operationId.trim() : ''
+        const tagFromSpec = Array.isArray(opObj.tags) ? String(opObj.tags[0] ?? '').trim() : ''
+        if (operationId) {
+          return { operationId, tag: tagFromSpec || getSwaggerTagFromPath(args.path) }
+        }
+      }
+    } catch (error) {
+      logWarn('resolveOperationIdFromSource', 'Failed to resolve operationId from source spec', { error, url: args.sourceUrl })
+    }
+    return null
+  }
+
+  async function openActiveRequestSwagger() {
+    const ctx = activeSwaggerContext
+    if (!ctx) return
+
+    let finalUrl = buildSwaggerUiUrl({
+      sourceUrl: ctx.sourceUrl,
+      tag: ctx.fallbackTag,
+      operationId: ctx.fallbackOperationId,
+    })
+
+    const resolved = await resolveOperationIdFromSource({
+      sourceUrl: ctx.sourceUrl,
+      method: ctx.method,
+      path: ctx.path,
+    })
+    if (resolved?.operationId) {
+      finalUrl = buildSwaggerUiUrl({
+        sourceUrl: ctx.sourceUrl,
+        tag: resolved.tag,
+        operationId: resolved.operationId,
+      })
+    }
+
+    try {
+      await tauriInvoke<void>('system_open_url', { args: { url: finalUrl } })
+    } catch (error) {
+      logError('openActiveRequestSwagger', error, { url: finalUrl })
+      try {
+        window.open(finalUrl, '_blank', 'noopener,noreferrer')
+      } catch (fallbackError) {
+        logError('openActiveRequestSwagger.fallback', fallbackError, { url: finalUrl })
+      }
+    }
+  }
   const windowControls = (
     <div className="windowControls">
       <button
@@ -2611,6 +2759,17 @@ export default function App() {
           <div className="windowRequestName" title={windowRequestText}>
             {windowRequestText}
           </div>
+          {activeSwaggerContext ? (
+            <button
+              type="button"
+              className="windowSwaggerBtn"
+              onClick={() => { void openActiveRequestSwagger() }}
+              aria-label="Open Swagger for current request"
+              title="Open Swagger for this endpoint"
+            >
+              Swagger
+            </button>
+          ) : null}
         </div>
         {!isMac ? windowControls : null}
       </header>

@@ -12,6 +12,7 @@
     "db-access",
     "http-raw",
     "storage-access",
+    "system-open-url",
     "terminal-exec"
   ]
 }

@@ -134,6 +134,25 @@ input[type="password"]::-ms-clear {
   outline: 2px solid rgba(255,255,255,.35);
   outline-offset: 2px;
 }
+.windowSwaggerBtn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.16);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.92);
+  font-size: 12px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.windowSwaggerBtn:hover {
+  border-color: rgba(255,255,255,.28);
+  background: rgba(255,255,255,.13);
+}
+.windowSwaggerBtn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.35);
+  outline-offset: 2px;
+}
 
 .windowControls {
   display: flex;

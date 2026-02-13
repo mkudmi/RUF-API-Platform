@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "system-open-url",
+      "description": "Allows opening external http/https URLs in the system browser.",
+      "commands": {
+        "allow": ["system_open_url"]
+      }
+    }
+  ]
+}
