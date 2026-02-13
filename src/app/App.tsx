@@ -129,6 +129,30 @@ function toSwaggerOperationIdGuess(name: string, fallbackMethod: string, fallbac
     .join('')
 }
 
+function toPathLikeOperationIdGuess(path: string) {
+  const segments = (path || '')
+    .split('/')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(s => !(s.startsWith('{') && s.endsWith('}')))
+
+  if (!segments.length) return ''
+
+  const raw = segments[segments.length - 1] || ''
+  const cleaned = raw.replaceAll(/[^\p{L}\p{N}_-]+/gu, ' ').trim()
+  if (!cleaned) return ''
+
+  const parts = cleaned.split(/[\s_-]+/g).filter(Boolean)
+  if (!parts.length) return ''
+
+  return parts
+    .map((p, i) => {
+      const lower = p.toLowerCase()
+      return i === 0 ? lower : (lower.charAt(0).toUpperCase() + lower.slice(1))
+    })
+    .join('')
+}
+
 function getSwaggerTagFromPath(path: string) {
   const first = (path || '')
     .split('/')
@@ -2657,18 +2681,20 @@ export default function App() {
     const path = (active.req.path || '').trim()
     const method = (active.req.method || 'get').trim().toLowerCase()
     const fallbackTag = getSwaggerTagFromPath(path)
-    const fallbackOperationId = toSwaggerOperationIdGuess(active.req.name || '', method, path)
+    const fromPath = toPathLikeOperationIdGuess(path)
+    const fallbackOperationId = fromPath || toSwaggerOperationIdGuess(active.req.name || '', method, path)
     return { sourceUrl, serviceBaseUrl, method, path, fallbackTag, fallbackOperationId }
   }, [active, envByCollection])
   const swaggerUiBaseCacheRef = useRef<Record<string, string>>({})
   const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
+  const caCertificatesPem = useMemo(() => caCertificates.map(c => c.pem), [caCertificates])
 
   async function detectSwaggerUiBase(candidates: string[]) {
     for (const candidate of candidates) {
       try {
         const res = await platformFetch(candidate, undefined, {
           insecureTls: !validateCertificates,
-          caCertsPem: caCertificates.map(c => c.pem),
+          caCertsPem: caCertificatesPem,
           timeoutMs: 2500,
         })
         if (!res.ok) continue
@@ -2685,7 +2711,7 @@ export default function App() {
 
   async function resolveOperationIdFromSource(args: { sourceUrl: string; method: string; path: string }) {
     try {
-      const res = await platformFetch(args.sourceUrl, undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
+      const res = await platformFetch(args.sourceUrl, undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificatesPem })
       if (!res.ok) return null
       const text = await res.text()
       const parsed = parseJsonOrYaml(text)
@@ -2719,6 +2745,29 @@ export default function App() {
     return null
   }
 
+  async function getCachedOrResolvedSwaggerOperation(args: {
+    cacheKey: string
+    sourceUrl: string
+    method: string
+    path: string
+    timeoutMs?: number
+  }) {
+    const cached = swaggerOperationCacheRef.current[args.cacheKey]
+    if (cached) return cached
+    const resolverPromise = resolveOperationIdFromSource({
+      sourceUrl: args.sourceUrl,
+      method: args.method,
+      path: args.path,
+    })
+    const resolved = typeof args.timeoutMs === 'number'
+      ? await withTimeout(resolverPromise, args.timeoutMs)
+      : await resolverPromise
+    if (!resolved?.operationId) return null
+    const entry = { tag: resolved.tag, operationId: resolved.operationId }
+    swaggerOperationCacheRef.current[args.cacheKey] = entry
+    return entry
+  }
+
   async function openActiveRequestSwagger() {
     const ctx = activeSwaggerContext
     if (!ctx) return
@@ -2731,25 +2780,15 @@ export default function App() {
     const swaggerUiBase = cachedBase || baseCandidates[0] || ctx.sourceUrl
     const opCacheKey = buildSwaggerOpCacheKey(ctx)
     const cachedOperation = swaggerOperationCacheRef.current[opCacheKey]
-    let initialTag = cachedOperation?.tag || ctx.fallbackTag
-    let initialOperationId = cachedOperation?.operationId || ctx.fallbackOperationId
-
-    if (!cachedOperation) {
-      const resolvedNow = await withTimeout(
-        resolveOperationIdFromSource({
-          sourceUrl: ctx.sourceUrl,
-          method: ctx.method,
-          path: ctx.path,
-        }),
-        1200,
-      )
-      if (resolvedNow?.operationId) {
-        const resolvedEntry = { tag: resolvedNow.tag, operationId: resolvedNow.operationId }
-        swaggerOperationCacheRef.current[opCacheKey] = resolvedEntry
-        initialTag = resolvedEntry.tag
-        initialOperationId = resolvedEntry.operationId
-      }
-    }
+    const resolvedOperation = await getCachedOrResolvedSwaggerOperation({
+      cacheKey: opCacheKey,
+      sourceUrl: ctx.sourceUrl,
+      method: ctx.method,
+      path: ctx.path,
+      timeoutMs: cachedOperation ? undefined : 1200,
+    })
+    const initialTag = resolvedOperation?.tag || ctx.fallbackTag
+    const initialOperationId = resolvedOperation?.operationId || ctx.fallbackOperationId
     const finalUrl = buildSwaggerUiUrl({ swaggerUiBase, tag: initialTag, operationId: initialOperationId })
 
     try {
@@ -2769,14 +2808,12 @@ export default function App() {
         if (detected) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = detected
       }
       if (!cachedOperation) {
-        const resolved = await resolveOperationIdFromSource({
+        void getCachedOrResolvedSwaggerOperation({
+          cacheKey: opCacheKey,
           sourceUrl: ctx.sourceUrl,
           method: ctx.method,
           path: ctx.path,
         })
-        if (resolved?.operationId) {
-          swaggerOperationCacheRef.current[opCacheKey] = { tag: resolved.tag, operationId: resolved.operationId }
-        }
       }
     })()
   }
