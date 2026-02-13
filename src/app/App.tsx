@@ -261,6 +261,10 @@ function isLikelySwaggerUiHtml(text: string) {
   return t.includes('swagger-ui') || t.includes('swagger ui') || t.includes('swagger')
 }
 
+function isLikelyOpenApiSourceUrl(url: string) {
+  return /(?:swagger|openapi|api-docs)/i.test(url)
+}
+
 type SwaggerContext = {
   sourceUrl: string
   serviceBaseUrl: string
@@ -2744,6 +2748,7 @@ export default function App() {
     if (active.col.sourceType !== 'url') return null
     const sourceUrl = (active.col.sourceUrl || '').trim()
     if (!sourceUrl || !isAbsoluteUrl(sourceUrl)) return null
+    if (active.col.importFormat !== 'openapi' && !isLikelyOpenApiSourceUrl(sourceUrl)) return null
 
     const env = envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT
     const baseUrlKey = (env.baseUrlKey || DEFAULT_ENVIRONMENT.baseUrlKey).trim() || DEFAULT_ENVIRONMENT.baseUrlKey
@@ -2895,6 +2900,44 @@ export default function App() {
       }
     })()
   }
+
+  async function openCollectionSwagger(collectionId: string) {
+    const collection = collections.find(c => c.id === collectionId)
+    if (!collection || collection.sourceType !== 'url') return
+    const sourceUrl = (collection.sourceUrl || '').trim()
+    if (!sourceUrl || !isAbsoluteUrl(sourceUrl)) return
+    if (collection.importFormat !== 'openapi' && !isLikelyOpenApiSourceUrl(sourceUrl)) return
+
+    const env = envByCollection[collection.id] ?? DEFAULT_ENVIRONMENT
+    const baseUrlKey = (env.baseUrlKey || DEFAULT_ENVIRONMENT.baseUrlKey).trim() || DEFAULT_ENVIRONMENT.baseUrlKey
+    const serviceBaseUrl = (env.variables?.[baseUrlKey] ?? '').trim()
+
+    const baseCandidates = buildSwaggerUiBaseCandidates({ sourceUrl, serviceBaseUrl })
+    const cachedBase = swaggerUiBaseCacheRef.current[sourceUrl]
+    const quickDetectedBase = cachedBase || baseCandidates.length <= 1
+      ? null
+      : await withTimeout(detectSwaggerUiBase(baseCandidates, 450), 900)
+    if (quickDetectedBase) swaggerUiBaseCacheRef.current[sourceUrl] = quickDetectedBase
+    const swaggerUiBase = cachedBase || quickDetectedBase || baseCandidates[0] || sourceUrl
+
+    try {
+      await tauriInvoke<void>('system_open_url', { args: { url: swaggerUiBase } })
+    } catch (error) {
+      logError('openCollectionSwagger', error, { url: swaggerUiBase, collectionId })
+      try {
+        window.open(swaggerUiBase, '_blank', 'noopener,noreferrer')
+      } catch (fallbackError) {
+        logError('openCollectionSwagger.fallback', fallbackError, { url: swaggerUiBase, collectionId })
+      }
+    }
+
+    if (!cachedBase && !quickDetectedBase && baseCandidates.length > 1) {
+      void (async () => {
+        const detected = await detectSwaggerUiBase(baseCandidates)
+        if (detected) swaggerUiBaseCacheRef.current[sourceUrl] = detected
+      })()
+    }
+  }
   const windowControls = (
     <div className="windowControls">
       <button
@@ -3019,6 +3062,7 @@ export default function App() {
                 onPickRequest={pick}
                 onOpenEnv={setEnvModalCollectionId}
                 onUpdateCollectionFromUrl={updateCollectionFromUrl}
+                onOpenCollectionSwagger={openCollectionSwagger}
                 onReloadCollectionFromFile={openReloadFromFile}
                 onAddRequest={addRequestToCollection}
                 onAddFolder={addFolderToCollection}

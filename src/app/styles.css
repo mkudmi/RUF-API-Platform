@@ -1535,7 +1535,49 @@ button:hover { background: rgba(255,255,255,.10); }
   font-size: 13px;
 }
 .treeMenuItem:hover { background: rgba(255,255,255,.08); }
+.treeMenuSubmenu { position: relative; }
+.treeMenuSubmenuTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.treeMenuSubmenuCaret {
+  opacity: .78;
+  font-size: 11px;
+  line-height: 1;
+}
+.treeMenuSubmenuPanel {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  min-width: 170px;
+  display: none;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0f1117;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  z-index: 31;
+}
+.treeMenuSubmenuPanel::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+}
+.treeMenuSubmenu:hover > .treeMenuSubmenuPanel,
+.treeMenuSubmenu:focus-within > .treeMenuSubmenuPanel {
+  display: grid;
+}
 .treeMenuDivider { height: 1px; background: rgba(255,255,255,.12); margin: 4px 2px; }
+.treeMenuItemSwagger:hover {
+  background: #89bf04;
+  color: #000 !important;
+}
 .treeMenuItemDanger { color: rgb(255, 170, 170); }
 .treeMenuItemDanger:hover { background: rgba(255, 80, 80, .14); }
 .treeRenameIcon {

@@ -9,6 +9,7 @@ export type Collection = {
   variables?: Record<string, string>
   requests?: RequestItem[]
   folders: Folder[]
+  importFormat?: 'openapi' | 'postman' | 'insomnia' | 'wsdl'
   sourceUrl?: string
   sourceType?: 'url' | 'file'
   sourceFileName?: string

@@ -30,6 +30,7 @@ export function WorkspaceTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
+  onOpenCollectionSwagger?: (collectionId: string) => void
   onReloadCollectionFromFile?: (collectionId: string) => void
   onAddRequest: (collectionId: string) => void
   onAddFolder: (collectionId: string) => void
@@ -433,18 +434,32 @@ export function WorkspaceTree(props: {
                     e.stopPropagation()
                   }}
                 >
-                  <button
-                    type="button"
-                    className="treeMenuItem"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenMenuWorkspaceFolderId(null)
-                      setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
-                      props.onAddWorkspaceFolderToFolder(folder.id)
-                    }}
-                  >
-                    Add Folder
-                  </button>
+                  <div className="treeMenuSubmenu">
+                    <button
+                      type="button"
+                      className="treeMenuItem treeMenuSubmenuTrigger"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-label="Add"
+                    >
+                      <span>Add</span>
+                      <span className="treeMenuSubmenuCaret" aria-hidden="true">{'>'}</span>
+                    </button>
+                    <div className="treeMenuSubmenuPanel" role="menu" aria-label="Add menu">
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuWorkspaceFolderId(null)
+                          setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
+                          props.onAddWorkspaceFolderToFolder(folder.id)
+                        }}
+                      >
+                        Add Folder
+                      </button>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     className="treeMenuItem"
@@ -486,6 +501,7 @@ export function WorkspaceTree(props: {
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
             onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+            onOpenCollectionSwagger={props.onOpenCollectionSwagger}
             onReloadCollectionFromFile={props.onReloadCollectionFromFile}
             onAddRequest={props.onAddRequest}
             onAddFolder={props.onAddFolder}
@@ -572,6 +588,7 @@ export function WorkspaceTree(props: {
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
             onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+            onOpenCollectionSwagger={props.onOpenCollectionSwagger}
             onReloadCollectionFromFile={props.onReloadCollectionFromFile}
             onAddRequest={props.onAddRequest}
             onAddFolder={props.onAddFolder}

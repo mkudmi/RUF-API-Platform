@@ -102,6 +102,7 @@ export function CollectionsTree(props: {
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
+  onOpenCollectionSwagger?: (collectionId: string) => void
   onReloadCollectionFromFile?: (collectionId: string) => void
   onAddRequest: (collectionId: string) => void
   onAddFolder: (collectionId: string) => void
@@ -601,30 +602,44 @@ export function CollectionsTree(props: {
                     e.stopPropagation()
                   }}
                 >
-                  <button
-                    type="button"
-                    className="treeMenuItem"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenMenuFolderId(null)
-                      setOpenFolders(prev => new Set(prev).add(folder.id))
-                      props.onAddRequestToFolder(col.id, folder.id)
-                    }}
-                  >
-                    Add Request
-                  </button>
-                  <button
-                    type="button"
-                    className="treeMenuItem"
-                    role="menuitem"
-                    onClick={() => {
-                      setOpenMenuFolderId(null)
-                      setOpenFolders(prev => new Set(prev).add(folder.id))
-                      props.onAddFolderToFolder(col.id, folder.id)
-                    }}
-                  >
-                    Add Folder
-                  </button>
+                  <div className="treeMenuSubmenu">
+                    <button
+                      type="button"
+                      className="treeMenuItem treeMenuSubmenuTrigger"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      aria-label="Add"
+                    >
+                      <span>Add</span>
+                      <span className="treeMenuSubmenuCaret" aria-hidden="true">{'>'}</span>
+                    </button>
+                    <div className="treeMenuSubmenuPanel" role="menu" aria-label="Add menu">
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuFolderId(null)
+                          setOpenFolders(prev => new Set(prev).add(folder.id))
+                          props.onAddRequestToFolder(col.id, folder.id)
+                        }}
+                      >
+                        Add Request
+                      </button>
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuFolderId(null)
+                          setOpenFolders(prev => new Set(prev).add(folder.id))
+                          props.onAddFolderToFolder(col.id, folder.id)
+                        }}
+                      >
+                        Add Folder
+                      </button>
+                    </div>
+                  </div>
                   <button
                     type="button"
                     className="treeMenuItem"
@@ -1113,28 +1128,42 @@ export function CollectionsTree(props: {
                             e.stopPropagation()
                           }}
                         >
-                          <button
-                            type="button"
-                            className="treeMenuItem"
-                            role="menuitem"
-                            onClick={() => {
-                              setOpenMenuCollectionId(null)
-                              props.onAddRequest(col.id)
-                            }}
-                          >
-                            Add Request
-                          </button>
-                          <button
-                            type="button"
-                            className="treeMenuItem"
-                            role="menuitem"
-                            onClick={() => {
-                              setOpenMenuCollectionId(null)
-                              props.onAddFolder(col.id)
-                            }}
-                          >
-                            Add Folder
-                          </button>
+                          <div className="treeMenuSubmenu">
+                            <button
+                              type="button"
+                              className="treeMenuItem treeMenuSubmenuTrigger"
+                              role="menuitem"
+                              aria-haspopup="menu"
+                              aria-label="Add"
+                            >
+                              <span>Add</span>
+                              <span className="treeMenuSubmenuCaret" aria-hidden="true">{'>'}</span>
+                            </button>
+                            <div className="treeMenuSubmenuPanel" role="menu" aria-label="Add menu">
+                              <button
+                                type="button"
+                                className="treeMenuItem"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenMenuCollectionId(null)
+                                  props.onAddRequest(col.id)
+                                }}
+                              >
+                                Add Request
+                              </button>
+                              <button
+                                type="button"
+                                className="treeMenuItem"
+                                role="menuitem"
+                                onClick={() => {
+                                  setOpenMenuCollectionId(null)
+                                  props.onAddFolder(col.id)
+                                }}
+                              >
+                                Add Folder
+                              </button>
+                            </div>
+                          </div>
                           <button
                             type="button"
                             className="treeMenuItem"
@@ -1194,6 +1223,23 @@ export function CollectionsTree(props: {
                               title={col.sourceUrl}
                             >
                               Update from URL
+                            </button>
+                          ) : null}
+                          {col.sourceType === 'url'
+                            && col.sourceUrl
+                            && (col.importFormat === 'openapi' || /(?:swagger|openapi|api-docs)/i.test(col.sourceUrl))
+                            && props.onOpenCollectionSwagger ? (
+                            <button
+                              type="button"
+                              className="treeMenuItem treeMenuItemSwagger"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuCollectionId(null)
+                                props.onOpenCollectionSwagger?.(col.id)
+                              }}
+                              title={col.sourceUrl}
+                            >
+                              Open Swagger
                             </button>
                           ) : null}
                           {col.sourceType === 'file' && props.onReloadCollectionFromFile ? (

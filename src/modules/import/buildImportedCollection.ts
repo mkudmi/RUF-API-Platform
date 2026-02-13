@@ -34,12 +34,12 @@ export async function buildImportedCollectionFromText(args: {
   sourceOrigin?: string
 }): Promise<Collection> {
   if (isWsdlText(args.text)) {
-    return buildCollectionFromWsdlText(args.text, args.name)
+    return { ...buildCollectionFromWsdlText(args.text, args.name), importFormat: 'wsdl' }
   }
 
   const parsed = parseJsonOrYaml(args.text)
   if (isPostmanCollection(parsed)) {
-    const col = buildCollectionFromPostman(parsed, args.name)
+    const col = { ...buildCollectionFromPostman(parsed, args.name), importFormat: 'postman' as const }
     const env = parseRufEnvironment((parsed as any)?.rufEnvironment)
     if (env) {
       Object.defineProperty(col, '__rufEnvironment', {
@@ -51,10 +51,10 @@ export async function buildImportedCollectionFromText(args: {
     return col
   }
   if (isInsomniaExport(parsed)) {
-    return buildCollectionFromInsomnia(parsed, args.name)
+    return { ...buildCollectionFromInsomnia(parsed, args.name), importFormat: 'insomnia' }
   }
 
   const specV3 = await loadOpenApiFromText(args.text)
   const name = (args.name || inferCollectionName(specV3)).trim() || 'Imported API'
-  return buildCollectionFromV3(specV3, name, args.sourceOrigin)
+  return { ...buildCollectionFromV3(specV3, name, args.sourceOrigin), importFormat: 'openapi' }
 }
