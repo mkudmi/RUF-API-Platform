@@ -333,7 +333,7 @@ export function CollectionsTree(props: {
     if (!openMenuCollectionId && !openMenuFolderId && !openMenuRequestId) return
 
     const anchor = collectionMenuWrapRef.current ?? folderMenuWrapRef.current ?? requestMenuWrapRef.current
-    const scroller = (anchor?.closest?.('.sidebarTreeWrap') as HTMLElement | null) ?? null
+    const scroller = (anchor?.closest?.('.workspaceTreeScroll, .sidebarTreeWrap') as HTMLElement | null) ?? null
     if (!scroller) return
 
     function onScroll() {

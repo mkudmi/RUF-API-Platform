@@ -241,7 +241,7 @@ export function WorkspaceTree(props: {
   useEffect(() => {
     if (!openMenuWorkspaceFolderId) return
     const wrap = menuWrapRef.current
-    const scroller = (wrap?.closest?.('.sidebarTreeWrap') as HTMLElement | null) ?? null
+    const scroller = (wrap?.closest?.('.workspaceTreeScroll, .sidebarTreeWrap') as HTMLElement | null) ?? null
     if (!scroller) return
 
     function onScroll() {
@@ -585,46 +585,48 @@ export function WorkspaceTree(props: {
         </div>
       </div>
 
-      <div className="tree">
-        {visibleWorkspaceFolders.map(folder => renderWorkspaceFolder(folder, 0))}
+      <div className="workspaceTreeScroll">
+        <div className="tree">
+          {visibleWorkspaceFolders.map(folder => renderWorkspaceFolder(folder, 0))}
 
-        {rootCollections.length ? (
-          <CollectionsTree
-            collections={rootCollections}
-            sortMode={props.sortMode}
-            environmentsByCollection={props.environmentsByCollection}
-            activeRequestId={props.activeRequestId}
-            inFlightCountByRequestId={props.inFlightCountByRequestId}
-            treeOpenCommand={effectiveTreeOpenCommand}
-            onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
-            onPickRequest={props.onPickRequest}
-            onOpenEnv={props.onOpenEnv}
-            onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
-            onOpenCollectionSwagger={props.onOpenCollectionSwagger}
-            onReloadCollectionFromFile={props.onReloadCollectionFromFile}
-            onAddRequest={props.onAddRequest}
-            onAddFolder={props.onAddFolder}
-            onAddRequestToFolder={props.onAddRequestToFolder}
-            onAddFolderToFolder={props.onAddFolderToFolder}
-            onRenameCollection={props.onRenameCollection}
-            onRenameFolder={props.onRenameFolder}
-            onRenameRequest={props.onRenameRequest}
-            onDuplicateCollection={props.onDuplicateCollection}
-            onDuplicateFolder={props.onDuplicateFolder}
-            onDuplicateRequest={props.onDuplicateRequest}
-            onMoveFolder={props.onMoveFolder}
-            onMoveRequest={props.onMoveRequest}
-            onMoveFolderToCollection={props.onMoveFolderToCollection}
-            onMoveRequestToCollection={props.onMoveRequestToCollection}
-            onDeleteFolder={props.onDeleteFolder}
-            onDeleteRequest={props.onDeleteRequest}
-            onDeleteCollection={props.onDeleteCollection}
-          />
-        ) : null}
+          {rootCollections.length ? (
+            <CollectionsTree
+              collections={rootCollections}
+              sortMode={props.sortMode}
+              environmentsByCollection={props.environmentsByCollection}
+              activeRequestId={props.activeRequestId}
+              inFlightCountByRequestId={props.inFlightCountByRequestId}
+              treeOpenCommand={effectiveTreeOpenCommand}
+              onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
+              onPickRequest={props.onPickRequest}
+              onOpenEnv={props.onOpenEnv}
+              onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
+              onOpenCollectionSwagger={props.onOpenCollectionSwagger}
+              onReloadCollectionFromFile={props.onReloadCollectionFromFile}
+              onAddRequest={props.onAddRequest}
+              onAddFolder={props.onAddFolder}
+              onAddRequestToFolder={props.onAddRequestToFolder}
+              onAddFolderToFolder={props.onAddFolderToFolder}
+              onRenameCollection={props.onRenameCollection}
+              onRenameFolder={props.onRenameFolder}
+              onRenameRequest={props.onRenameRequest}
+              onDuplicateCollection={props.onDuplicateCollection}
+              onDuplicateFolder={props.onDuplicateFolder}
+              onDuplicateRequest={props.onDuplicateRequest}
+              onMoveFolder={props.onMoveFolder}
+              onMoveRequest={props.onMoveRequest}
+              onMoveFolderToCollection={props.onMoveFolderToCollection}
+              onMoveRequestToCollection={props.onMoveRequestToCollection}
+              onDeleteFolder={props.onDeleteFolder}
+              onDeleteRequest={props.onDeleteRequest}
+              onDeleteCollection={props.onDeleteCollection}
+            />
+          ) : null}
 
-        {!visibleWorkspaceFolders.length && !rootCollections.length ? (
-          <div className="workspaceTreeEmptyState small">No matches found</div>
-        ) : null}
+          {!visibleWorkspaceFolders.length && !rootCollections.length ? (
+            <div className="workspaceTreeEmptyState small">No matches found</div>
+          ) : null}
+        </div>
       </div>
     </div>
   )

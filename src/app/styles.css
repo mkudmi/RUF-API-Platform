@@ -49,15 +49,15 @@ input[type="password"]::-ms-clear {
 }
 
 /* Scrollbars */
-* { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.85) rgba(255,255,255,.04); }
+* { scrollbar-width: thin; scrollbar-color: rgba(116,116,116,.92) rgba(255,255,255,.08); }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-track { background: rgba(255,255,255,.04); }
+*::-webkit-scrollbar-track { background: rgba(255,255,255,.08); }
 *::-webkit-scrollbar-thumb {
-  background: rgba(0,0,0,.85);
-  border: 2px solid rgba(255,255,255,.06);
+  background: rgba(116,116,116,.92);
+  border: 2px solid rgba(255,255,255,.14);
   border-radius: 999px;
 }
-*::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.95); }
+*::-webkit-scrollbar-thumb:hover { background: rgba(136,136,136,.96); }
 
 .appTitle { font-family: var(--font-brand); letter-spacing: .2px; }
 
@@ -231,8 +231,9 @@ html.platform-macos .windowRequestName {
 .windowRecentTabs {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0;
-  min-width: 0;
+  min-width: calc(var(--window-recent-tab-width) * (2 - var(--window-recent-tab-overlap)));
   max-width: min(36vw, 420px);
   overflow: hidden;
 }
@@ -347,7 +348,7 @@ html.platform-macos .sidebarPlusMenuItem {
 .sidebarTreeWrap {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -1305,19 +1306,29 @@ button:hover { background: rgba(255,255,255,.10); }
 .tree { display: grid; gap: 8px; min-width: 0; font-size: 13px; }
 .workspaceRoot {
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   min-width: 0;
   overflow: visible;
 }
 .workspaceTreeSearchWrap {
-  position: sticky;
-  top: 0;
+  flex: 0 0 auto;
   z-index: 2;
   background: rgba(11,12,16,.98);
   padding-bottom: 8px;
 }
+.workspaceTreeScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  margin-right: -12px;
+  padding-right: 12px;
+}
 .workspaceTreeSearchField {
   position: relative;
+  padding-right: 10px;
 }
 .workspaceTreeSearchInput {
   width: 100%;
