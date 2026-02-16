@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../shared/icons'
+import { BackIcon, CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -3424,7 +3424,7 @@ export default function App() {
             aria-label="Back to previous request"
             title={previousRequestTab ? `Back: ${previousRequestTab.requestName}` : 'No previous request'}
           >
-            {'<-'}
+            <BackIcon size={14} />
           </button>
           <div className="windowRequestName" title={windowRequestText}>
             {windowRequestText}

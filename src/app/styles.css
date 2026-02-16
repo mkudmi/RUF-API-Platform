@@ -124,6 +124,11 @@ input[type="password"]::-ms-clear {
   transition: border-color .14s ease, background-color .14s ease;
 }
 
+.windowBackBtn svg {
+  display: block;
+  stroke: currentColor;
+}
+
 .windowBackBtn:hover:not(:disabled) {
   border-color: rgba(255,255,255,.28);
   background: rgba(255,255,255,.13);
