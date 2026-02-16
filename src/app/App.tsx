@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { BackIcon, CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../shared/icons'
+import { BackIcon, CloseIcon, MaximizeIcon, MinimizeIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -3472,6 +3472,20 @@ export default function App() {
                 inFlightCountByRequestId={inFlightCountByRequestId}
                 treeOpenCommand={treeOpenCommand}
                 onTreeAllExpandedChange={setTreeAllExpanded}
+                treeToggleLabel={treeToggleLabel}
+                treeToggleWillCollapse={treeToggleWillCollapse}
+                onTreeToggleClick={() => {
+                  treeCommandNonceRef.current += 1
+                  setTreeAllExpanded(nextTreeToggleAction === 'expand')
+                  setTreeOpenCommand({ action: nextTreeToggleAction, nonce: treeCommandNonceRef.current })
+                }}
+                onTreeSortToggleClick={() => {
+                  setTreeSortMode(prev => {
+                    const next = prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'
+                    saveTreeSortMode(next)
+                    return next
+                  })
+                }}
                 onPickRequest={pick}
                 onOpenEnv={setEnvModalCollectionId}
                 onRunCollection={runCollectionById}
@@ -3527,40 +3541,6 @@ export default function App() {
                 {tool.icon}
               </button>
             ))}
-            <button
-              className="iconBtn treeToggleBtn"
-              onClick={() => {
-                treeCommandNonceRef.current += 1
-                setTreeAllExpanded(nextTreeToggleAction === 'expand')
-                setTreeOpenCommand({ action: nextTreeToggleAction, nonce: treeCommandNonceRef.current })
-              }}
-              aria-label={treeToggleLabel}
-              title={treeToggleLabel}
-            >
-              <span className="iconGlyph">
-                {treeToggleWillCollapse ? <FoldersCollapseIcon size={16} /> : <FoldersExpandIcon size={16} />}
-              </span>
-            </button>
-            <button
-              className="iconBtn treeSortBtn"
-              onClick={() => {
-                setTreeSortMode(prev => {
-                  const next = prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none'
-                  saveTreeSortMode(next)
-                  return next
-                })
-              }}
-              aria-label={treeSortMode === 'none' ? 'Sort folders and requests (A-Z)' : treeSortMode === 'asc' ? 'Sort folders and requests (Z-A)' : 'Turn off alphabetical sort'}
-              title={treeSortMode === 'none' ? 'Sort A-Z' : treeSortMode === 'asc' ? 'Sort Z-A' : 'Sort off'}
-            >
-              <span className="iconGlyph" style={{ opacity: treeSortMode === 'none' ? 0.75 : 1 }}>
-                {treeSortMode === 'none'
-                  ? <SortNeutralIcon size={16} />
-                  : treeSortMode === 'asc'
-                    ? <SortAscIcon size={16} />
-                    : <SortDescIcon size={16} />}
-              </span>
-            </button>
             <button
               className="iconBtn"
               onClick={openCollectionRunHistoryDialog}

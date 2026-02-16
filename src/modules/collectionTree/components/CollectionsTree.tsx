@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
 import type { Collection, Folder, RequestItem, TreeSortMode } from '../types'
 import type { Environment } from '../../../shared/types/environment'
@@ -187,7 +187,7 @@ export function CollectionsTree(props: {
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const cmd = props.treeOpenCommand
     if (!cmd) return
     if (lastAppliedTreeCommandNonceRef.current === cmd.nonce) return

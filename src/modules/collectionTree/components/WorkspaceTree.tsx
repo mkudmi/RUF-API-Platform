@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Collection, RequestItem, TreeSortMode } from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace'
 import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
 import { getEffectiveWorkspaceSearchTreeOpenCommand, getSearchOpenWorkspaceFolders, getVisibleWorkspaceSearchTree, normalizeWorkspaceTreeSearch } from '../utils/workspaceTreeSearch'
 import { CollectionsTree } from './CollectionsTree'
+import { WorkspaceTreeSearchBar } from './WorkspaceTreeSearchBar'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 import { copyText } from '../../../shared/utils/clipboard'
 
@@ -28,6 +29,10 @@ export function WorkspaceTree(props: {
   inFlightCountByRequestId?: Record<string, number>
   treeOpenCommand?: { action: 'expand' | 'collapse', nonce: number } | null
   onTreeAllExpandedChange?: (isAllExpanded: boolean) => void
+  treeToggleLabel?: string
+  treeToggleWillCollapse?: boolean
+  onTreeToggleClick?: () => void
+  onTreeSortToggleClick?: () => void
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
   onRunCollection?: (collectionId: string) => void
@@ -74,7 +79,6 @@ export function WorkspaceTree(props: {
   const [draftName, setDraftName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const editInputRef = useRef<HTMLInputElement | null>(null)
-  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const searchTerm = useMemo(() => normalizeWorkspaceTreeSearch(searchQuery), [searchQuery])
 
   const { visibleCollections, visibleWorkspaceFolders } = useMemo(
@@ -135,7 +139,7 @@ export function WorkspaceTree(props: {
     saveWorkspaceOpenIds(Array.from(openWorkspaceFolders))
   }, [openWorkspaceFolders])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const cmd = props.treeOpenCommand
     if (!cmd) return
     if (lastAppliedTreeCommandNonceRef.current === cmd.nonce) return
@@ -560,34 +564,16 @@ export function WorkspaceTree(props: {
         })
       }}
     >
-      <div className="workspaceTreeSearchWrap">
-        <div className="workspaceTreeSearchField">
-          <input
-            ref={searchInputRef}
-            type="text"
-            className="workspaceTreeSearchInput"
-            placeholder="Search workspace tree..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            spellCheck={false}
-            aria-label="Search workspace tree"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="workspaceTreeSearchClearBtn"
-              aria-label="Clear search"
-              title="Clear"
-              onClick={() => {
-                setSearchQuery('')
-                requestAnimationFrame(() => searchInputRef.current?.focus())
-              }}
-            >
-              ×
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <WorkspaceTreeSearchBar
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        onClearQuery={() => setSearchQuery('')}
+        sortMode={props.sortMode}
+        treeToggleLabel={props.treeToggleLabel}
+        treeToggleWillCollapse={props.treeToggleWillCollapse}
+        onTreeToggleClick={props.onTreeToggleClick}
+        onTreeSortToggleClick={props.onTreeSortToggleClick}
+      />
 
       <div className="workspaceTreeScroll">
         <div className="tree">
@@ -637,3 +623,4 @@ export function WorkspaceTree(props: {
     </div>
   )
 }
+
