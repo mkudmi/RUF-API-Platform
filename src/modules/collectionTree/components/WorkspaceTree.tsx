@@ -30,6 +30,8 @@ export function WorkspaceTree(props: {
   onTreeAllExpandedChange?: (isAllExpanded: boolean) => void
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
+  onRunCollection?: (collectionId: string) => void
+  onRunFolder?: (collectionId: string, folderId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
   onOpenCollectionSwagger?: (collectionId: string) => void
   onReloadCollectionFromFile?: (collectionId: string) => void
@@ -512,6 +514,8 @@ export function WorkspaceTree(props: {
             onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange(`wf:${folder.id}`, summary)}
             onPickRequest={props.onPickRequest}
             onOpenEnv={props.onOpenEnv}
+            onRunCollection={props.onRunCollection}
+            onRunFolder={props.onRunFolder}
             onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
             onOpenCollectionSwagger={props.onOpenCollectionSwagger}
             onReloadCollectionFromFile={props.onReloadCollectionFromFile}
@@ -600,6 +604,8 @@ export function WorkspaceTree(props: {
               onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
               onPickRequest={props.onPickRequest}
               onOpenEnv={props.onOpenEnv}
+              onRunCollection={props.onRunCollection}
+              onRunFolder={props.onRunFolder}
               onUpdateCollectionFromUrl={props.onUpdateCollectionFromUrl}
               onOpenCollectionSwagger={props.onOpenCollectionSwagger}
               onReloadCollectionFromFile={props.onReloadCollectionFromFile}

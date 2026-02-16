@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, MaximizeIcon, MinimizeIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
@@ -29,6 +29,24 @@ import { loadCollections, loadEnvironmentsByCollection, saveCollections, saveEnv
 import type { Workspace, WorkspaceFolder } from '../shared/types/workspace'
 import { loadWorkspace, saveWorkspace } from '../shared/utils/workspaceStorage'
 import type { RunResult } from '../modules/requestRunner/runRequest'
+import {
+  buildCollectionRunHistoryDraft,
+  buildCollectionRunHistoryUrl,
+  buildCollectionRunQueue,
+  buildFolderRunQueue,
+  prepareCollectionRunRequest,
+  runCollectionRequest,
+  type CollectionRunItemReport,
+} from '../modules/requestRunner/runCollection'
+import { CollectionRunnerSheet } from '../modules/requestRunner/components/CollectionRunnerSheet'
+import type {
+  CollectionRunHistoryEntry,
+  CollectionRunnerLastPlan,
+  CollectionRunReportState,
+  CollectionRunnerQueueItem,
+  CollectionRunSelectionState,
+  CollectionRunnerTab,
+} from '../modules/requestRunner/types'
 import { uid } from '../shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
@@ -53,7 +71,7 @@ import { logError, logWarn } from '../shared/utils/logger'
 // Undo after deleting a param/header via Ctrl+Z
 // Response search history: is it recorded after every change?? mouse clicks??
 // Send a series of requests with an iteration count input??
-// Структура хранения данных приложения
+// App data storage structure
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
@@ -62,6 +80,7 @@ function clamp(n: number, min: number, max: number) {
 const ACTIVE_SELECTION_KEY = 'ruf_active_request_v1'
 const RESPONSE_TAB_BY_REQUEST_KEY = 'ruf_response_tab_by_request_v1'
 const TREE_SORT_MODE_KEY = 'ruf_tree_sort_mode_v1'
+const COLLECTION_RUN_HISTORY_KEY = 'ruf_collection_run_history_v1'
 const APP_CACHE_KEYS = [
   ACTIVE_SELECTION_KEY,
   RESPONSE_TAB_BY_REQUEST_KEY,
@@ -82,6 +101,7 @@ const APP_CACHE_KEYS = [
   'ruf_request_drafts_v1',
   'ruf_value_history_v1',
   'ruf_response_search_history_v1',
+  COLLECTION_RUN_HISTORY_KEY,
   'ruf.update.toastSuppress',
 ] as const
 
@@ -134,6 +154,26 @@ function saveActiveSelection(sel: SavedActiveSelection) {
 
 function clearActiveSelection() {
   localStorage.removeItem(ACTIVE_SELECTION_KEY)
+}
+
+function loadCollectionRunHistory(): CollectionRunHistoryEntry[] {
+  const parsed = loadLocalStorageJson<unknown>(COLLECTION_RUN_HISTORY_KEY, [])
+  if (!Array.isArray(parsed)) return []
+  const out: CollectionRunHistoryEntry[] = []
+  for (const raw of parsed) {
+    if (!raw || typeof raw !== 'object') continue
+    const item = raw as Record<string, unknown>
+    const id = typeof item.id === 'string' ? item.id : ''
+    const createdAt = typeof item.createdAt === 'number' ? item.createdAt : 0
+    const reportRaw = item.report
+    if (!id || !createdAt || !reportRaw || typeof reportRaw !== 'object') continue
+    out.push({ id, createdAt, report: reportRaw as CollectionRunReportState })
+  }
+  return out.slice(0, 20)
+}
+
+function saveCollectionRunHistory(items: CollectionRunHistoryEntry[]) {
+  saveLocalStorageJson(COLLECTION_RUN_HISTORY_KEY, items.slice(0, 20))
 }
 
 function loadTreeSortMode(): TreeSortMode {
@@ -329,6 +369,8 @@ export default function App() {
   } | null>(null)
   const reloadFromFileDialogRef = useRef<HTMLDialogElement | null>(null)
   const reloadFromFileInputRef = useRef<HTMLInputElement | null>(null)
+  const collectionRunAbortControllerRef = useRef<AbortController | null>(null)
+  const collectionRunCloseTimerRef = useRef<number | null>(null)
   const initialAppSettings = useMemo(() => loadAppSettings(), [])
   const [settingsTab, setSettingsTab] = useState('general')
   const [requestTimeoutSec, setRequestTimeoutSec] = useState<number | null>(() => (
@@ -358,6 +400,16 @@ export default function App() {
   const [reloadFromFilePending, setReloadFromFilePending] = useState<Collection | null>(null)
   const [reloadFromFileSummary, setReloadFromFileSummary] = useState<ReturnType<typeof summarizeCollectionDiff> | null>(null)
   const [reloadFromFileSelectedName, setReloadFromFileSelectedName] = useState('')
+  const [collectionRunReport, setCollectionRunReport] = useState<CollectionRunReportState | null>(null)
+  const [collectionRunSelection, setCollectionRunSelection] = useState<CollectionRunSelectionState | null>(null)
+  const [collectionRunBusy, setCollectionRunBusy] = useState(false)
+  const [collectionRunSheetOpen, setCollectionRunSheetOpen] = useState(false)
+  const [collectionRunSheetClosing, setCollectionRunSheetClosing] = useState(false)
+  const [collectionRunIterationsInput, setCollectionRunIterationsInput] = useState('1')
+  const [collectionRunExpandedItemKey, setCollectionRunExpandedItemKey] = useState<string | null>(null)
+  const [collectionRunLastPlan, setCollectionRunLastPlan] = useState<CollectionRunnerLastPlan | null>(null)
+  const [collectionRunHistory, setCollectionRunHistory] = useState<CollectionRunHistoryEntry[]>(() => loadCollectionRunHistory())
+  const [collectionRunnerTab, setCollectionRunnerTab] = useState<CollectionRunnerTab>('report')
 
   const initialBootstrap = useMemo(() => {
     const collections = loadCollections()
@@ -773,6 +825,16 @@ export default function App() {
     capturePointerDown: true,
   })
 
+  useDismissibleLayer({
+    open: collectionRunSheetOpen && !collectionRunBusy && !collectionRunSheetClosing,
+    onDismiss: () => closeCollectionRunnerDialog(),
+    isInsideTarget: target => {
+      const el = target as HTMLElement | null
+      return !!el?.closest('.collectionRunSheetPanel')
+    },
+    capturePointerDown: true,
+  })
+
   useEffect(() => {
     void (async () => {
       try {
@@ -873,6 +935,331 @@ export default function App() {
     })
   }
 
+  function openCollectionRunnerDialog() {
+    if (collectionRunCloseTimerRef.current != null) {
+      window.clearTimeout(collectionRunCloseTimerRef.current)
+      collectionRunCloseTimerRef.current = null
+    }
+    setCollectionRunSheetClosing(false)
+    setCollectionRunSheetOpen(true)
+  }
+
+  function closeCollectionRunnerDialog() {
+    if (collectionRunBusy || collectionRunSheetClosing) return
+    setCollectionRunSheetClosing(true)
+    collectionRunCloseTimerRef.current = window.setTimeout(() => {
+      setCollectionRunSheetOpen(false)
+      setCollectionRunSheetClosing(false)
+      setCollectionRunSelection(null)
+      setCollectionRunReport(null)
+      setCollectionRunIterationsInput('1')
+      setCollectionRunExpandedItemKey(null)
+      setCollectionRunnerTab('report')
+      collectionRunCloseTimerRef.current = null
+    }, 220)
+  }
+
+  function cancelCollectionRun() {
+    collectionRunAbortControllerRef.current?.abort()
+  }
+
+  function openCollectionRunHistoryDialog() {
+    if (collectionRunBusy) return
+    setCollectionRunSelection(null)
+    setCollectionRunExpandedItemKey(null)
+    setCollectionRunnerTab('history')
+    setCollectionRunSheetOpen(true)
+  }
+
+  function openCollectionRunReportFromHistory(item: CollectionRunHistoryEntry) {
+    setCollectionRunSelection(null)
+    setCollectionRunReport(item.report)
+    setCollectionRunExpandedItemKey(null)
+    setCollectionRunnerTab('report')
+    setCollectionRunSheetOpen(true)
+  }
+
+  function findFolderPathLabelById(collection: Collection, folderId: string): string | null {
+    function walk(folders: Folder[], parentPath: string[]): string | null {
+      for (const folder of folders) {
+        const nextPath = [...parentPath, folder.name]
+        if (folder.id === folderId) return nextPath.join(' / ')
+        const fromChild = walk(folder.folders ?? [], nextPath)
+        if (fromChild) return fromChild
+      }
+      return null
+    }
+    return walk(collection.folders ?? [], [])
+  }
+
+  async function runCollectionQueue(args: { collection: Collection, runLabel: string, queue: CollectionRunnerQueueItem[] }) {
+    if (collectionRunBusy) return
+    const { collection, runLabel, queue } = args
+    const environment = envByCollection[collection.id] ?? DEFAULT_ENVIRONMENT
+    const startedAt = Date.now()
+    setCollectionRunExpandedItemKey(null)
+    setCollectionRunLastPlan({
+      collectionId: collection.id,
+      runLabel,
+      queue: queue.map(item => ({
+        requestId: item.request.id,
+        folderPath: item.folderPath,
+        iteration: item.iteration || 1,
+      })),
+    })
+
+    setCollectionRunReport({
+      collectionId: collection.id,
+      collectionName: runLabel,
+      startedAt,
+      finishedAt: queue.length ? null : startedAt,
+      total: queue.length,
+      completed: 0,
+      passed: 0,
+      failed: 0,
+      canceled: false,
+      items: [],
+    })
+    openCollectionRunnerDialog()
+
+    if (!queue.length) return
+
+    setCollectionRunBusy(true)
+    const abortController = new AbortController()
+    collectionRunAbortControllerRef.current = abortController
+    const runItems: CollectionRunItemReport[] = []
+
+    try {
+      for (let index = 0; index < queue.length; index++) {
+        if (abortController.signal.aborted) break
+
+        const queueItem = queue[index]
+        const prepared = prepareCollectionRunRequest({
+          collection,
+          request: queueItem.request,
+          environment,
+          folderPath: queueItem.folderPath,
+        })
+
+        const runId = uid('run')
+        onRequestSendStart(prepared.request.id)
+        onRequestBeforeSend(prepared.request.id, {
+          id: uid('hist'),
+          createdAt: Date.now(),
+          method: prepared.request.method,
+          url: buildCollectionRunHistoryUrl(prepared),
+          runId,
+          responseStatus: null,
+          draft: buildCollectionRunHistoryDraft(prepared),
+        })
+
+        let result: RunResult
+        try {
+          result = await runCollectionRequest(prepared, abortController.signal)
+        } catch (error) {
+          result = {
+            ok: false,
+            status: 0,
+            statusText: 'Failed',
+            timeMs: 0,
+            requestHeadersBytes: 0,
+            requestBodyBytes: 0,
+            requestBytes: 0,
+            responseHeadersBytes: 0,
+            responseBodyBytes: 0,
+            responseBytes: 0,
+            requestHeaders: {},
+            responseHeaders: {},
+            bodyText: (error as Error | null)?.message || String(error),
+          }
+        }
+        onRequestResult(prepared.request.id, result, runId)
+        onRequestSendEnd(prepared.request.id)
+        const nextItem: CollectionRunItemReport = {
+          iteration: queueItem.iteration || 1,
+          requestId: prepared.request.id,
+          requestName: prepared.request.name || 'Untitled request',
+          folderPath: prepared.folderPath,
+          method: prepared.request.method,
+          path: prepared.request.path,
+          runId,
+          status: result.status,
+          statusText: result.statusText,
+          ok: result.ok,
+          timeMs: result.timeMs,
+          requestBytes: result.requestBytes,
+          responseBytes: result.responseBytes,
+          responseBodyText: result.bodyText,
+          errorMessage: result.ok ? undefined : result.bodyText,
+        }
+        runItems.push(nextItem)
+
+        setCollectionRunReport(prev => {
+          if (!prev || prev.collectionId !== collection.id || prev.startedAt !== startedAt) return prev
+          const items = [...prev.items, nextItem]
+          const passed = items.filter(x => x.ok).length
+          const completed = items.length
+          const failed = completed - passed
+          return {
+            ...prev,
+            completed,
+            passed,
+            failed,
+            items,
+          }
+        })
+      }
+    } finally {
+      const canceled = !!abortController.signal.aborted
+      if (collectionRunAbortControllerRef.current === abortController) {
+        collectionRunAbortControllerRef.current = null
+      }
+      const finishedAt = Date.now()
+      const passed = runItems.filter(item => item.ok).length
+      const completed = runItems.length
+      const failed = completed - passed
+      const finalReport: CollectionRunReportState = {
+        collectionId: collection.id,
+        collectionName: runLabel,
+        startedAt,
+        finishedAt,
+        total: queue.length,
+        completed,
+        passed,
+        failed,
+        canceled,
+        items: runItems,
+      }
+      setCollectionRunBusy(false)
+      setCollectionRunReport(finalReport)
+      setCollectionRunHistory(prev => {
+        const next: CollectionRunHistoryEntry[] = [
+          { id: uid('runhist'), createdAt: finishedAt, report: finalReport },
+          ...prev,
+        ].slice(0, 20)
+        saveCollectionRunHistory(next)
+        return next
+      })
+    }
+  }
+
+  function openCollectionRunSelection(args: { collection: Collection, runLabel: string, queue: CollectionRunnerQueueItem[] }) {
+    if (collectionRunBusy) return
+    setCollectionRunnerTab('report')
+    setCollectionRunReport(null)
+    setCollectionRunExpandedItemKey(null)
+    setCollectionRunIterationsInput('1')
+    setCollectionRunSelection({
+      collectionId: args.collection.id,
+      runLabel: args.runLabel,
+      items: args.queue.map((q, idx) => ({
+        id: `${q.request.id}:${idx}`,
+        request: q.request,
+        folderPath: q.folderPath,
+        enabled: true,
+      })),
+    })
+    openCollectionRunnerDialog()
+  }
+
+  function toggleCollectionRunSelectionItem(itemId: string, enabled: boolean) {
+    setCollectionRunSelection(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        items: prev.items.map(item => (item.id === itemId ? { ...item, enabled } : item)),
+      }
+    })
+  }
+
+  async function startSelectedCollectionRun() {
+    if (collectionRunBusy) return
+    const selection = collectionRunSelection
+    if (!selection) return
+    const iterations = collectionRunIterations
+    if (!iterations) return
+
+    const collection = collections.find(c => c.id === selection.collectionId)
+    if (!collection) return
+
+    const selectedQueue = selection.items
+      .filter(item => item.enabled)
+      .map(item => ({ request: item.request, folderPath: item.folderPath }))
+
+    if (!selectedQueue.length) return
+
+    const queue: CollectionRunnerQueueItem[] = []
+    for (let i = 0; i < iterations; i++) {
+      for (const item of selectedQueue) queue.push({ ...item, iteration: i + 1 })
+    }
+
+    setCollectionRunSelection(null)
+    setCollectionRunExpandedItemKey(null)
+    await runCollectionQueue({
+      collection,
+      runLabel: iterations > 1 ? `${selection.runLabel} | x${iterations}` : selection.runLabel,
+      queue,
+    })
+  }
+
+  async function runCollectionById(collectionId: string) {
+    const collection = collections.find(c => c.id === collectionId)
+    if (!collection) return
+    const runLabel = collection.name || collection.id
+    const queue = buildCollectionRunQueue(collection).map(item => ({ ...item, iteration: 1 }))
+    openCollectionRunSelection({ collection, runLabel, queue })
+  }
+
+  async function runFolderById(collectionId: string, folderId: string) {
+    const collection = collections.find(c => c.id === collectionId)
+    if (!collection) return
+
+    const folderPath = findFolderPathLabelById(collection, folderId) || 'Folder'
+    const runLabel = `${collection.name || collection.id} / ${folderPath}`
+    const queue = buildFolderRunQueue(collection, folderId).map(item => ({ ...item, iteration: 1 }))
+    openCollectionRunSelection({ collection, runLabel, queue })
+  }
+
+  async function rerunLastCollectionRun() {
+    if (collectionRunBusy) return
+    const plan = collectionRunLastPlan
+    if (!plan) return
+
+    const collection = collections.find(c => c.id === plan.collectionId)
+    if (!collection) return
+
+    const queueSource = buildCollectionRunQueue(collection)
+    const requestById = new Map(queueSource.map(item => [item.request.id, item.request]))
+    const queue: CollectionRunnerQueueItem[] = []
+    for (const item of plan.queue) {
+      const request = requestById.get(item.requestId)
+      if (!request) continue
+      queue.push({
+        request,
+        folderPath: item.folderPath,
+        iteration: item.iteration || 1,
+      })
+    }
+    if (!queue.length) return
+
+    await runCollectionQueue({
+      collection,
+      runLabel: plan.runLabel,
+      queue,
+    })
+  }
+
+  useEffect(() => {
+    return () => {
+      collectionRunAbortControllerRef.current?.abort()
+      collectionRunAbortControllerRef.current = null
+      if (collectionRunCloseTimerRef.current != null) {
+        window.clearTimeout(collectionRunCloseTimerRef.current)
+        collectionRunCloseTimerRef.current = null
+      }
+    }
+  }, [])
+
   useEffect(() => {
     sidebarWidthRef.current = sidebarWidth
   }, [sidebarWidth])
@@ -952,6 +1339,22 @@ export default function App() {
     [collections, recentRequestVisits],
   )
   const previousRequestTab = recentRequestTabs[recentRequestTabs.length - 1] ?? null
+  const collectionRunDurationMs = useMemo(() => {
+    if (!collectionRunReport) return 0
+    const endTs = collectionRunReport.finishedAt ?? Date.now()
+    return Math.max(0, endTs - collectionRunReport.startedAt)
+  }, [collectionRunReport])
+  const selectedCollectionRunItemsCount = useMemo(() => {
+    if (!collectionRunSelection) return 0
+    return collectionRunSelection.items.filter(item => item.enabled).length
+  }, [collectionRunSelection])
+  const collectionRunIterations = useMemo(() => {
+    const n = Number(collectionRunIterationsInput)
+    if (!Number.isFinite(n)) return null
+    const rounded = Math.round(n)
+    if (rounded < 1) return null
+    return Math.min(1000, rounded)
+  }, [collectionRunIterationsInput])
 
   useEffect(() => {
     const prev = previousActiveVisitRef.current
@@ -2751,7 +3154,7 @@ export default function App() {
   const activeRequestName = active?.req.name ?? ''
   const activeRequestDescription = (active?.req.description ?? '').trim()
   const windowRequestText = activeRequestDescription
-    ? `${activeRequestName} · ${activeRequestDescription}`
+    ? `${activeRequestName} | ${activeRequestDescription}`
     : activeRequestName
   const activeSwaggerContext = useMemo<SwaggerContext | null>(() => {
     if (!active) return null
@@ -2999,7 +3402,7 @@ export default function App() {
                     key={tab.key}
                     type="button"
                     className="windowRecentTab"
-                    title={`${tab.requestName} · ${tab.collectionName}`}
+                    title={`${tab.requestName} | ${tab.collectionName}`}
                     onClick={() => pick(tab.req, tab.col)}
                   >
                     {tab.requestName}
@@ -3021,7 +3424,7 @@ export default function App() {
             aria-label="Back to previous request"
             title={previousRequestTab ? `Back: ${previousRequestTab.requestName}` : 'No previous request'}
           >
-            ←
+            {'<-'}
           </button>
           <div className="windowRequestName" title={windowRequestText}>
             {windowRequestText}
@@ -3071,6 +3474,8 @@ export default function App() {
                 onTreeAllExpandedChange={setTreeAllExpanded}
                 onPickRequest={pick}
                 onOpenEnv={setEnvModalCollectionId}
+                onRunCollection={runCollectionById}
+                onRunFolder={runFolderById}
                 onUpdateCollectionFromUrl={updateCollectionFromUrl}
                 onOpenCollectionSwagger={openCollectionSwagger}
                 onReloadCollectionFromFile={openReloadFromFile}
@@ -3156,9 +3561,21 @@ export default function App() {
                     : <SortDescIcon size={16} />}
               </span>
             </button>
+            <button
+              className="iconBtn"
+              onClick={openCollectionRunHistoryDialog}
+              aria-label="Collection run history"
+              title="Collection run history"
+            >
+              <span className="iconGlyph" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="none" style={{ display: 'block' }}>
+                  <path d="M5.8 3.8L11 8L5.8 12.2V3.8Z" fill="currentColor" />
+                </svg>
+              </span>
+            </button>
           </div>
           <div className="sidebarVersion mono">
-            v{appVersion ?? '—'}
+            v{appVersion ?? '-'}
           </div>
         </div>
         </aside>
@@ -3211,36 +3628,69 @@ export default function App() {
             onDoubleClick={onPanelResizerDoubleClick}
           />
 
-          <section className="card" style={{ overflow: 'hidden' }}>
-            <ResponseViewer
-              result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
-              inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
-              tab={activeResponseTab}
-              historyItems={activeHistory}
-              onSelectHistoryItem={item => {
-                if (!activeRequestId) return
-                setApplyDraftState({ requestId: activeRequestId, token: uid('apply'), draft: item.draft })
+          <section className="card responseCard">
+            <div className="responseCardBody">
+              <ResponseViewer
+                result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
+                inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
+                tab={activeResponseTab}
+                historyItems={activeHistory}
+                onSelectHistoryItem={item => {
+                  if (!activeRequestId) return
+                  setApplyDraftState({ requestId: activeRequestId, token: uid('apply'), draft: item.draft })
+                }}
+                onDeleteHistoryItem={item => {
+                  const requestId = activeRequestId
+                  if (!requestId) return
+                  setHistoryByRequestId(prev => {
+                    const prevItems = prev[requestId] ?? []
+                    const nextItems = prevItems.filter(x => x.id !== item.id)
+                    const next = { ...prev, [requestId]: nextItems }
+                    if (!nextItems.length) delete (next as any)[requestId]
+                    saveRequestHistoryByRequestId(next)
+                    return next
+                  })
+                }}
+                onTabChange={tab => {
+                  const requestId = activeRequestId
+                  if (!requestId) return
+                  setResponseTabByRequest(prev => {
+                    const next = { ...prev, [requestId]: tab }
+                    localStorage.setItem(RESPONSE_TAB_BY_REQUEST_KEY, JSON.stringify(next))
+                    return next
+                  })
+                }}
+              />
+            </div>
+
+            <CollectionRunnerSheet
+              open={collectionRunSheetOpen}
+              busy={collectionRunBusy}
+              closing={collectionRunSheetClosing}
+              tab={collectionRunnerTab}
+              selection={collectionRunSelection}
+              report={collectionRunReport}
+              history={collectionRunHistory}
+              iterationsInput={collectionRunIterationsInput}
+              iterations={collectionRunIterations}
+              selectedCount={selectedCollectionRunItemsCount}
+              reportDurationMs={collectionRunDurationMs}
+              expandedItemKey={collectionRunExpandedItemKey}
+              onClose={closeCollectionRunnerDialog}
+              onTabChange={setCollectionRunnerTab}
+              onToggleSelectionItem={toggleCollectionRunSelectionItem}
+              onIterationsInputChange={next => {
+                const digits = next.replaceAll(/\D+/g, '').slice(0, 4)
+                setCollectionRunIterationsInput(digits || '')
               }}
-              onDeleteHistoryItem={item => {
-                const requestId = activeRequestId
-                if (!requestId) return
-                setHistoryByRequestId(prev => {
-                  const prevItems = prev[requestId] ?? []
-                  const nextItems = prevItems.filter(x => x.id !== item.id)
-                  const next = { ...prev, [requestId]: nextItems }
-                  if (!nextItems.length) delete (next as any)[requestId]
-                  saveRequestHistoryByRequestId(next)
-                  return next
-                })
-              }}
-              onTabChange={tab => {
-                const requestId = activeRequestId
-                if (!requestId) return
-                setResponseTabByRequest(prev => {
-                  const next = { ...prev, [requestId]: tab }
-                  localStorage.setItem(RESPONSE_TAB_BY_REQUEST_KEY, JSON.stringify(next))
-                  return next
-                })
+              onPlay={() => void startSelectedCollectionRun()}
+              onStop={cancelCollectionRun}
+              onRerun={() => void rerunLastCollectionRun()}
+              onToggleExpandedItem={key => setCollectionRunExpandedItemKey(prev => (prev === key ? null : key))}
+              onOpenHistoryReport={historyId => {
+                const item = collectionRunHistory.find(x => x.id === historyId)
+                if (!item) return
+                openCollectionRunReportFromHistory(item)
               }}
             />
           </section>
@@ -3368,7 +3818,6 @@ export default function App() {
           <button className="deleteBtn" onClick={confirmDeleteCollection}>Delete</button>
         </div>
       </dialog>
-
       <dialog
         ref={reloadFromFileDialogRef}
         className="modal modalSmall"
@@ -3382,7 +3831,7 @@ export default function App() {
       >
         <div className="modalHeader">
           <b>Reload From File</b>
-          <button className="iconBtn" onClick={closeReloadFromFile} aria-label="Close">✕</button>
+          <button className="iconBtn" onClick={closeReloadFromFile} aria-label="Close">x</button>
         </div>
 
         <input
@@ -4054,7 +4503,7 @@ export default function App() {
             {updateDownloaded
               ? 'Download complete. Restart the app to install?'
               : updateTask === 'downloading'
-                ? `Downloading update${typeof updateDownloadPct === 'number' ? ` (${updateDownloadPct}%)` : ''}…`
+                ? `Downloading update${typeof updateDownloadPct === 'number' ? ` (${updateDownloadPct}%)` : ''}...`
                 : 'New version is available!'}
           </div>
           {updateTask === 'downloading' && typeof updateDownloadPct === 'number' ? (
@@ -4082,3 +4531,6 @@ export default function App() {
     </div>
   )
 }
+
+
+

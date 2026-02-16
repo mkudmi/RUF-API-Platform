@@ -101,6 +101,8 @@ export function CollectionsTree(props: {
   }) => void
   onPickRequest: (req: RequestItem, col: Collection) => void
   onOpenEnv: (collectionId: string) => void
+  onRunCollection?: (collectionId: string) => void
+  onRunFolder?: (collectionId: string, folderId: string) => void
   onUpdateCollectionFromUrl?: (collectionId: string) => void
   onOpenCollectionSwagger?: (collectionId: string) => void
   onReloadCollectionFromFile?: (collectionId: string) => void
@@ -651,6 +653,19 @@ export function CollectionsTree(props: {
                   >
                     Copy Name
                   </button>
+                  {props.onRunFolder ? (
+                    <button
+                      type="button"
+                      className="treeMenuItem"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenMenuFolderId(null)
+                        props.onRunFolder?.(col.id, folder.id)
+                      }}
+                    >
+                      Run Folder
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="treeMenuItem"
@@ -1186,6 +1201,19 @@ export function CollectionsTree(props: {
                           >
                             Copy Name
                           </button>
+                          {props.onRunCollection ? (
+                            <button
+                              type="button"
+                              className="treeMenuItem"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuCollectionId(null)
+                                props.onRunCollection?.(col.id)
+                              }}
+                            >
+                              Run Collection
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="treeMenuItem"
