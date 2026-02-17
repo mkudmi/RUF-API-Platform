@@ -2160,6 +2160,119 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
   font-size: 13px;
 }
 
+.dataRunReportSheetBackdrop {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  background: rgba(0,0,0,.35);
+  z-index: 120;
+  animation: collectionRunBackdropIn 180ms ease;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dataRunReportSheetBackdrop:hover,
+.dataRunReportSheetBackdrop:active,
+.dataRunReportSheetBackdrop:focus,
+.dataRunReportSheetBackdrop:focus-visible {
+  background: rgba(0,0,0,.35);
+  box-shadow: none;
+  outline: none;
+}
+
+.dataRunReportSheetPanel {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  left: auto;
+  top: auto;
+  width: min(760px, calc(100vw - 24px));
+  height: min(56vh, 520px);
+  z-index: 130;
+  max-height: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0f1117;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  padding: 12px;
+  animation: collectionRunSheetIn 220ms cubic-bezier(.22,.8,.2,1);
+  font-size: 13px;
+}
+
+.dataRunReportSheetPanel .small,
+.dataRunReportSheetPanel .mono,
+.dataRunReportSheetPanel input,
+.dataRunReportSheetPanel button {
+  font-size: 13px;
+}
+
+.dataRunInputEditorBackdrop {
+  position: fixed;
+  inset: 0;
+  border: 0;
+  background: rgba(0,0,0,.42);
+  z-index: 140;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: collectionRunBackdropIn 180ms ease;
+}
+
+.dataRunInputEditorBackdrop:hover,
+.dataRunInputEditorBackdrop:active,
+.dataRunInputEditorBackdrop:focus,
+.dataRunInputEditorBackdrop:focus-visible {
+  background: rgba(0,0,0,.42);
+  box-shadow: none;
+  outline: none;
+}
+
+.dataRunInputEditorPanel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: min(980px, calc(100vw - 40px));
+  height: min(72vh, 680px);
+  transform: translate(-50%, -50%);
+  z-index: 150;
+  max-height: none;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0f1117;
+  box-shadow: 0 10px 28px rgba(0,0,0,.45);
+  padding: 12px;
+  animation: dataRunInputEditorIn 180ms cubic-bezier(.22,.8,.2,1);
+  font-size: 13px;
+}
+
+.dataRunInputEditorPanel .small,
+.dataRunInputEditorPanel .mono,
+.dataRunInputEditorPanel input,
+.dataRunInputEditorPanel button,
+.dataRunInputEditorPanel textarea {
+  font-size: 13px;
+}
+
+@keyframes dataRunInputEditorIn {
+  from {
+    transform: translate(-50%, -50%) scale(.98);
+    opacity: .6;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
 @keyframes collectionRunSheetIn {
   from {
     transform: translateY(100%);

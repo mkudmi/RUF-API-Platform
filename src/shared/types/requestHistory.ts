@@ -30,6 +30,7 @@ export type RequestDraft = {
   fileRows?: Array<{ fieldName?: string, fileName?: string, isActive?: boolean }>
   baseUrlKey?: string
   urlTemplateOverride?: string
+  dataDrivenInput?: string
 }
 
 export type RequestHistoryItem = {

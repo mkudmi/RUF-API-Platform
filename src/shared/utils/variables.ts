@@ -4,6 +4,13 @@ export type VariableSuggestion = {
   kind: 'environment' | 'builtin'
 }
 
+export type DataDrivenDatasetFormat = 'json' | 'csv'
+export type DataDrivenRow = Record<string, string>
+export type DataDrivenDatasetParseResult = {
+  format: DataDrivenDatasetFormat
+  rows: DataDrivenRow[]
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -95,4 +102,108 @@ export function getVariableSuggestions(vars: Record<string, string>): VariableSu
   }
 
   return suggestions.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function normalizeDataRowRecord(value: unknown): DataDrivenRow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: DataDrivenRow = {}
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const key = String(k || '').trim()
+    if (!key) continue
+    if (v === undefined || v === null) {
+      out[key] = ''
+      continue
+    }
+    if (typeof v === 'string') {
+      out[key] = v
+      continue
+    }
+    if (typeof v === 'number' || typeof v === 'boolean') {
+      out[key] = String(v)
+      continue
+    }
+    try {
+      out[key] = JSON.stringify(v)
+    } catch {
+      out[key] = String(v)
+    }
+  }
+  return out
+}
+
+function splitCsvLine(line: string): string[] {
+  const cells: string[] = []
+  let cur = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        cur += '"'
+        i += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+    if (ch === ',' && !inQuotes) {
+      cells.push(cur)
+      cur = ''
+      continue
+    }
+    cur += ch
+  }
+  cells.push(cur)
+  return cells
+}
+
+function parseCsvRows(input: string): DataDrivenRow[] {
+  const lines = input
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+
+  if (!lines.length) return []
+  const headerCells = splitCsvLine(lines[0]).map(c => c.trim())
+  if (!headerCells.length) return []
+
+  const rows: DataDrivenRow[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const cells = splitCsvLine(lines[i])
+    const row: DataDrivenRow = {}
+    for (let col = 0; col < headerCells.length; col++) {
+      const key = headerCells[col]
+      if (!key) continue
+      row[key] = cells[col] ?? ''
+    }
+    if (Object.keys(row).length) rows.push(row)
+  }
+  return rows
+}
+
+export function parseDataDrivenDataset(input: string): DataDrivenDatasetParseResult {
+  const text = (input || '').trim()
+  if (!text) return { format: 'json', rows: [] }
+
+  const looksLikeJson = text.startsWith('{') || text.startsWith('[')
+  if (looksLikeJson) {
+    const parsed = JSON.parse(text) as unknown
+    const list = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).rows)
+        ? ((parsed as Record<string, unknown>).rows as unknown[])
+        : [parsed]
+    return {
+      format: 'json',
+      rows: list.map(item => normalizeDataRowRecord(item)).filter(row => Object.keys(row).length > 0),
+    }
+  }
+
+  return {
+    format: 'csv',
+    rows: parseCsvRows(text),
+  }
 }

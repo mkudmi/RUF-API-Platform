@@ -11,9 +11,18 @@ import { runRequest, type RunResult } from '../../requestRunner/runRequest'
 import { buildCurlCommand } from '../../requestRunner/buildCurl'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, runDbSql } from '../../environment'
-import { getVariableSuggestions, resolveVariableValue, type VariableSuggestion } from '../../../shared/utils/variables'
+import {
+  getVariableSuggestions,
+  parseDataDrivenDataset,
+  resolveVariableValue,
+  type DataDrivenDatasetFormat,
+  type DataDrivenRow,
+  type VariableSuggestion,
+} from '../../../shared/utils/variables'
 import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
 import { JsonCodeEditor } from './JsonCodeEditor'
+import { DataDrivenReportSheet, type DataDrivenRunItem, type DataDrivenRunReport } from './DataDrivenReportSheet'
+import { DataDrivenInputEditorSheet } from './DataDrivenInputEditorSheet'
 import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
@@ -1879,7 +1888,29 @@ export function RequestEditor(props: {
     return { ...envVars, scheme, baseUrl: effectiveWithScheme }
   }, [baseUrlKey, props.collection.baseUrl, props.environment])
 
+  const [dataDrivenInput, setDataDrivenInput] = useState('')
+  const [dataDrivenInputEditorOpen, setDataDrivenInputEditorOpen] = useState(false)
+  const [dataDrivenInputEditorText, setDataDrivenInputEditorText] = useState('')
+  const [dataDrivenRunReport, setDataDrivenRunReport] = useState<DataDrivenRunReport | null>(null)
+  const [dataDrivenRunning, setDataDrivenRunning] = useState(false)
+  const [dataDrivenReportSheetOpen, setDataDrivenReportSheetOpen] = useState(false)
+  const dataDrivenAbortRef = useRef<AbortController | null>(null)
+
   const variableSuggestions = useMemo<VariableSuggestion[]>(() => getVariableSuggestions(variables), [variables])
+  const dataDrivenParsed = useMemo(() => {
+    const text = dataDrivenInput.trim()
+    if (!text) return { format: 'json' as DataDrivenDatasetFormat, rows: [] as DataDrivenRow[], error: '' }
+    try {
+      const parsed = parseDataDrivenDataset(text)
+      return { ...parsed, error: '' }
+    } catch (error) {
+      return {
+        format: 'json' as DataDrivenDatasetFormat,
+        rows: [] as DataDrivenRow[],
+        error: (error as Error | null)?.message || 'Failed to parse data',
+      }
+    }
+  }, [dataDrivenInput])
 
   const effectiveQueryParams = useMemo(() => {
     const next: Record<string, string> = { ...queryParams }
@@ -2244,6 +2275,14 @@ export function RequestEditor(props: {
     setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
     setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
+    setDataDrivenInput(draft?.dataDrivenInput ?? '')
+    setDataDrivenInputEditorText('')
+    setDataDrivenInputEditorOpen(false)
+    setDataDrivenRunReport(null)
+    setDataDrivenRunning(false)
+    setDataDrivenReportSheetOpen(false)
+    dataDrivenAbortRef.current?.abort()
+    dataDrivenAbortRef.current = null
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
@@ -2386,6 +2425,14 @@ export function RequestEditor(props: {
     setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
     setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
+    setDataDrivenInput(draft?.dataDrivenInput ?? '')
+    setDataDrivenInputEditorText('')
+    setDataDrivenInputEditorOpen(false)
+    setDataDrivenRunReport(null)
+    setDataDrivenRunning(false)
+    setDataDrivenReportSheetOpen(false)
+    dataDrivenAbortRef.current?.abort()
+    dataDrivenAbortRef.current = null
 
     saveRequestDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
@@ -2421,6 +2468,7 @@ export function RequestEditor(props: {
       })(),
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
+      dataDrivenInput: draft?.dataDrivenInput ?? '',
     })
   }, [applyDraftToken])
 
@@ -2453,6 +2501,7 @@ export function RequestEditor(props: {
          fileRows: fileRows.map(r => ({ fieldName: r.fieldName, isActive: r.isActive })),
          baseUrlKey,
          urlTemplateOverride,
+         dataDrivenInput,
        })
      }, 200)
      return () => {
@@ -2483,6 +2532,7 @@ export function RequestEditor(props: {
     queryParamKeyOverrides,
     disabledQueryParamNames,
     urlTemplateOverride,
+    dataDrivenInput,
   ])
 
   const grouped = useMemo(() => {
@@ -2665,6 +2715,7 @@ export function RequestEditor(props: {
     })
     return hasActiveCommittedHeaders || hasActiveHeaderDraftRows
   }, [committedHeaders, headerDraftRows, inactiveHeaderNames])
+  const hasDataTabData = useMemo(() => !!dataDrivenInput.trim(), [dataDrivenInput])
 
   const tabExtensionContext = useMemo<RequestEditorTabContext>(() => ({
     collection: props.collection,
@@ -2709,6 +2760,7 @@ export function RequestEditor(props: {
     const coreTabs = [
       { id: 'params', label: 'Params', hasData: hasParamsTabData },
       { id: 'headers', label: 'Headers', hasData: hasHeadersTabData },
+      { id: 'data', label: 'Data', hasData: hasDataTabData },
     ]
 
     const extTabs = requestEditorTabExtensions.map(tab => ({
@@ -2718,7 +2770,7 @@ export function RequestEditor(props: {
     }))
 
     return [...coreTabs, ...extTabs]
-  }, [hasHeadersTabData, hasParamsTabData, requestEditorTabExtensions, tabExtensionContext])
+  }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, requestEditorTabExtensions, tabExtensionContext])
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === activeTabId)) {
@@ -3003,29 +3055,105 @@ export function RequestEditor(props: {
     }
   }
 
-  async function send() {
-    const abortController = new AbortController()
-    abortControllersRef.current.set(props.request.id, abortController)
+  const getSqlErrorResult = useCallback((statusText: string, message: string): RunResult => ({
+    ok: false,
+    status: 0,
+    statusText,
+    timeMs: 0,
+    requestHeadersBytes: 0,
+    requestBodyBytes: 0,
+    requestBytes: 0,
+    responseHeadersBytes: 0,
+    responseBodyBytes: 0,
+    responseBytes: 0,
+    requestHeaders: {},
+    responseHeaders: {},
+    bodyText: message,
+  }), [])
+
+  const getCanceledResult = useCallback((): RunResult => ({
+    ok: false,
+    status: 0,
+    statusText: 'Canceled',
+    timeMs: 0,
+    requestHeadersBytes: 0,
+    requestBodyBytes: 0,
+    requestBytes: 0,
+    responseHeadersBytes: 0,
+    responseBodyBytes: 0,
+    responseBytes: 0,
+    requestHeaders: {},
+    responseHeaders: {},
+    bodyText: 'Request was canceled.',
+  }), [])
+
+  const sendWithVariables = useCallback(async (args?: {
+    variablesOverride?: Record<string, string>
+    abortController?: AbortController
+    requestIdKey?: string
+    dataRow?: DataDrivenRow
+  }) => {
+    const effectiveVariables = args?.variablesOverride ?? variables
+    const dataRow = args?.dataRow ?? null
+    const requestIdKey = args?.requestIdKey ?? props.request.id
+    const abortController = args?.abortController ?? new AbortController()
+    const isExternalAbortController = !!args?.abortController
+    if (!isExternalAbortController) {
+      abortControllersRef.current.set(requestIdKey, abortController)
+    }
 
     const runId = uid('run')
     props.onSendStart?.(props.request.id, runId)
     try {
       const snapshot = buildSendSnapshot()
+      const effectivePathParamsForSend = (() => {
+        if (!dataRow) return pathParams
+        const knownPathKeys = new Set(pathParamsList.map(p => p.name).filter(Boolean))
+        const next = { ...pathParams }
+        for (const [k, v] of Object.entries(dataRow)) {
+          if (!knownPathKeys.has(k)) continue
+          next[k] = v
+        }
+        return next
+      })()
 
-      // Intentionally avoid mutating editor state on send.
-      // In-flight updates (parent re-render) could cause visible checkbox flicker and mismatch
-      // between what's sent and what the UI shows.
+      const knownQueryKeys = new Set<string>([
+        ...Object.keys(snapshot.effectiveQueryParamsForCommit),
+        ...Object.keys(snapshot.effectiveQueryParamsForSend),
+        ...grouped.query.map(p => p.name).filter(Boolean),
+        ...queryDraftRows.map(r => r.name.trim()).filter(Boolean),
+      ])
+
+      const effectiveQueryParamsForCommit = (() => {
+        if (!dataRow) return snapshot.effectiveQueryParamsForCommit
+        const next = { ...snapshot.effectiveQueryParamsForCommit }
+        for (const [k, v] of Object.entries(dataRow)) {
+          if (!knownQueryKeys.has(k)) continue
+          next[k] = v
+        }
+        return next
+      })()
+
+      const effectiveQueryParamsForSend = (() => {
+        if (!dataRow) return snapshot.effectiveQueryParamsForSend
+        const next = { ...snapshot.effectiveQueryParamsForSend }
+        for (const [k, v] of Object.entries(dataRow)) {
+          if (!knownQueryKeys.has(k)) continue
+          next[k] = v
+        }
+        return next
+      })()
 
       props.onBeforeSend?.(props.request.id, {
         id: uid('hist'),
         createdAt: Date.now(),
         method: props.request.method,
-        url: displayUrl,
+        url: applyVariablesForDisplay(displayUrl, effectiveVariables),
         runId,
         responseStatus: null,
         draft: {
-          pathParams,
-          queryParams: snapshot.effectiveQueryParamsForCommit,
+          pathParams: effectivePathParamsForSend,
+          queryParams: effectiveQueryParamsForCommit,
           inactiveQueryParamNames: snapshot.nextInactiveQueryParamNamesForSend,
           queryParamKeyOverrides,
           disabledQueryParamNames: snapshot.effectiveDisabledQueryParamNamesForSend,
@@ -3038,81 +3166,45 @@ export function RequestEditor(props: {
           preSqlScriptIsActive,
           postSqlScriptIsActive,
           sqlConnectionId: selectedSqlConnectionId ?? undefined,
-           bodyText,
-           bodyFormat,
-           fileFieldName: snapshot.fileFieldName,
-           fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
-           fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? '', isActive: r.isActive })),
-           baseUrlKey,
-           urlTemplateOverride,
-         },
+          bodyText,
+          bodyFormat,
+          fileFieldName: snapshot.fileFieldName,
+          fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
+          fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? '', isActive: r.isActive })),
+          baseUrlKey,
+          urlTemplateOverride,
+          dataDrivenInput,
+        },
       })
 
       const preSql = preSqlScriptIsActive ? preSqlScript.trim() : ''
       const postSql = postSqlScriptIsActive ? postSqlScript.trim() : ''
       const shouldRunSql = !!(preSql || postSql)
 
-      const getSqlErrorResult = (statusText: string, message: string): RunResult => ({
-        ok: false,
-        status: 0,
-        statusText,
-        timeMs: 0,
-        requestHeadersBytes: 0,
-        requestBodyBytes: 0,
-        requestBytes: 0,
-        responseHeadersBytes: 0,
-        responseBodyBytes: 0,
-        responseBytes: 0,
-        requestHeaders: {},
-        responseHeaders: {},
-        bodyText: message,
-      })
-
-      const getCanceledResult = (): RunResult => ({
-        ok: false,
-        status: 0,
-        statusText: 'Canceled',
-        timeMs: 0,
-        requestHeadersBytes: 0,
-        requestBodyBytes: 0,
-        requestBytes: 0,
-        responseHeadersBytes: 0,
-        responseBodyBytes: 0,
-        responseBytes: 0,
-        requestHeaders: {},
-        responseHeaders: {},
-        bodyText: 'Request was canceled.',
-      })
-
       if (shouldRunSql) {
         if (!selectedSqlConnection) {
-          props.onResult(
-            props.request.id,
-            getSqlErrorResult('SQL Failed', 'Missing database connection. Select it in SQL tab.'),
-            runId,
-          )
-          return
+          const result = getSqlErrorResult('SQL Failed', 'Missing database connection. Select it in SQL tab.')
+          props.onResult(props.request.id, result, runId)
+          return result
         }
 
         if (preSql) {
           const r = await runDbSql({
             type: selectedSqlConnection.type,
             connectionString: selectedSqlConnection.connectionString,
-            sql: applyVariablesForDisplay(preSql, variables),
+            sql: applyVariablesForDisplay(preSql, effectiveVariables),
           })
           if (!r.ok) {
-            props.onResult(
-              props.request.id,
-              getSqlErrorResult('SQL Pre Script Failed', r.message || 'Pre script failed.'),
-              runId,
-            )
-            return
+            const result = getSqlErrorResult('SQL Pre Script Failed', r.message || 'Pre script failed.')
+            props.onResult(props.request.id, result, runId)
+            return result
           }
         }
 
         if (abortController.signal.aborted) {
-          props.onResult(props.request.id, getCanceledResult(), runId)
-          return
+          const canceled = getCanceledResult()
+          props.onResult(props.request.id, canceled, runId)
+          return canceled
         }
       }
 
@@ -3120,9 +3212,9 @@ export function RequestEditor(props: {
         request: props.request,
         baseUrl,
         urlTemplateOverride,
-        variables,
-        pathParams,
-        queryParams: snapshot.effectiveQueryParamsForSend,
+        variables: effectiveVariables,
+        pathParams: effectivePathParamsForSend,
+        queryParams: effectiveQueryParamsForSend,
         headers: snapshot.effectiveHeadersForSend,
         bodyText,
         files: snapshot.filesForMultipart,
@@ -3134,14 +3226,15 @@ export function RequestEditor(props: {
 
       if (shouldRunSql && postSql) {
         if (abortController.signal.aborted) {
-          props.onResult(props.request.id, getCanceledResult(), runId)
-          return
+          const canceled = getCanceledResult()
+          props.onResult(props.request.id, canceled, runId)
+          return canceled
         }
         if (selectedSqlConnection) {
           const r = await runDbSql({
             type: selectedSqlConnection.type,
             connectionString: selectedSqlConnection.connectionString,
-            sql: applyVariablesForDisplay(postSql, variables),
+            sql: applyVariablesForDisplay(postSql, effectiveVariables),
           })
           if (!r.ok) {
             result = {
@@ -3160,12 +3253,170 @@ export function RequestEditor(props: {
       }
 
       props.onResult(props.request.id, result, runId)
+      return result
     } finally {
-      if (abortControllersRef.current.get(props.request.id) === abortController) {
-        abortControllersRef.current.delete(props.request.id)
+      if (!isExternalAbortController && abortControllersRef.current.get(requestIdKey) === abortController) {
+        abortControllersRef.current.delete(requestIdKey)
       }
       props.onSendEnd?.(props.request.id, runId)
     }
+  }, [
+    baseUrl,
+    baseUrlKey,
+    bodyFormat,
+    bodyText,
+    buildSendSnapshot,
+    dataDrivenInput,
+    displayUrl,
+    fileRows,
+    getCanceledResult,
+    getSqlErrorResult,
+    pathParams,
+    postSqlScript,
+    postSqlScriptIsActive,
+    preSqlScript,
+    preSqlScriptIsActive,
+    props,
+    queryParamKeyOverrides,
+    queryDraftRows,
+    runDbSql,
+    selectedSqlConnection,
+    selectedSqlConnectionId,
+    urlTemplateOverride,
+    variables,
+    pathParamsList,
+    grouped.query,
+  ])
+
+  async function send() {
+    await sendWithVariables()
+  }
+
+  async function startDataDrivenRun() {
+    if (dataDrivenRunning || isSending) return
+    if (!canSend) return
+    if (dataDrivenParsed.error) {
+      setDataDrivenRunReport({
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        total: 0,
+        completed: 0,
+        passed: 0,
+        failed: 0,
+        canceled: false,
+        format: dataDrivenParsed.format,
+        items: [],
+        error: dataDrivenParsed.error,
+      })
+      return
+    }
+
+    const rows = dataDrivenParsed.rows
+    if (!rows.length) {
+      setDataDrivenRunReport({
+        startedAt: Date.now(),
+        finishedAt: Date.now(),
+        total: 0,
+        completed: 0,
+        passed: 0,
+        failed: 0,
+        canceled: false,
+        format: dataDrivenParsed.format,
+        items: [],
+        error: 'No rows to run. Add JSON array/object rows or CSV with header row.',
+      })
+      return
+    }
+
+    const abortController = new AbortController()
+    dataDrivenAbortRef.current = abortController
+    const startedAt = Date.now()
+    setDataDrivenRunning(true)
+    setDataDrivenRunReport({
+      startedAt,
+      finishedAt: null,
+      total: rows.length,
+      completed: 0,
+      passed: 0,
+      failed: 0,
+      canceled: false,
+      format: dataDrivenParsed.format,
+      items: [],
+    })
+
+    const items: DataDrivenRunItem[] = []
+    try {
+      for (let i = 0; i < rows.length; i++) {
+        if (abortController.signal.aborted) break
+        const row = rows[i]
+        const effectiveVariables = { ...variables, ...row }
+        const result = await sendWithVariables({
+          variablesOverride: effectiveVariables,
+          abortController,
+          requestIdKey: `${props.request.id}:data-driven`,
+          dataRow: row,
+        })
+        if (!result) continue
+        const nextItem: DataDrivenRunItem = {
+          rowNumber: i + 1,
+          status: result.status,
+          ok: result.ok,
+          timeMs: result.timeMs,
+          responseBytes: result.responseBytes,
+          responseBodyText: result.bodyText,
+          variables: row,
+        }
+        items.push(nextItem)
+        const passed = items.filter(x => x.ok).length
+        const completed = items.length
+        setDataDrivenRunReport({
+          startedAt,
+          finishedAt: null,
+          total: rows.length,
+          completed,
+          passed,
+          failed: completed - passed,
+          canceled: false,
+          format: dataDrivenParsed.format,
+          items: [...items],
+        })
+      }
+    } finally {
+      const completed = items.length
+      const passed = items.filter(x => x.ok).length
+      setDataDrivenRunReport(prev => ({
+        startedAt,
+        finishedAt: Date.now(),
+        total: rows.length,
+        completed,
+        passed,
+        failed: completed - passed,
+        canceled: abortController.signal.aborted,
+        format: dataDrivenParsed.format,
+        items: prev?.items ?? items,
+        error: prev?.error,
+      }))
+      setDataDrivenRunning(false)
+      if (dataDrivenAbortRef.current === abortController) dataDrivenAbortRef.current = null
+    }
+  }
+
+  function cancelDataDrivenRun() {
+    dataDrivenAbortRef.current?.abort()
+  }
+
+  function openDataDrivenInputEditor() {
+    setDataDrivenInputEditorText(dataDrivenInput)
+    setDataDrivenInputEditorOpen(true)
+  }
+
+  function closeDataDrivenInputEditorAndSave() {
+    setDataDrivenInput(dataDrivenInputEditorText)
+    setDataDrivenInputEditorOpen(false)
+  }
+
+  function saveDataDrivenInputFromEditor() {
+    setDataDrivenInput(dataDrivenInputEditorText)
   }
 
   useEffect(() => {
@@ -3179,6 +3430,8 @@ export function RequestEditor(props: {
     return () => {
       for (const controller of abortControllersRef.current.values()) controller.abort()
       abortControllersRef.current.clear()
+      dataDrivenAbortRef.current?.abort()
+      dataDrivenAbortRef.current = null
     }
   }, [])
 
@@ -3936,6 +4189,117 @@ export function RequestEditor(props: {
 
       {requestEditorTabExtensions.some(tab => tab.id === activeTabId) ? (
         <>{requestEditorTabExtensions.find(tab => tab.id === activeTabId)?.render(tabExtensionContext) ?? null}</>
+      ) : activeTabId === 'data' ? (
+        <div className="accordion">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontWeight: 600, opacity: 0.95 }}>Data-driven run</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setDataDrivenReportSheetOpen(true)}
+                style={{ height: 32, minHeight: 32, padding: '0 10px', boxSizing: 'border-box' }}
+              >
+                Report
+              </button>
+              {dataDrivenRunning ? (
+                <button
+                  type="button"
+                  onClick={cancelDataDrivenRun}
+                  style={{
+                    height: 32,
+                    minHeight: 32,
+                    padding: '0 10px',
+                    boxSizing: 'border-box',
+                    background: 'rgba(239,68,68,.24)',
+                    borderColor: 'rgba(239,68,68,.55)',
+                    color: 'rgb(255, 170, 170)',
+                  }}
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void startDataDrivenRun()}
+                  disabled={!canSend || !!dataDrivenParsed.error || !dataDrivenParsed.rows.length || isSending}
+                  style={{ height: 32, minHeight: 32, padding: '0 10px', boxSizing: 'border-box' }}
+                >
+                  Run Data
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="section" style={{ display: 'grid', gap: 8 }}>
+              <div className="small" style={{ opacity: 0.78 }}>
+                JSON/CSV
+            </div>
+            <div style={{ position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={openDataDrivenInputEditor}
+                  aria-label="Open large editor"
+                  title="Open large editor"
+                  style={{
+                    width: 28,
+                    height: 28,
+                    minHeight: 28,
+                    padding: 0,
+                  }}
+                >
+                  <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M2.5 6V2.5H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M13.5 10V13.5H10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M6.2 2.8L2.8 6.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                      <path d="M9.8 13.2L13.2 9.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                </button>
+                <ConfirmIconButton
+                  className="iconBtn"
+                  onConfirm={() => setDataDrivenInput('')}
+                  ariaLabel="Clear data input"
+                  confirmAriaLabel="Confirm clear data input"
+                  title="Clear data input"
+                  confirmTitle="Confirm clear data input"
+                  icon={<CloseIcon size={14} />}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    minHeight: 28,
+                    padding: 0,
+                  }}
+                />
+              </div>
+              <textarea
+                className="mono"
+                spellCheck={false}
+                value={dataDrivenInput}
+                onChange={e => setDataDrivenInput(e.target.value)}
+                placeholder={'[{"userId":"1","token":"abc"},{"userId":"2","token":"def"}]\n\nuserId,token\n1,abc\n2,def'}
+                style={{
+                  width: '100%',
+                  minHeight: 140,
+                  resize: 'vertical',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid rgba(255,255,255,.12)',
+                  background: 'rgba(255,255,255,.04)',
+                  padding: '8px 74px 8px 10px',
+                }}
+              />
+            </div>
+            <div className="small" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, opacity: 0.8 }}>
+              <span>Format: <span className="mono">{dataDrivenParsed.format.toUpperCase()}</span></span>
+              <span>Rows: <span className="mono">{dataDrivenParsed.rows.length}</span></span>
+              <span>Passed: <span className="mono">{dataDrivenRunReport?.passed ?? 0}</span></span>
+              <span>Failed: <span className="mono">{dataDrivenRunReport?.failed ?? 0}</span></span>
+              {dataDrivenParsed.error ? <span style={{ color: '#ff9a9a' }}>{dataDrivenParsed.error}</span> : null}
+            </div>
+          </div>
+        </div>
       ) : activeTabId === 'params' ? (
         <div className="accordion">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -4687,6 +5051,21 @@ export function RequestEditor(props: {
           ))}
         </div>
       ) : null}
+
+      <DataDrivenReportSheet
+        open={dataDrivenReportSheetOpen}
+        report={dataDrivenRunReport}
+        onClose={() => setDataDrivenReportSheetOpen(false)}
+        onClearReport={() => setDataDrivenRunReport(null)}
+      />
+
+      <DataDrivenInputEditorSheet
+        open={dataDrivenInputEditorOpen}
+        value={dataDrivenInputEditorText}
+        onChange={setDataDrivenInputEditorText}
+        onSave={saveDataDrivenInputFromEditor}
+        onCloseAndSave={closeDataDrivenInputEditorAndSave}
+      />
     </div>
   )
 }
