@@ -2769,7 +2769,15 @@ export function RequestEditor(props: {
       hasData: !!tab.hasData?.(tabExtensionContext),
     }))
 
-    return [...coreTabs, ...extTabs]
+    const allTabs = [...coreTabs, ...extTabs]
+    const dataIndex = allTabs.findIndex(tab => tab.id === 'data')
+    const authIndex = allTabs.findIndex(tab => tab.id === 'authorization')
+    if (dataIndex >= 0 && authIndex >= 0) {
+      const next = [...allTabs]
+      ;[next[dataIndex], next[authIndex]] = [next[authIndex], next[dataIndex]]
+      return next
+    }
+    return allTabs
   }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, requestEditorTabExtensions, tabExtensionContext])
 
   useEffect(() => {
