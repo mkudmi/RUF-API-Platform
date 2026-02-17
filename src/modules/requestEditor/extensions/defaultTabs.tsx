@@ -1,4 +1,5 @@
 import { AuthorizationTab } from '../components/AuthorizationTab'
+import { MockerTab } from '../components/MockerTab'
 import { SqlScriptsTab } from '../components/SqlScriptsTab'
 import type { RequestEditorTabExtension } from './types'
 
@@ -38,6 +39,20 @@ const sqlTab: RequestEditorTabExtension = {
   ),
 }
 
+const mockerTab: RequestEditorTabExtension = {
+  id: 'mocker',
+  label: 'Mocker',
+  order: 31,
+  render: ctx => (
+    <MockerTab
+      requestId={ctx.request.id}
+      routeMethodDefault={ctx.mockRouteMethodDefault}
+      routePathDefault={ctx.mockRoutePathDefault}
+      targetOriginDefault={ctx.mockTargetOriginDefault}
+    />
+  ),
+}
+
 export function getDefaultRequestEditorTabExtensions(): RequestEditorTabExtension[] {
-  return [authorizationTab, sqlTab]
+  return [authorizationTab, sqlTab, mockerTab]
 }

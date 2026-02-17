@@ -1,4 +1,5 @@
 import { SqlIcon } from '../../shared/icons'
+import { LocalMockServerDrawer } from '../../modules/localMockServer'
 import { SqlTerminalDrawer } from '../../modules/sqlTerminal'
 import { TerminalDrawer } from '../../modules/terminal'
 import type { AppSidebarToolExtension } from './types'
@@ -36,6 +37,21 @@ const sqlTerminalTool: AppSidebarToolExtension = {
   ),
 }
 
+const localMockServerTool: AppSidebarToolExtension = {
+  id: 'local-mock-server',
+  label: 'Local Mock Server',
+  title: 'Local Mock Server',
+  icon: <span className="iconGlyph">M</span>,
+  order: 30,
+  buttonClassName: 'terminalBtn',
+  render: ctx => (
+    <LocalMockServerDrawer
+      open={ctx.openDrawerId === 'local-mock-server'}
+      onClose={ctx.closeDrawer}
+    />
+  ),
+}
+
 export function getDefaultSidebarToolExtensions(): AppSidebarToolExtension[] {
-  return [terminalTool, sqlTerminalTool]
+  return [terminalTool, sqlTerminalTool, localMockServerTool]
 }

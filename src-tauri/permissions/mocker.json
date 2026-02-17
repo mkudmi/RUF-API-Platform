@@ -1,0 +1,20 @@
+{
+  "permission": [
+    {
+      "identifier": "mocker-java",
+      "description": "Allows running Java request mock scripts and local mock server controls.",
+      "commands": {
+        "allow": [
+          "mocker_run_java",
+          "mocker_server_start",
+          "mocker_server_stop",
+          "mocker_server_status",
+          "mocker_server_set_route",
+          "mocker_server_list_routes",
+          "mocker_server_delete_route",
+          "mocker_server_logs"
+        ]
+      }
+    }
+  ]
+}

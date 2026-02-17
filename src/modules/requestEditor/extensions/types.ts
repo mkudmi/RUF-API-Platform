@@ -6,6 +6,9 @@ import type { VariableSuggestion } from '../../../shared/utils/variables'
 export type RequestEditorTabContext = {
   collection: Collection
   request: RequestItem
+  mockRouteMethodDefault: string
+  mockRoutePathDefault: string
+  mockTargetOriginDefault: string
   environment?: Environment
   globalSqlConnections?: GlobalSqlConnectionItem[]
   variableSuggestions: VariableSuggestion[]

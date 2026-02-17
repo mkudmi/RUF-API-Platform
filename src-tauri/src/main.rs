@@ -5,6 +5,16 @@ mod commands;
 use tauri::Manager;
 
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    match commands::mocker::run_local_mock_server_process_from_args(&args) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(e) => {
+            eprintln!("Failed to run local mock server process: {e}");
+            std::process::exit(1);
+        }
+    }
+
     tauri::Builder::default()
         .setup(|app| {
             #[cfg(desktop)]
@@ -27,6 +37,14 @@ fn main() {
             commands::db::db_test,
             commands::db::db_exec,
             commands::http::http_request,
+            commands::mocker::mocker_run_java,
+            commands::mocker::mocker_server_start,
+            commands::mocker::mocker_server_stop,
+            commands::mocker::mocker_server_status,
+            commands::mocker::mocker_server_set_route,
+            commands::mocker::mocker_server_list_routes,
+            commands::mocker::mocker_server_delete_route,
+            commands::mocker::mocker_server_logs,
             commands::cert::cert_inspect,
             commands::storage::storage_load,
             commands::storage::storage_save,
@@ -35,6 +53,11 @@ fn main() {
             commands::terminal::terminal_resolve_cwd,
             commands::terminal::terminal_list_shells,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                let _ = commands::mocker::shutdown_local_mock_server_runtime();
+            }
+        });
 }

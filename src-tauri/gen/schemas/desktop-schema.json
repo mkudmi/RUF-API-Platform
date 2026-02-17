@@ -189,6 +189,12 @@
           "markdownDescription": "Allows making HTTP requests from the Rust backend (CORS-free)."
         },
         {
+          "description": "Allows running Java request mock scripts and local mock server controls.",
+          "type": "string",
+          "const": "mocker-java",
+          "markdownDescription": "Allows running Java request mock scripts and local mock server controls."
+        },
+        {
           "description": "Allows loading and saving app local storage mirror to files.",
           "type": "string",
           "const": "storage-access",

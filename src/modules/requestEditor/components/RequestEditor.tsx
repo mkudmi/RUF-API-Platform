@@ -28,6 +28,7 @@ import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveVa
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
 import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
 import { logWarn } from '../../../shared/utils/logger'
+import { getLocalMockServerStatus } from '../utils/localMockServer'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -2717,9 +2718,70 @@ export function RequestEditor(props: {
   }, [committedHeaders, headerDraftRows, inactiveHeaderNames])
   const hasDataTabData = useMemo(() => !!dataDrivenInput.trim(), [dataDrivenInput])
 
+  function normalizeMockRoutePath(pathRaw: string): string {
+    const cleaned = (pathRaw || '').trim()
+      .replaceAll(/%7B/ig, '{')
+      .replaceAll(/%7D/ig, '}')
+    if (!cleaned) return '/'
+
+    const withLeadingSlash = cleaned.startsWith('/') ? cleaned : `/${cleaned}`
+    const withoutPathPlaceholders = withLeadingSlash.replaceAll(/\/\{[^/{}]+\}(?=\/|$)/g, '/')
+    return withoutPathPlaceholders || '/'
+  }
+
+  const mockRoutePathDefault = useMemo(() => {
+    const raw = (isEditingUrl ? urlDraftText : urlEditorText).trim()
+    const parsed = parseUrlInput(raw)
+    const template = (parsed.template || '').trim()
+    if (!template) return normalizeMockRoutePath(props.request.path || '/')
+
+    try {
+      if (isAbsoluteUrl(template)) {
+        const u = new URL(template)
+        return normalizeMockRoutePath(u.pathname || '/')
+      }
+      if (template.startsWith('//')) {
+        const u = new URL(`http:${template}`)
+        return normalizeMockRoutePath(u.pathname || '/')
+      }
+    } catch {
+      // Fall through to template-based parsing.
+    }
+
+    const withoutQuery = template.split('?')[0] || ''
+    return normalizeMockRoutePath(withoutQuery || props.request.path || '/')
+  }, [isEditingUrl, props.request.path, urlDraftText, urlEditorText])
+
+  const mockTargetOriginDefault = useMemo(() => {
+    const raw = (isEditingUrl ? urlDraftText : urlEditorText).trim()
+    const parsed = parseUrlInput(raw)
+    const template = (parsed.template || '').trim()
+
+    const tryGetOrigin = (value: string): string => {
+      const v = (value || '').trim()
+      if (!v) return ''
+      try {
+        if (isAbsoluteUrl(v)) return new URL(v).origin
+        if (v.startsWith('//')) return new URL(`http:${v}`).origin
+      } catch {
+        return ''
+      }
+      return ''
+    }
+
+    const fromTemplate = tryGetOrigin(template)
+    if (fromTemplate) return fromTemplate
+    const fromBase = tryGetOrigin(baseUrl)
+    if (fromBase) return fromBase
+    return ''
+  }, [baseUrl, isEditingUrl, urlDraftText, urlEditorText])
+
   const tabExtensionContext = useMemo<RequestEditorTabContext>(() => ({
     collection: props.collection,
     request: props.request,
+    mockRouteMethodDefault: props.request.method,
+    mockRoutePathDefault,
+    mockTargetOriginDefault,
     environment: props.environment,
     globalSqlConnections: props.globalSqlConnections,
     variableSuggestions,
@@ -2738,6 +2800,8 @@ export function RequestEditor(props: {
     setPostSqlScriptIsActive,
   }), [
     committedHeaders,
+    mockTargetOriginDefault,
+    mockRoutePathDefault,
     postSqlScript,
     postSqlScriptIsActive,
     preSqlScript,
@@ -3216,10 +3280,54 @@ export function RequestEditor(props: {
         }
       }
 
+      let sendBaseUrl = baseUrl
+      let sendUrlTemplateOverride = urlTemplateOverride
+      let usedLocalMockServer = false
+      const originalBaseUrl = baseUrl
+      const originalUrlTemplateOverride = urlTemplateOverride
+      try {
+        const localServer = await getLocalMockServerStatus()
+        if (localServer?.running && localServer.baseUrl) {
+          usedLocalMockServer = true
+          sendBaseUrl = localServer.baseUrl.trim()
+          const overrideRaw = (urlTemplateOverride || '').trim()
+          if (overrideRaw) {
+            if (isAbsoluteUrl(overrideRaw) || overrideRaw.startsWith('//')) {
+              try {
+                const parsed = new URL(overrideRaw, 'http://localhost')
+                sendUrlTemplateOverride = parsed.pathname || props.request.path
+              } catch {
+                sendUrlTemplateOverride = props.request.path
+              }
+            } else {
+              sendUrlTemplateOverride = overrideRaw
+            }
+          } else {
+            let pathPrefix = ''
+            try {
+              const parsedBase = new URL(baseUrl)
+              pathPrefix = (parsedBase.pathname || '').trim()
+            } catch {
+              pathPrefix = ''
+            }
+
+            const normalizedPrefix = pathPrefix
+              ? (pathPrefix.startsWith('/') ? pathPrefix : `/${pathPrefix}`)
+              : ''
+            const cleanedPrefix = normalizedPrefix.replace(/\/+$/, '')
+            sendUrlTemplateOverride = cleanedPrefix && cleanedPrefix !== '/'
+              ? joinUrlParts(cleanedPrefix, props.request.path)
+              : props.request.path
+          }
+        }
+      } catch (error) {
+        logWarn('sendWithVariables.localMockServerStatus', 'Failed to read local mock server status before send', { error })
+      }
+
       let result = await runRequest({
         request: props.request,
-        baseUrl,
-        urlTemplateOverride,
+        baseUrl: sendBaseUrl,
+        urlTemplateOverride: sendUrlTemplateOverride,
         variables: effectiveVariables,
         pathParams: effectivePathParamsForSend,
         queryParams: effectiveQueryParamsForSend,
@@ -3231,6 +3339,35 @@ export function RequestEditor(props: {
         formFields: snapshot.formFields,
         signal: abortController.signal,
       })
+
+      if (usedLocalMockServer && result.status === 404) {
+        const missHeader = (() => {
+          for (const [k, v] of Object.entries(result.responseHeaders || {})) {
+            if (k.toLowerCase() === 'x-ruf-local-mock-miss') return String(v || '')
+          }
+          return ''
+        })()
+        const isMissByBody = /"error"\s*:\s*"mock route not found"/i.test(result.bodyText || '')
+        const isLocalMockMiss = missHeader === '1' || isMissByBody
+
+        if (isLocalMockMiss && !abortController.signal.aborted) {
+          result = await runRequest({
+            request: props.request,
+            baseUrl: originalBaseUrl,
+            urlTemplateOverride: originalUrlTemplateOverride,
+            variables: effectiveVariables,
+            pathParams: effectivePathParamsForSend,
+            queryParams: effectiveQueryParamsForSend,
+            headers: snapshot.effectiveHeadersForSend,
+            bodyText,
+            files: snapshot.filesForMultipart,
+            file: snapshot.fileForOctetStream,
+            fileFieldName: snapshot.fileFieldName,
+            formFields: snapshot.formFields,
+            signal: abortController.signal,
+          })
+        }
+      }
 
       if (shouldRunSql && postSql) {
         if (abortController.signal.aborted) {

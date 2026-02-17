@@ -11,6 +11,7 @@
     "updater:default",
     "db-access",
     "http-raw",
+    "mocker-java",
     "storage-access",
     "system-open-url",
     "terminal-exec"
