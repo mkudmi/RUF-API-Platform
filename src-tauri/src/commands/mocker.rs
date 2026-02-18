@@ -54,6 +54,7 @@ pub struct MockerServerStartArgs {
 pub struct MockerServerSetRouteArgs {
     pub method: String,
     pub path: String,
+    pub port: Option<u16>,
     pub status: u16,
     pub headers: Option<Vec<(String, String)>>,
     pub body: String,
@@ -63,6 +64,11 @@ pub struct MockerServerSetRouteArgs {
 pub struct MockerServerDeleteRouteArgs {
     pub method: String,
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MockerServerPortArgs {
+    pub port: u16,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,9 +112,14 @@ struct MockServerRuntime {
 }
 
 static MOCK_SERVER_STATE: OnceLock<Mutex<Option<MockServerRuntime>>> = OnceLock::new();
+static MOCK_SERVER_ADDITIONAL_STATE: OnceLock<Mutex<Vec<MockServerRuntime>>> = OnceLock::new();
 
 fn server_state() -> &'static Mutex<Option<MockServerRuntime>> {
     MOCK_SERVER_STATE.get_or_init(|| Mutex::new(None))
+}
+
+fn additional_server_state() -> &'static Mutex<Vec<MockServerRuntime>> {
+    MOCK_SERVER_ADDITIONAL_STATE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn clamp_timeout_ms(timeout_ms: Option<u64>) -> u64 {
@@ -616,6 +627,29 @@ fn cleanup_stale_runtime(state: &mut Option<MockServerRuntime>) {
     }
 }
 
+fn cleanup_stale_runtimes(state: &mut Vec<MockServerRuntime>) {
+    state.retain_mut(|runtime| !matches!(runtime.child.try_wait(), Ok(Some(_))));
+}
+
+fn refresh_runtime_routes_count(runtime: &mut MockServerRuntime) {
+    if let Ok((status, body)) = http_local_request(runtime.port, "GET", "/__health", None) {
+        if status == 200 {
+            if let Ok(parsed) = serde_json::from_str::<ChildHealth>(&body) {
+                runtime.routes_count = parsed.routes_count;
+            }
+        }
+    }
+}
+
+fn runtime_status(runtime: &MockServerRuntime) -> MockerServerStatus {
+    MockerServerStatus {
+        running: true,
+        port: runtime.port,
+        base_url: format!("http://127.0.0.1:{}", runtime.port),
+        routes_count: runtime.routes_count,
+    }
+}
+
 fn shutdown_runtime(mut runtime: MockServerRuntime) {
     let _ = http_local_request(runtime.port, "GET", "/__stop", None);
     for _ in 0..20 {
@@ -630,65 +664,7 @@ fn shutdown_runtime(mut runtime: MockServerRuntime) {
     let _ = runtime.child.wait();
 }
 
-pub fn shutdown_local_mock_server_runtime() -> Result<(), String> {
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    if let Some(runtime) = guard.take() {
-        shutdown_runtime(runtime);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn mocker_server_status() -> Result<MockerServerStatus, String> {
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    cleanup_stale_runtime(&mut guard);
-
-    if let Some(runtime) = guard.as_mut() {
-        if let Ok((status, body)) = http_local_request(runtime.port, "GET", "/__health", None) {
-            if status == 200 {
-                if let Ok(parsed) = serde_json::from_str::<ChildHealth>(&body) {
-                    runtime.routes_count = parsed.routes_count;
-                }
-            }
-        }
-        return Ok(MockerServerStatus {
-            running: true,
-            port: runtime.port,
-            base_url: format!("http://127.0.0.1:{}", runtime.port),
-            routes_count: runtime.routes_count,
-        });
-    }
-
-    Ok(MockerServerStatus {
-        running: false,
-        port: 0,
-        base_url: String::new(),
-        routes_count: 0,
-    })
-}
-
-#[tauri::command]
-pub fn mocker_server_start(args: Option<MockerServerStartArgs>) -> Result<MockerServerStatus, String> {
-    let port = args.and_then(|x| x.port).unwrap_or(7777).clamp(1024, 65535);
-
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    cleanup_stale_runtime(&mut guard);
-
-    if let Some(runtime) = guard.as_ref() {
-        return Ok(MockerServerStatus {
-            running: true,
-            port: runtime.port,
-            base_url: format!("http://127.0.0.1:{}", runtime.port),
-            routes_count: runtime.routes_count,
-        });
-    }
-
+fn spawn_local_mock_runtime(port: u16) -> Result<MockServerRuntime, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("--ruf-local-mock-server")
@@ -719,23 +695,62 @@ pub fn mocker_server_start(args: Option<MockerServerStartArgs>) -> Result<Mocker
         return Err("local mock server failed to start".to_string());
     }
 
-    *guard = Some(MockServerRuntime {
+    Ok(MockServerRuntime {
         child,
         port,
-        routes_count: 0,
-    });
-
-    Ok(MockerServerStatus {
-        running: true,
-        port,
-        base_url: format!("http://127.0.0.1:{}", port),
         routes_count: 0,
     })
 }
 
+pub fn shutdown_local_mock_server_runtime() -> Result<(), String> {
+    let primary_runtime = {
+        let mut guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        guard.take()
+    };
+    if let Some(runtime) = primary_runtime {
+        shutdown_runtime(runtime);
+    }
+
+    let additional_runtimes = {
+        let mut guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        std::mem::take(&mut *guard)
+    };
+    for runtime in additional_runtimes {
+        shutdown_runtime(runtime);
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
-pub fn mocker_server_stop() -> Result<MockerServerStatus, String> {
-    shutdown_local_mock_server_runtime()?;
+pub fn mocker_server_additional_list() -> Result<Vec<MockerServerStatus>, String> {
+    let mut guard = additional_server_state()
+        .lock()
+        .map_err(|_| "additional server state lock failed".to_string())?;
+    cleanup_stale_runtimes(&mut guard);
+    for runtime in guard.iter_mut() {
+        refresh_runtime_routes_count(runtime);
+    }
+    let mut out: Vec<MockerServerStatus> = guard.iter().map(runtime_status).collect();
+    out.sort_by_key(|x| x.port);
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn mocker_server_status() -> Result<MockerServerStatus, String> {
+    let mut guard = server_state()
+        .lock()
+        .map_err(|_| "server state lock failed".to_string())?;
+    cleanup_stale_runtime(&mut guard);
+
+    if let Some(runtime) = guard.as_mut() {
+        refresh_runtime_routes_count(runtime);
+        return Ok(runtime_status(runtime));
+    }
 
     Ok(MockerServerStatus {
         running: false,
@@ -746,34 +761,154 @@ pub fn mocker_server_stop() -> Result<MockerServerStatus, String> {
 }
 
 #[tauri::command]
-pub fn mocker_server_set_route(args: MockerServerSetRouteArgs) -> Result<MockerServerStatus, String> {
+pub fn mocker_server_start(args: Option<MockerServerStartArgs>) -> Result<MockerServerStatus, String> {
+    let port = args.and_then(|x| x.port).unwrap_or(7777).clamp(1024, 65535);
+
     let mut guard = server_state()
         .lock()
         .map_err(|_| "server state lock failed".to_string())?;
     cleanup_stale_runtime(&mut guard);
 
-    let runtime = guard
-        .as_mut()
-        .ok_or_else(|| "local mock server is not running".to_string())?;
-
-    let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
-    let (status, _body) = http_local_request(runtime.port, "POST", "/__control/route", Some(&payload))?;
-    if status != 200 {
-        return Err(format!("failed to publish route, status {status}"));
+    if let Some(runtime) = guard.as_mut() {
+        refresh_runtime_routes_count(runtime);
+        return Ok(runtime_status(runtime));
     }
 
-    if let Ok((_, body)) = http_local_request(runtime.port, "GET", "/__health", None) {
-        if let Ok(parsed) = serde_json::from_str::<ChildHealth>(&body) {
-            runtime.routes_count = parsed.routes_count;
+    {
+        let mut additional_guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        cleanup_stale_runtimes(&mut additional_guard);
+        if additional_guard.iter().any(|x| x.port == port) {
+            return Err(format!("port {port} is already used by an additional mock server"));
         }
     }
 
+    let runtime = spawn_local_mock_runtime(port)?;
+    *guard = Some(runtime);
+
+    if let Some(runtime) = guard.as_ref() {
+        Ok(runtime_status(runtime))
+    } else {
+        Err("local mock server failed to initialize state".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn mocker_server_additional_start(
+    args: Option<MockerServerStartArgs>,
+) -> Result<MockerServerStatus, String> {
+    let port = args.and_then(|x| x.port).unwrap_or(7778).clamp(1024, 65535);
+
+    {
+        let mut primary_guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        cleanup_stale_runtime(&mut primary_guard);
+        if let Some(runtime) = primary_guard.as_ref() {
+            if runtime.port == port {
+                return Err(format!("port {port} is already used by the primary mock server"));
+            }
+        }
+    }
+
+    let mut additional_guard = additional_server_state()
+        .lock()
+        .map_err(|_| "additional server state lock failed".to_string())?;
+    cleanup_stale_runtimes(&mut additional_guard);
+
+    if additional_guard.iter().any(|x| x.port == port) {
+        return Err(format!("additional mock server on port {port} already exists"));
+    }
+
+    let runtime = spawn_local_mock_runtime(port)?;
+    additional_guard.push(runtime);
+    additional_guard.sort_by_key(|x| x.port);
+
+    if let Some(runtime) = additional_guard.iter().find(|x| x.port == port) {
+        Ok(runtime_status(runtime))
+    } else {
+        Err("failed to store additional mock server runtime".to_string())
+    }
+}
+
+#[tauri::command]
+pub fn mocker_server_stop() -> Result<MockerServerStatus, String> {
+    let mut guard = server_state()
+        .lock()
+        .map_err(|_| "server state lock failed".to_string())?;
+    cleanup_stale_runtime(&mut guard);
+    if let Some(runtime) = guard.take() {
+        drop(guard);
+        shutdown_runtime(runtime);
+    }
+
     Ok(MockerServerStatus {
-        running: true,
-        port: runtime.port,
-        base_url: format!("http://127.0.0.1:{}", runtime.port),
-        routes_count: runtime.routes_count,
+        running: false,
+        port: 0,
+        base_url: String::new(),
+        routes_count: 0,
     })
+}
+
+#[tauri::command]
+pub fn mocker_server_additional_stop(
+    args: MockerServerPortArgs,
+) -> Result<Vec<MockerServerStatus>, String> {
+    let mut additional_guard = additional_server_state()
+        .lock()
+        .map_err(|_| "additional server state lock failed".to_string())?;
+    cleanup_stale_runtimes(&mut additional_guard);
+
+    let idx = additional_guard
+        .iter()
+        .position(|x| x.port == args.port)
+        .ok_or_else(|| format!("additional mock server on port {} is not running", args.port))?;
+    let runtime = additional_guard.remove(idx);
+    drop(additional_guard);
+    shutdown_runtime(runtime);
+
+    mocker_server_additional_list()
+}
+
+#[tauri::command]
+pub fn mocker_server_set_route(args: MockerServerSetRouteArgs) -> Result<MockerServerStatus, String> {
+    let target_port = args.port.unwrap_or(7777);
+    let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
+
+    {
+        let mut guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        cleanup_stale_runtime(&mut guard);
+        if let Some(runtime) = guard.as_mut() {
+            if runtime.port == target_port {
+                let (status, _body) = http_local_request(runtime.port, "POST", "/__control/route", Some(&payload))?;
+                if status != 200 {
+                    return Err(format!("failed to publish route, status {status}"));
+                }
+                refresh_runtime_routes_count(runtime);
+                return Ok(runtime_status(runtime));
+            }
+        }
+    }
+
+    {
+        let mut additional_guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        cleanup_stale_runtimes(&mut additional_guard);
+        if let Some(runtime) = additional_guard.iter_mut().find(|x| x.port == target_port) {
+            let (status, _body) = http_local_request(runtime.port, "POST", "/__control/route", Some(&payload))?;
+            if status != 200 {
+                return Err(format!("failed to publish route, status {status}"));
+            }
+            refresh_runtime_routes_count(runtime);
+            return Ok(runtime_status(runtime));
+        }
+    }
+
+    Err(format!("local mock server on port {target_port} is not running"))
 }
 
 #[tauri::command]
@@ -818,18 +953,29 @@ pub fn mocker_server_delete_route(args: MockerServerDeleteRouteArgs) -> Result<M
         ));
     }
 
-    if let Ok((_, body)) = http_local_request(runtime.port, "GET", "/__health", None) {
-        if let Ok(parsed) = serde_json::from_str::<ChildHealth>(&body) {
-            runtime.routes_count = parsed.routes_count;
+    refresh_runtime_routes_count(runtime);
+
+    {
+        let mut additional_guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        cleanup_stale_runtimes(&mut additional_guard);
+        let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
+        for additional_runtime in additional_guard.iter_mut() {
+            if let Ok((additional_status, _)) = http_local_request(
+                additional_runtime.port,
+                "DELETE",
+                "/__control/route",
+                Some(&payload),
+            ) {
+                if additional_status == 200 || additional_status == 404 {
+                    refresh_runtime_routes_count(additional_runtime);
+                }
+            }
         }
     }
 
-    Ok(MockerServerStatus {
-        running: true,
-        port: runtime.port,
-        base_url: format!("http://127.0.0.1:{}", runtime.port),
-        routes_count: runtime.routes_count,
-    })
+    Ok(runtime_status(runtime))
 }
 
 #[tauri::command]

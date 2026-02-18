@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } 
 import { CloseIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
 import { logWarn } from '../../../shared/utils/logger'
+import type { Collection } from '../../collectionTree'
 import {
+  listLocalMockAdditionalServers,
+  startLocalMockAdditionalServer,
+  stopLocalMockAdditionalServer,
+  setLocalMockTargetOrigin,
   getLocalMockTargetOrigin,
   deleteLocalMockRoute,
   getLocalMockServerLogs,
@@ -17,11 +22,39 @@ import {
 type LocalMockServerDrawerProps = {
   open: boolean
   onClose: () => void
+  collections: Collection[]
 }
 
 const LOCAL_MOCK_SERVER_HEIGHT_KEY = 'ruf_local_mock_server_height_v1'
 const LOCAL_MOCK_SERVER_MIN_HEIGHT_PX = 220
 const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
+
+type ServerTab = {
+  id: string
+  port: number
+}
+
+function normalizeAbsoluteOrigin(raw: string): string {
+  const value = (raw || '').trim()
+  if (!value) return ''
+  if (!/^https?:\/\//i.test(value)) return ''
+  try {
+    return new URL(value).origin
+  } catch {
+    return ''
+  }
+}
+
+function collectCollectionTargetOrigins(collections: Collection[]): string[] {
+  const out = new Set<string>()
+  for (const col of collections) {
+    const fromBase = normalizeAbsoluteOrigin(col.baseUrl || '')
+    if (fromBase) out.add(fromBase)
+    const fromSource = normalizeAbsoluteOrigin(col.sourceUrl || '')
+    if (fromSource) out.add(fromSource)
+  }
+  return Array.from(out).sort((a, b) => a.localeCompare(b))
+}
 
 function getWindowTitlebarHeightPx() {
   if (typeof document === 'undefined') return WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
@@ -55,27 +88,86 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
       return null
     }
   })
-  const [status, setStatus] = useState<{
+  const [primaryStatus, setPrimaryStatus] = useState<{
     running: boolean
     port: number
     baseUrl: string
     routesCount: number
   } | null>(null)
+  const [additionalStatuses, setAdditionalStatuses] = useState<Array<{
+    running: boolean
+    port: number
+    baseUrl: string
+    routesCount: number
+  }>>([])
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [snippetCopied, setSnippetCopied] = useState(false)
   const [routes, setRoutes] = useState<LocalMockRouteItem[]>([])
   const [routesLoading, setRoutesLoading] = useState(false)
   const [deletingRouteKey, setDeletingRouteKey] = useState<string | null>(null)
-  const [targetOrigin, setTargetOrigin] = useState<string>(() => getLocalMockTargetOrigin())
+  const [serverTabs, setServerTabs] = useState<ServerTab[]>([{ id: 'server-1', port: 7777 }])
+  const [activeTabId, setActiveTabId] = useState<string>('server-1')
+  const [targetOriginByPort, setTargetOriginByPort] = useState<Record<number, string>>(() => ({
+    7777: getLocalMockTargetOrigin(),
+  }))
   const [logs, setLogs] = useState<string[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const collectionTargetOrigins = useMemo(
+    () => collectCollectionTargetOrigins(props.collections),
+    [props.collections],
+  )
+  const serverStatusByPort = useMemo(() => {
+    const map = new Map<number, {
+      running: boolean
+      port: number
+      baseUrl: string
+      routesCount: number
+    }>()
+    if (primaryStatus) map.set(primaryStatus.port, primaryStatus)
+    for (const status of additionalStatuses) map.set(status.port, status)
+    return map
+  }, [primaryStatus, additionalStatuses])
+  const activeTab = useMemo(() => (
+    serverTabs.find(tab => tab.id === activeTabId) ?? serverTabs[0]
+  ), [activeTabId, serverTabs])
+  const activePort = activeTab?.port ?? 7777
+  const activeServerStatus = serverStatusByPort.get(activePort) ?? null
+  const activeTargetOrigin = targetOriginByPort[activePort] || ''
+  const targetOriginOptions = useMemo(() => {
+    const out = new Set<string>(collectionTargetOrigins)
+    if (activeTargetOrigin) out.add(activeTargetOrigin)
+    return Array.from(out)
+  }, [activeTargetOrigin, collectionTargetOrigins])
+
+  useEffect(() => {
+    if (!serverTabs.length) return
+    if (serverTabs.some(tab => tab.id === activeTabId)) return
+    setActiveTabId(serverTabs[0].id)
+  }, [activeTabId, serverTabs])
 
   async function refreshAll() {
     try {
-      const nextStatus = await getLocalMockServerStatus()
-      setStatus(nextStatus)
-      if (!nextStatus.running) {
+      const [nextPrimaryStatus, nextAdditionalStatuses] = await Promise.all([
+        getLocalMockServerStatus(),
+        listLocalMockAdditionalServers(),
+      ])
+      setPrimaryStatus(nextPrimaryStatus)
+      setAdditionalStatuses(nextAdditionalStatuses)
+      setServerTabs(prev => {
+        const byPort = new Map<number, ServerTab>()
+        for (const tab of prev) byPort.set(tab.port, tab)
+        if (!byPort.has(7777)) byPort.set(7777, { id: 'server-1', port: 7777 })
+        for (const status of nextAdditionalStatuses) {
+          if (status.port === 7777) continue
+          if (!byPort.has(status.port)) {
+            byPort.set(status.port, { id: `server-${status.port}`, port: status.port })
+          }
+        }
+        return Array.from(byPort.values()).sort((a, b) => a.port - b.port)
+      })
+
+      if (!nextPrimaryStatus.running) {
         setRoutes([])
         setLogs([])
         setError('')
@@ -97,7 +189,7 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   }
 
   async function refreshLogs() {
-    if (!status?.running) {
+    if (!primaryStatus?.running) {
       setLogs([])
       return
     }
@@ -115,7 +207,10 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   useEffect(() => {
     if (!open) return
     void refreshAll()
-    setTargetOrigin(getLocalMockTargetOrigin())
+    setTargetOriginByPort(prev => ({
+      ...prev,
+      7777: getLocalMockTargetOrigin(),
+    }))
   }, [open])
 
   useEffect(() => {
@@ -126,13 +221,13 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   }, [open])
 
   useEffect(() => {
-    if (!open || !status?.running) return
+    if (!open || !primaryStatus?.running) return
     void refreshLogs()
     const timer = window.setInterval(() => {
       void refreshLogs()
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [open, status?.running])
+  }, [open, primaryStatus?.running])
 
   useEffect(() => {
     if (heightPx == null) return
@@ -159,11 +254,75 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
     return () => window.removeEventListener('resize', clampToViewport)
   }, [open])
 
+  function setTargetOriginForPort(port: number, originRaw: string) {
+    const normalized = normalizeAbsoluteOrigin(originRaw)
+    setTargetOriginByPort(prev => ({
+      ...prev,
+      [port]: normalized,
+    }))
+    if (port === 7777) setLocalMockTargetOrigin(normalized)
+  }
+
+  function addServerTab() {
+    setServerTabs(prev => {
+      const usedPorts = new Set(prev.map(tab => tab.port))
+      let candidate = 7778
+      while (usedPorts.has(candidate) && candidate < 65535) candidate += 1
+      if (candidate > 65535) return prev
+      const nextTab = { id: `server-${candidate}`, port: candidate }
+      setActiveTabId(nextTab.id)
+      setTargetOriginByPort(prevTarget => {
+        if (prevTarget[candidate]) return prevTarget
+        const fallback = collectionTargetOrigins[0] || ''
+        return { ...prevTarget, [candidate]: fallback }
+      })
+      return [...prev, nextTab]
+    })
+  }
+
+  async function startActiveServer() {
+    if (!activeTab) return
+    setLoading(true)
+    setInfo('')
+    setError('')
+    try {
+      const next = activeTab.port === 7777
+        ? await startLocalMockServer(activeTab.port)
+        : await startLocalMockAdditionalServer(activeTab.port)
+      setInfo(`Local server started: ${next.baseUrl}`)
+      await refreshAll()
+    } catch (e) {
+      setError((e as Error | null)?.message || 'Failed to start local server')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function stopActiveServer() {
+    if (!activeTab) return
+    setLoading(true)
+    setInfo('')
+    setError('')
+    try {
+      if (activeTab.port === 7777) {
+        await stopLocalMockServer()
+      } else {
+        await stopLocalMockAdditionalServer(activeTab.port)
+      }
+      setInfo(`Local server stopped: http://127.0.0.1:${activeTab.port}`)
+      await refreshAll()
+    } catch (e) {
+      setError((e as Error | null)?.message || 'Failed to stop local server')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const devtoolsSnippet = useMemo(() => {
-    const base = status?.baseUrl || 'http://127.0.0.1:7777'
-    const target = targetOrigin || 'https://api.example.com'
+    const base = activeServerStatus?.baseUrl || `http://127.0.0.1:${activePort || 7777}`
+    const target = activeTargetOrigin || 'https://api.example.com'
     return `(() => {\n  const TARGET_ORIGIN = '${target}';\n  const MOCK_ORIGIN = '${base}';\n  const orig = window.fetch.bind(window);\n  const isMiss = async (res) => {\n    if (res.headers.get('x-ruf-local-mock-miss') === '1') return true;\n    const ct = (res.headers.get('content-type') || '').toLowerCase();\n    if (!ct.includes('application/json')) return false;\n    try {\n      const data = await res.clone().json();\n      return String(data?.error || '').toLowerCase() === 'mock route not found';\n    } catch {\n      return false;\n    }\n  };\n  window.fetch = async (input, init) => {\n    const url = typeof input === 'string' ? input : input.url;\n    if (!url.startsWith(TARGET_ORIGIN + '/')) return orig(input, init);\n    const redirected = url.replace(TARGET_ORIGIN, MOCK_ORIGIN);\n    const res = await orig(redirected, init);\n    if (await isMiss(res)) return orig(input, init);\n    return res;\n  };\n  console.log('[Ruf] Local mock redirect is enabled for', TARGET_ORIGIN);\n})();`
-  }, [status?.baseUrl, targetOrigin])
+  }, [activePort, activeServerStatus?.baseUrl, activeTargetOrigin])
 
   function onResizeHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (!open) return
@@ -263,45 +422,56 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
 
         <div className="terminalOutput">
           <div className="section" style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+              {serverTabs.map((tab, i) => {
+                const tabStatus = serverStatusByPort.get(tab.port)
+                const running = !!tabStatus?.running
+                const active = tab.id === activeTabId
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTabId(tab.id)}
+                    style={{
+                      minHeight: 26,
+                      height: 26,
+                      padding: '0 9px',
+                      borderRadius: 8,
+                      border: active ? '1px solid rgba(120,220,160,.65)' : '1px solid rgba(255,255,255,.18)',
+                      background: active ? 'rgba(120,220,160,.14)' : 'rgba(255,255,255,.04)',
+                      color: running ? '#9fe7b6' : undefined,
+                    }}
+                    title={`Port ${tab.port}`}
+                  >
+                    {`Server ${i + 1}`}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                onClick={addServerTab}
+                style={{ minHeight: 26, height: 26, padding: '0 10px', borderRadius: 8 }}
+                title="Add server tab"
+              >
+                +
+              </button>
+            </div>
+
             <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
-                disabled={loading || !!status?.running}
-                onClick={async () => {
-                  setLoading(true)
-                  setInfo('')
-                  setError('')
-                  try {
-                    const next = await startLocalMockServer(7777)
-                    setStatus(next)
-                    setInfo(`Local server started: ${next.baseUrl}`)
-                  } catch (e) {
-                    setError((e as Error | null)?.message || 'Failed to start local server')
-                  } finally {
-                    setLoading(false)
-                  }
+                disabled={loading || !!activeServerStatus?.running}
+                onClick={() => {
+                  void startActiveServer()
                 }}
               >
                 Start
               </button>
               <button
                 type="button"
-                disabled={loading || !status?.running}
-                onClick={async () => {
-                  setLoading(true)
-                  setInfo('')
-                  setError('')
-                  try {
-                    const next = await stopLocalMockServer()
-                    setStatus(next)
-                    setRoutes([])
-                    setLogs([])
-                    setInfo('Local server stopped')
-                  } catch (e) {
-                    setError((e as Error | null)?.message || 'Failed to stop local server')
-                  } finally {
-                    setLoading(false)
-                  }
+                disabled={loading || !activeServerStatus?.running}
+                onClick={() => {
+                  void stopActiveServer()
                 }}
               >
                 Stop
@@ -309,18 +479,38 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
             </div>
 
             <div className="small" style={{ opacity: 0.85 }}>
-              Status: <span className="mono">{status?.running ? `RUNNING ${status.baseUrl}` : 'STOPPED'}</span>
-              {status?.running ? <span> / routes: <span className="mono">{status.routesCount}</span></span> : null}
+              Port: <span className="mono">{activePort}</span>
+              {' / '}
+              Status: <span className="mono">{activeServerStatus?.running ? `RUNNING ${activeServerStatus.baseUrl}` : 'STOPPED'}</span>
+              {activePort === 7777 && primaryStatus?.running ? <span> / routes: <span className="mono">{primaryStatus.routesCount}</span></span> : null}
             </div>
 
             {info ? <div className="small" style={{ color: '#9ad19a' }}>{info}</div> : null}
             {error ? <div className="small" style={{ color: '#ff9a9a' }}>{error}</div> : null}
 
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div className="small" style={{ opacity: 0.82 }}>Target origin:</div>
+              <select
+                className="mono"
+                value={activeTargetOrigin}
+                onChange={e => setTargetOriginForPort(activePort, e.target.value)}
+              >
+                <option value="">not selected (fallback: https://api.example.com)</option>
+                {targetOriginOptions.map(origin => (
+                  <option key={origin} value={origin}>{origin}</option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: 'grid', gap: 8 }}>
               <div className="small" style={{ opacity: 0.82 }}>
-                Routes:
+                Routes (primary server):
               </div>
-              {routesLoading ? (
+              {activePort !== 7777 ? (
+                <div className="small" style={{ opacity: 0.7 }}>
+                  Switch to Server 1 to view/manage routes.
+                </div>
+              ) : routesLoading ? (
                 <div className="small" style={{ opacity: 0.75 }}>Loading routes...</div>
               ) : routes.length === 0 ? (
                 <div className="small" style={{ opacity: 0.75 }}>No routes published.</div>
@@ -349,7 +539,7 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
                         <div className="mono small" style={{ opacity: 0.85 }}>{route.status}</div>
                         <button
                           type="button"
-                          disabled={deleting || loading || !status?.running}
+                          disabled={deleting || loading || !primaryStatus?.running}
                           onClick={async () => {
                             setDeletingRouteKey(key)
                             setInfo('')
@@ -359,7 +549,7 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
                                 method: route.method,
                                 path: route.path,
                               })
-                              setStatus(nextStatus)
+                              setPrimaryStatus(nextStatus)
                               setInfo(`Route deleted: ${route.method} ${route.path}`)
                             } catch (e) {
                               setError((e as Error | null)?.message || 'Failed to delete route')
@@ -392,22 +582,25 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
                 {snippetCopied ? 'Copied' : 'Copy Snippet'}
               </button>
             </div>
-            <div className="small" style={{ opacity: 0.75 }}>
-              Target origin: <span className="mono">{targetOrigin || 'not detected (fallback: https://api.example.com)'}</span>
-            </div>
             <textarea className="mono" rows={8} readOnly value={devtoolsSnippet} style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }} />
 
-            <div className="small" style={{ opacity: 0.82 }}>Server logs:</div>
-            {logsLoading && !logs.length ? (
-              <div className="small" style={{ opacity: 0.75 }}>Loading logs...</div>
-            ) : null}
-            <textarea
-              className="mono"
-              rows={8}
-              readOnly
-              value={logs.length ? logs.join('\n') : 'No logs yet.'}
-              style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }}
-            />
+            <div className="small" style={{ opacity: 0.82 }}>Server logs (primary server):</div>
+            {activePort !== 7777 ? (
+              <div className="small" style={{ opacity: 0.7 }}>Switch to Server 1 to view logs.</div>
+            ) : (
+              <>
+                {logsLoading && !logs.length ? (
+                  <div className="small" style={{ opacity: 0.75 }}>Loading logs...</div>
+                ) : null}
+                <textarea
+                  className="mono"
+                  rows={8}
+                  readOnly
+                  value={logs.length ? logs.join('\n') : 'No logs yet.'}
+                  style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }}
+                />
+              </>
+            )}
           </div>
         </div>
       </section>

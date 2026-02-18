@@ -48,6 +48,7 @@ const localMockServerTool: AppSidebarToolExtension = {
     <LocalMockServerDrawer
       open={ctx.openDrawerId === 'local-mock-server'}
       onClose={ctx.closeDrawer}
+      collections={ctx.collections}
     />
   ),
 }

@@ -63,6 +63,11 @@ import { safeParseJson } from '../shared/utils/json'
 import { findRequestByIds } from '../core/services/appBootstrapService'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../shared/utils/localStorageJson'
 import { logError, logWarn } from '../shared/utils/logger'
+import {
+  getLocalMockServerStatus,
+  listLocalMockAdditionalServers,
+  onLocalMockServerUpdated,
+} from '../modules/requestEditor/utils/localMockServer'
 
 //TODO:
 // Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
@@ -515,6 +520,7 @@ export default function App() {
   const [appVersion, setAppVersion] = useState<string | null>(null)
   const [cacheSizeBytes, setCacheSizeBytes] = useState(0)
   const [openDrawerId, setOpenDrawerId] = useState<string | null>(null)
+  const [localMockAnyRunning, setLocalMockAnyRunning] = useState(false)
   const [treeAllExpanded, setTreeAllExpanded] = useState(false)
   const [treeOpenCommand, setTreeOpenCommand] = useState<{ action: TreeToggleAction, nonce: number } | null>(null)
   const [treeSortMode, setTreeSortMode] = useState<TreeSortMode>(() => loadTreeSortMode())
@@ -555,6 +561,38 @@ export default function App() {
       setSettingsTab(settingsTabExtensions[0]?.id ?? 'general')
     }
   }, [settingsTab, settingsTabExtensions])
+
+  useEffect(() => {
+    let disposed = false
+
+    async function refreshLocalMockRunningState() {
+      try {
+        const [primary, additional] = await Promise.all([
+          getLocalMockServerStatus(),
+          listLocalMockAdditionalServers(),
+        ])
+        if (!disposed) {
+          setLocalMockAnyRunning(Boolean(primary?.running) || additional.length > 0)
+        }
+      } catch {
+        if (!disposed) setLocalMockAnyRunning(false)
+      }
+    }
+
+    void refreshLocalMockRunningState()
+    const unsubscribe = onLocalMockServerUpdated(() => {
+      void refreshLocalMockRunningState()
+    })
+    const timer = window.setInterval(() => {
+      void refreshLocalMockRunningState()
+    }, 2500)
+
+    return () => {
+      disposed = true
+      unsubscribe()
+      window.clearInterval(timer)
+    }
+  }, [])
 
   function refreshCacheSize() {
     setCacheSizeBytes(getLocalStorageCacheSizeBytes())
@@ -3037,7 +3075,7 @@ export default function App() {
     e.preventDefault()
     const startX = e.clientX
     const startW = sidebarWidth
-    ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
+      ; (e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
     function onMove(ev: PointerEvent) {
       const viewportWidthPx = getViewportWidthPx()
@@ -3071,7 +3109,7 @@ export default function App() {
     const { min, max } = getPanelPaneConstraints(rect.width)
     const startX = e.clientX
     const startW = editorWidth || Math.round(rect.width / 2)
-    ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
+      ; (e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
     function onMove(ev: PointerEvent) {
       const next = clamp(startW + (ev.clientX - startX), min, max)
@@ -3519,67 +3557,67 @@ export default function App() {
             )}
           </div>
 
-        <div className="sidebarBottom">
-          <div className="sidebarBottomLeft">
-            <button
-              className="iconBtn settingsBtn"
-              onClick={openSettings}
-              aria-label="Settings"
-              title="Settings"
-            >
-              <span className="iconGlyph">&#9881;</span>
-            </button>
-            {sidebarToolExtensions.map(tool => (
+          <div className="sidebarBottom">
+            <div className="sidebarBottomLeft">
               <button
-                key={tool.id}
-                className={`iconBtn ${tool.buttonClassName ?? ''}`.trim()}
-                onClick={() => toggleDrawer(tool.id)}
-                aria-label={tool.label}
-                title={tool.title}
-                aria-pressed={openDrawerId === tool.id}
+                className="iconBtn settingsBtn"
+                onClick={openSettings}
+                aria-label="Settings"
+                title="Settings"
               >
-                {tool.icon}
+                <span className="iconGlyph">&#9881;</span>
               </button>
-            ))}
-            <button
-              className="iconBtn"
-              onClick={openCollectionRunHistoryDialog}
-              aria-label="Collection run history"
-              title="Collection run history"
-            >
-              <span className="iconGlyph" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="20" height="20" viewBox="0 0 16 16" fill="none" style={{ display: 'block' }}>
-                  <path d="M5.8 3.8L11 8L5.8 12.2V3.8Z" fill="currentColor" />
-                </svg>
-              </span>
-            </button>
+              {sidebarToolExtensions.map(tool => (
+                <button
+                  key={tool.id}
+                  className={`iconBtn ${tool.buttonClassName ?? ''} ${tool.id === 'local-mock-server' && localMockAnyRunning ? 'localMockServerBtnActive' : ''}`.trim()}
+                  onClick={() => toggleDrawer(tool.id)}
+                  aria-label={tool.label}
+                  title={tool.title}
+                  aria-pressed={openDrawerId === tool.id}
+                >
+                  {tool.icon}
+                </button>
+              ))}
+              <button
+                className="iconBtn"
+                onClick={openCollectionRunHistoryDialog}
+                aria-label="Collection run history"
+                title="Collection run history"
+              >
+                <span className="iconGlyph" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="none" style={{ display: 'block' }}>
+                    <path d="M5.8 3.8L11 8L5.8 12.2V3.8Z" fill="currentColor" />
+                  </svg>
+                </span>
+              </button>
+            </div>
+            <div className="sidebarVersion mono">
+              v{appVersion ?? '-'}
+            </div>
           </div>
-          <div className="sidebarVersion mono">
-            v{appVersion ?? '-'}
-          </div>
-        </div>
         </aside>
-      <div
-        className="resizer"
-        onPointerDown={onSidebarResizePointerDown}
-        onDoubleClick={onSidebarResizerDoubleClick}
-      />
+        <div
+          className="resizer"
+          onPointerDown={onSidebarResizePointerDown}
+          onDoubleClick={onSidebarResizerDoubleClick}
+        />
 
-      <main className="main">
-        <div className="topbar">
-          <b><span className="appTitle">Ruf</span> <span className="small">(desktop)</span></b>
-          <span className="small">OpenAPI v2/v3 import + collections</span>
-          <span className="small" style={{marginLeft:'auto'}}>
-            Desktop mode: no CORS limitations
-          </span>
-        </div>
+        <main className="main">
+          <div className="topbar">
+            <b><span className="appTitle">Ruf</span> <span className="small">(desktop)</span></b>
+            <span className="small">OpenAPI v2/v3 import + collections</span>
+            <span className="small" style={{ marginLeft: 'auto' }}>
+              Desktop mode: no CORS limitations
+            </span>
+          </div>
 
-        <div ref={panelRef} className="panel" style={{
-          gridTemplateColumns: editorWidth ? `${editorWidth}px 8px 1fr` : '1fr 8px 1fr',
-        }}>
-          <section className="card">
-            {active
-              ? (
+          <div ref={panelRef} className="panel" style={{
+            gridTemplateColumns: editorWidth ? `${editorWidth}px 8px 1fr` : '1fr 8px 1fr',
+          }}>
+            <section className="card">
+              {active
+                ? (
                   <RequestEditor
                     environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT}
                     globalSqlConnections={globalSqlConnections}
@@ -3598,609 +3636,549 @@ export default function App() {
                     }
                   />
                 )
-              : <div className="small">Import collection or choose the request from the left.</div>
-            }
-          </section>
+                : <div className="small">Import collection or choose the request from the left.</div>
+              }
+            </section>
 
-          <div
-            className="resizer"
-            onPointerDown={onPanelResizePointerDown}
-            onDoubleClick={onPanelResizerDoubleClick}
-          />
-
-          <section className="card responseCard">
-            <div className="responseCardBody">
-              <ResponseViewer
-                result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
-                inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
-                tab={activeResponseTab}
-                historyItems={activeHistory}
-                onSelectHistoryItem={item => {
-                  if (!activeRequestId) return
-                  setApplyDraftState({ requestId: activeRequestId, token: uid('apply'), draft: item.draft })
-                }}
-                onDeleteHistoryItem={item => {
-                  const requestId = activeRequestId
-                  if (!requestId) return
-                  setHistoryByRequestId(prev => {
-                    const prevItems = prev[requestId] ?? []
-                    const nextItems = prevItems.filter(x => x.id !== item.id)
-                    const next = { ...prev, [requestId]: nextItems }
-                    if (!nextItems.length) delete (next as any)[requestId]
-                    saveRequestHistoryByRequestId(next)
-                    return next
-                  })
-                }}
-                onTabChange={tab => {
-                  const requestId = activeRequestId
-                  if (!requestId) return
-                  setResponseTabByRequest(prev => {
-                    const next = { ...prev, [requestId]: tab }
-                    localStorage.setItem(RESPONSE_TAB_BY_REQUEST_KEY, JSON.stringify(next))
-                    return next
-                  })
-                }}
-              />
-            </div>
-
-            <CollectionRunnerSheet
-              open={collectionRunSheetOpen}
-              busy={collectionRunBusy}
-              closing={collectionRunSheetClosing}
-              tab={collectionRunnerTab}
-              selection={collectionRunSelection}
-              report={collectionRunReport}
-              history={collectionRunHistory}
-              iterationsInput={collectionRunIterationsInput}
-              iterations={collectionRunIterations}
-              selectedCount={selectedCollectionRunItemsCount}
-              reportDurationMs={collectionRunDurationMs}
-              expandedItemKey={collectionRunExpandedItemKey}
-              onClose={closeCollectionRunnerDialog}
-              onTabChange={setCollectionRunnerTab}
-              onToggleSelectionItem={toggleCollectionRunSelectionItem}
-              onIterationsInputChange={next => {
-                const digits = next.replaceAll(/\D+/g, '').slice(0, 4)
-                setCollectionRunIterationsInput(digits || '')
-              }}
-              onPlay={() => void startSelectedCollectionRun()}
-              onStop={cancelCollectionRun}
-              onRerun={() => void rerunLastCollectionRun()}
-              onToggleExpandedItem={key => setCollectionRunExpandedItemKey(prev => (prev === key ? null : key))}
-              onOpenHistoryReport={historyId => {
-                const item = collectionRunHistory.find(x => x.id === historyId)
-                if (!item) return
-                openCollectionRunReportFromHistory(item)
-              }}
+            <div
+              className="resizer"
+              onPointerDown={onPanelResizePointerDown}
+              onDoubleClick={onPanelResizerDoubleClick}
             />
-          </section>
-        </div>
-      </main>
 
-      {envModalCollection && (
-        <EnvironmentSettings
-          open={!!envModalCollectionId}
-          collectionName={envModalCollection.name}
-          env={envByCollection[envModalCollection.id] ?? DEFAULT_ENVIRONMENT}
-          onSave={env => saveEnvForCollection(envModalCollection.id, env)}
-          onClose={() => setEnvModalCollectionId(null)}
-        />
-      )}
-
-      <dialog
-        ref={createProjectDialogRef}
-        className="modal modalSmall"
-        onClose={() => {
-          setProjectError(null)
-          setProjectName('New Collection')
-        }}
-      >
-        <div className="modalHeader">
-          <b>Create Collection</b>
-          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateProject} aria-label="Close" title="Close">
-            <CloseIcon size={18} />
-          </button>
-        </div>
-
-        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
-          <div className="small">Name</div>
-          <input ref={createProjectInputRef} style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="New Collection" />
-        </div>
-
-        {projectError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{projectError}</div>}
-
-        <div className="modalActions">
-          <button onClick={createProject}>Create</button>
-        </div>
-      </dialog>
-
-      <dialog
-        ref={createWorkspaceFolderDialogRef}
-        className="modal modalSmall"
-        onClose={() => {
-          setWorkspaceFolderError(null)
-          setWorkspaceFolderName('New Folder')
-          setWorkspaceFolderCreateParentId(null)
-        }}
-      >
-        <div className="modalHeader">
-          <b>Create Folder</b>
-          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateWorkspaceFolder} aria-label="Close" title="Close">
-            <CloseIcon size={18} />
-          </button>
-        </div>
-
-        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
-          <div className="small">Name</div>
-          <input
-            ref={createWorkspaceFolderInputRef}
-            style={{ width: '100%' }}
-            value={workspaceFolderName}
-            onChange={e => setWorkspaceFolderName(e.target.value)}
-            autoFocus
-            placeholder="New Folder"
-          />
-        </div>
-
-        {workspaceFolderError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{workspaceFolderError}</div>}
-
-        <div className="modalActions">
-          <button onClick={createWorkspaceFolder}>Create</button>
-        </div>
-      </dialog>
-
-      <dialog
-        ref={createCollectionSubfolderDialogRef}
-        className="modal modalSmall"
-        onClose={() => {
-          setCollectionSubfolderError(null)
-          setCollectionSubfolderName('New Folder')
-          setCollectionSubfolderTarget(null)
-        }}
-      >
-        <div className="modalHeader">
-          <b>Create Folder</b>
-          <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateCollectionSubfolder} aria-label="Close" title="Close">
-            <CloseIcon size={18} />
-          </button>
-        </div>
-
-        <div style={{display:'grid', gridTemplateColumns:'1fr', gap:10}}>
-          <div className="small">Name</div>
-          <input
-            ref={createCollectionSubfolderInputRef}
-            style={{ width: '100%' }}
-            value={collectionSubfolderName}
-            onChange={e => setCollectionSubfolderName(e.target.value)}
-            autoFocus
-            placeholder="New Folder"
-          />
-        </div>
-
-        {collectionSubfolderError && <div className="small" style={{color:'#ff9a9a', marginTop: 8}}>{collectionSubfolderError}</div>}
-
-        <div className="modalActions">
-          <button onClick={createCollectionSubfolder}>Create</button>
-        </div>
-      </dialog>
-
-      <dialog ref={confirmDeleteDialogRef} className="modal modalSmall" onClose={cancelDeleteCollection}>
-        <div className="modalHeader">
-          <b>Delete collection?</b>
-        </div>
-
-        <div className="small">
-          {confirmDeleteName ? `Collection: ${confirmDeleteName}` : 'This collection will be deleted.'}
-        </div>
-
-        <div className="modalActions">
-          <button onClick={cancelDeleteCollection}>Cancel</button>
-          <button className="deleteBtn" onClick={confirmDeleteCollection}>Delete</button>
-        </div>
-      </dialog>
-      <dialog
-        ref={reloadFromFileDialogRef}
-        className="modal modalSmall"
-        onClose={() => {
-          setReloadFromFileCollectionId(null)
-          setReloadFromFileError(null)
-          setReloadFromFilePending(null)
-          setReloadFromFileSummary(null)
-          setReloadFromFileSelectedName('')
-        }}
-      >
-        <div className="modalHeader">
-          <b>Reload From File</b>
-          <button className="iconBtn" onClick={closeReloadFromFile} aria-label="Close">x</button>
-        </div>
-
-        <input
-          ref={reloadFromFileInputRef}
-          type="file"
-          accept=".json,.yaml,.yml"
-          style={{ display: 'none' }}
-          onChange={onReloadFromFileSelected}
-        />
-
-        <div className="small">
-          {reloadFromFileCollection ? `Collection: ${reloadFromFileCollection.name}` : 'Collection not found.'}
-        </div>
-
-        {(reloadFromFileCollection?.sourceFileName || reloadFromFileSelectedName) ? (
-          <div className="small" style={{ marginTop: 8, opacity: 0.8 }}>
-            {reloadFromFileCollection?.sourceFileName ? (
-              <div>
-                Current file: <span className="mono">{reloadFromFileCollection.sourceFileName}</span>
+            <section className="card responseCard">
+              <div className="responseCardBody">
+                <ResponseViewer
+                  result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
+                  inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
+                  tab={activeResponseTab}
+                  historyItems={activeHistory}
+                  onSelectHistoryItem={item => {
+                    if (!activeRequestId) return
+                    setApplyDraftState({ requestId: activeRequestId, token: uid('apply'), draft: item.draft })
+                  }}
+                  onDeleteHistoryItem={item => {
+                    const requestId = activeRequestId
+                    if (!requestId) return
+                    setHistoryByRequestId(prev => {
+                      const prevItems = prev[requestId] ?? []
+                      const nextItems = prevItems.filter(x => x.id !== item.id)
+                      const next = { ...prev, [requestId]: nextItems }
+                      if (!nextItems.length) delete (next as any)[requestId]
+                      saveRequestHistoryByRequestId(next)
+                      return next
+                    })
+                  }}
+                  onTabChange={tab => {
+                    const requestId = activeRequestId
+                    if (!requestId) return
+                    setResponseTabByRequest(prev => {
+                      const next = { ...prev, [requestId]: tab }
+                      localStorage.setItem(RESPONSE_TAB_BY_REQUEST_KEY, JSON.stringify(next))
+                      return next
+                    })
+                  }}
+                />
               </div>
-            ) : null}
-            {reloadFromFileSelectedName ? (
-              <div>
-                Selected file: <span className="mono">{reloadFromFileSelectedName}</span>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
 
-        <div className="modalActions" style={{ justifyContent: 'flex-start' }}>
-          <button onClick={chooseReloadFromFile}>Choose File</button>
-        </div>
-
-        {reloadFromFileSummary ? (
-          <div className="small">
-            Folders: +{reloadFromFileSummary.addedFolders} / -{reloadFromFileSummary.removedFolders},{' '}
-            Requests: +{reloadFromFileSummary.addedRequests} / -{reloadFromFileSummary.removedRequests}
-          </div>
-        ) : null}
-
-        {reloadFromFileError ? (
-          <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>
-            {reloadFromFileError}
-          </div>
-        ) : null}
-
-        <div className="modalActions">
-          <button onClick={closeReloadFromFile}>Cancel</button>
-          <button onClick={applyReloadFromFile} disabled={!reloadFromFilePending}>Update</button>
-        </div>
-      </dialog>
-
-      <dialog
-        ref={settingsDialogRef}
-        className="modal modalSmall modalSettings"
-        onClick={e => {
-          if (e.target === e.currentTarget) closeSettings()
-        }}
-      >
-        <div className="modalHeader" style={{ marginBottom: 0 }}>
-          <b>Settings</b>
-          <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close"><CloseIcon size={18} /></button>
-        </div>
-        <hr className="modalDivider" />
-
-        <div ref={settingsTabsRef} className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
-          {settingsTabExtensions.map(tab => (
-            <button key={tab.id} className={`tab ${settingsTab === tab.id ? 'tabActive' : ''}`} onClick={() => setSettingsTab(tab.id)}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({ closeSettings, appVersion }) : null}
-
-        {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div className="formRow">
-              <div className="formLabel">Request timeout (seconds)</div>
-              <input
-                className="mono"
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={3}
-                placeholder="30s"
-                value={requestTimeoutSec === null ? '' : String(requestTimeoutSec)}
-                onChange={e => {
-                  const raw = e.target.value
-                  const digits = raw.replaceAll(/\D+/g, '').slice(0, 3)
-                  if (!digits) {
-                    setRequestTimeoutSec(null)
-                    return
-                  }
-                  const n = Number(digits)
-                  setRequestTimeoutSec(Math.max(1, Math.min(600, Math.round(n))))
+              <CollectionRunnerSheet
+                open={collectionRunSheetOpen}
+                busy={collectionRunBusy}
+                closing={collectionRunSheetClosing}
+                tab={collectionRunnerTab}
+                selection={collectionRunSelection}
+                report={collectionRunReport}
+                history={collectionRunHistory}
+                iterationsInput={collectionRunIterationsInput}
+                iterations={collectionRunIterations}
+                selectedCount={selectedCollectionRunItemsCount}
+                reportDurationMs={collectionRunDurationMs}
+                expandedItemKey={collectionRunExpandedItemKey}
+                onClose={closeCollectionRunnerDialog}
+                onTabChange={setCollectionRunnerTab}
+                onToggleSelectionItem={toggleCollectionRunSelectionItem}
+                onIterationsInputChange={next => {
+                  const digits = next.replaceAll(/\D+/g, '').slice(0, 4)
+                  setCollectionRunIterationsInput(digits || '')
+                }}
+                onPlay={() => void startSelectedCollectionRun()}
+                onStop={cancelCollectionRun}
+                onRerun={() => void rerunLastCollectionRun()}
+                onToggleExpandedItem={key => setCollectionRunExpandedItemKey(prev => (prev === key ? null : key))}
+                onOpenHistoryReport={historyId => {
+                  const item = collectionRunHistory.find(x => x.id === historyId)
+                  if (!item) return
+                  openCollectionRunReportFromHistory(item)
                 }}
               />
-            </div>
-            <div className="formRow">
-              <div className="formLabel">Application cache</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <button type="button" onClick={clearAppCache} disabled={cacheSizeBytes <= 0}>Clear cache</button>
-                <span className="small mono">{formatMegabytes(cacheSizeBytes)}</span>
-              </div>
-            </div>
+            </section>
           </div>
-        ) : null}
+        </main>
 
-        {!activeSettingsTabExtension?.render && settingsTab === 'certificates' ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <label className="checkRow">
-              <input
-                type="checkbox"
-                className="checkInput"
-                checked={validateCertificates}
-                onChange={e => setValidateCertificates(e.target.checked)}
-              />
-              <span className="checkBox" aria-hidden="true" />
-              <span className="checkText">Validate certificates</span>
-            </label>
+        {envModalCollection && (
+          <EnvironmentSettings
+            open={!!envModalCollectionId}
+            collectionName={envModalCollection.name}
+            env={envByCollection[envModalCollection.id] ?? DEFAULT_ENVIRONMENT}
+            onSave={env => saveEnvForCollection(envModalCollection.id, env)}
+            onClose={() => setEnvModalCollectionId(null)}
+          />
+        )}
 
-            <details className="accordion" open>
-              <summary>
-                <span style={{ flex: 1 }}>CA certificates</span>
-                <span className="badge">{caCertificates.length}</span>
-              </summary>
-              <div className="section">
-                <div style={{ display: 'grid', gap: 8 }}>
-                  <div className="small">Paste PEM certificate(s)</div>
-                  <textarea
-                    className="mono"
-                    value={caCertInput}
-                    onChange={e => setCaCertInput(e.target.value)}
-                    placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
-                    spellCheck={false}
-                    style={{
-                      width: '100%',
-                      minHeight: 120,
-                      resize: 'vertical',
-                      padding: 10,
-                      borderRadius: 10,
-                      border: '1px solid rgba(255,255,255,.12)',
-                      background: 'rgba(255,255,255,.04)',
-                      color: 'inherit',
-                    }}
-                  />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                    <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
-                      {caCertBusy ? 'Adding...' : 'Add'}
-                    </button>
-                  </div>
-                  {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
+        <dialog
+          ref={createProjectDialogRef}
+          className="modal modalSmall"
+          onClose={() => {
+            setProjectError(null)
+            setProjectName('New Collection')
+          }}
+        >
+          <div className="modalHeader">
+            <b>Create Collection</b>
+            <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateProject} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            <div className="small">Name</div>
+            <input ref={createProjectInputRef} style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="New Collection" />
+          </div>
+
+          {projectError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{projectError}</div>}
+
+          <div className="modalActions">
+            <button onClick={createProject}>Create</button>
+          </div>
+        </dialog>
+
+        <dialog
+          ref={createWorkspaceFolderDialogRef}
+          className="modal modalSmall"
+          onClose={() => {
+            setWorkspaceFolderError(null)
+            setWorkspaceFolderName('New Folder')
+            setWorkspaceFolderCreateParentId(null)
+          }}
+        >
+          <div className="modalHeader">
+            <b>Create Folder</b>
+            <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateWorkspaceFolder} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            <div className="small">Name</div>
+            <input
+              ref={createWorkspaceFolderInputRef}
+              style={{ width: '100%' }}
+              value={workspaceFolderName}
+              onChange={e => setWorkspaceFolderName(e.target.value)}
+              autoFocus
+              placeholder="New Folder"
+            />
+          </div>
+
+          {workspaceFolderError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{workspaceFolderError}</div>}
+
+          <div className="modalActions">
+            <button onClick={createWorkspaceFolder}>Create</button>
+          </div>
+        </dialog>
+
+        <dialog
+          ref={createCollectionSubfolderDialogRef}
+          className="modal modalSmall"
+          onClose={() => {
+            setCollectionSubfolderError(null)
+            setCollectionSubfolderName('New Folder')
+            setCollectionSubfolderTarget(null)
+          }}
+        >
+          <div className="modalHeader">
+            <b>Create Folder</b>
+            <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeCreateCollectionSubfolder} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            <div className="small">Name</div>
+            <input
+              ref={createCollectionSubfolderInputRef}
+              style={{ width: '100%' }}
+              value={collectionSubfolderName}
+              onChange={e => setCollectionSubfolderName(e.target.value)}
+              autoFocus
+              placeholder="New Folder"
+            />
+          </div>
+
+          {collectionSubfolderError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{collectionSubfolderError}</div>}
+
+          <div className="modalActions">
+            <button onClick={createCollectionSubfolder}>Create</button>
+          </div>
+        </dialog>
+
+        <dialog ref={confirmDeleteDialogRef} className="modal modalSmall" onClose={cancelDeleteCollection}>
+          <div className="modalHeader">
+            <b>Delete collection?</b>
+          </div>
+
+          <div className="small">
+            {confirmDeleteName ? `Collection: ${confirmDeleteName}` : 'This collection will be deleted.'}
+          </div>
+
+          <div className="modalActions">
+            <button onClick={cancelDeleteCollection}>Cancel</button>
+            <button className="deleteBtn" onClick={confirmDeleteCollection}>Delete</button>
+          </div>
+        </dialog>
+        <dialog
+          ref={reloadFromFileDialogRef}
+          className="modal modalSmall"
+          onClose={() => {
+            setReloadFromFileCollectionId(null)
+            setReloadFromFileError(null)
+            setReloadFromFilePending(null)
+            setReloadFromFileSummary(null)
+            setReloadFromFileSelectedName('')
+          }}
+        >
+          <div className="modalHeader">
+            <b>Reload From File</b>
+            <button className="iconBtn" onClick={closeReloadFromFile} aria-label="Close">x</button>
+          </div>
+
+          <input
+            ref={reloadFromFileInputRef}
+            type="file"
+            accept=".json,.yaml,.yml"
+            style={{ display: 'none' }}
+            onChange={onReloadFromFileSelected}
+          />
+
+          <div className="small">
+            {reloadFromFileCollection ? `Collection: ${reloadFromFileCollection.name}` : 'Collection not found.'}
+          </div>
+
+          {(reloadFromFileCollection?.sourceFileName || reloadFromFileSelectedName) ? (
+            <div className="small" style={{ marginTop: 8, opacity: 0.8 }}>
+              {reloadFromFileCollection?.sourceFileName ? (
+                <div>
+                  Current file: <span className="mono">{reloadFromFileCollection.sourceFileName}</span>
                 </div>
-
-                {caCertificates.length ? (
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {caCertificates.map(cert => {
-                      const title = cert.subject || 'Certificate'
-                      const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
-                      return (
-                        <div
-                          key={cert.id}
-                          style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr auto',
-                            gap: 10,
-                            alignItems: 'center',
-                            padding: 10,
-                            borderRadius: 10,
-                            border: '1px solid rgba(255,255,255,.12)',
-                            background: 'rgba(255,255,255,.03)',
-                          }}
-                        >
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-                            {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
-                            {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
-                          </div>
-                          <button
-                            type="button"
-                            className="headerDeleteBtn"
-                            onClick={() => deleteCaCertificate(cert.id)}
-                            aria-label="Delete certificate"
-                            title="Delete"
-                          >
-                            <CloseIcon size={18} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
-                )}
-              </div>
-            </details>
-          </div>
-        ) : null}
-
-        {!activeSettingsTabExtension?.render && settingsTab === 'update' ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div className="small">App version: <span className="mono">v{appVersion ?? '-'}</span></div>
-            {pendingUpdateVersion ? <div className="small">Available: <span className="mono">v{pendingUpdateVersion}</span></div> : null}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              {hasPendingUpdate ? (
-                updateDownloaded ? (
-                  <>
-                    <button onClick={onRestartToUpdate} disabled={updateBusy}>
-                      {updateTask === 'installing' ? 'Restarting...' : 'Restart'}
-                    </button>
-                    <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
-                  </>
-                ) : (
-                  <button onClick={onUpdateNow} disabled={updateBusy}>
-                    {updateTask === 'downloading' ? 'Downloading...' : 'Update'}
-                  </button>
-                )
-              ) : (
-                <button onClick={onCheckUpdates} disabled={updateBusy}>
-                  {updateTask === 'checking' ? 'Checking...' : 'Check updates'}
-                </button>
-              )}
-              {updateHint && !updateErrorLog ? (
-                <div
-                  className="small"
-                  style={{
-                    opacity: 0.85,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    color: hasPendingUpdate ? '#6ee7a8' : undefined,
-                  }}
-                >
-                  {updateHint}
+              ) : null}
+              {reloadFromFileSelectedName ? (
+                <div>
+                  Selected file: <span className="mono">{reloadFromFileSelectedName}</span>
                 </div>
               ) : null}
             </div>
+          ) : null}
 
-            {updateErrorLog ? (
-              <details open>
-                <summary className="small" style={{ cursor: 'pointer', opacity: 0.9 }}>
-                  Update error log
-                </summary>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                  <button
-                    type="button"
-                    onClick={() => void navigator.clipboard?.writeText(updateErrorLog)}
-                    disabled={!navigator.clipboard}
-                  >
-                    Copy log
-                  </button>
-                </div>
-                <pre
-                  className="mono small"
-                  style={{
-                    marginTop: 8,
-                    maxHeight: 220,
-                    overflow: 'auto',
-                    whiteSpace: 'pre-wrap',
-                    overflowWrap: 'anywhere',
-                    background: '#0b1220',
-                    color: '#d1d5db',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                  }}
-                >
-                  {updateErrorLog}
-                </pre>
-              </details>
-            ) : null}
+          <div className="modalActions" style={{ justifyContent: 'flex-start' }}>
+            <button onClick={chooseReloadFromFile}>Choose File</button>
           </div>
-        ) : null}
 
-        {!activeSettingsTabExtension?.render && settingsTab === 'sql' ? (
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div className="small">SQL connections</div>
+          {reloadFromFileSummary ? (
+            <div className="small">
+              Folders: +{reloadFromFileSummary.addedFolders} / -{reloadFromFileSummary.removedFolders},{' '}
+              Requests: +{reloadFromFileSummary.addedRequests} / -{reloadFromFileSummary.removedRequests}
+            </div>
+          ) : null}
 
-            {!globalSqlConnections.length ? (
-              <div className="section">
-                <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+          {reloadFromFileError ? (
+            <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>
+              {reloadFromFileError}
+            </div>
+          ) : null}
+
+          <div className="modalActions">
+            <button onClick={closeReloadFromFile}>Cancel</button>
+            <button onClick={applyReloadFromFile} disabled={!reloadFromFilePending}>Update</button>
+          </div>
+        </dialog>
+
+        <dialog
+          ref={settingsDialogRef}
+          className="modal modalSmall modalSettings"
+          onClick={e => {
+            if (e.target === e.currentTarget) closeSettings()
+          }}
+        >
+          <div className="modalHeader" style={{ marginBottom: 0 }}>
+            <b>Settings</b>
+            <button className="iconBtn" onClick={closeSettings} aria-label="Close" title="Close"><CloseIcon size={18} /></button>
+          </div>
+          <hr className="modalDivider" />
+
+          <div ref={settingsTabsRef} className="tabs" style={{ marginTop: 2, marginBottom: 12 }}>
+            {settingsTabExtensions.map(tab => (
+              <button key={tab.id} className={`tab ${settingsTab === tab.id ? 'tabActive' : ''}`} onClick={() => setSettingsTab(tab.id)}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({ closeSettings, appVersion }) : null}
+
+          {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div className="formRow">
+                <div className="formLabel">Request timeout (seconds)</div>
+                <input
+                  className="mono"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={3}
+                  placeholder="30s"
+                  value={requestTimeoutSec === null ? '' : String(requestTimeoutSec)}
+                  onChange={e => {
+                    const raw = e.target.value
+                    const digits = raw.replaceAll(/\D+/g, '').slice(0, 3)
+                    if (!digits) {
+                      setRequestTimeoutSec(null)
+                      return
+                    }
+                    const n = Number(digits)
+                    setRequestTimeoutSec(Math.max(1, Math.min(600, Math.round(n))))
+                  }}
+                />
               </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {globalSqlConnections.map((conn, idx) => {
-                  const test = sqlConnTestById[conn.id] ?? { inFlight: false, error: null, log: null, okMs: null }
-                  const connectionString = buildDbConnectionString(conn)
-                  const connectionPreview = getDbConnectionStringPreview(connectionString)
-                  const urlInput = sqlConnUrlInputById[conn.id] ?? connectionPreview
-                  return (
-                    <details key={conn.id} className="accordion">
-                      <summary>
-                        <span style={{ flex: 1 }}>{conn.name || `Connection ${idx + 1}`}</span>
-                        <span className="small" style={{ opacity: 0.7 }}>{conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}</span>
-                        <button
-                          type="button"
-                          data-sql-delete-btn={conn.id}
-                          className={`headerDeleteBtn ${sqlConnDeleteArmedId === conn.id ? 'confirmActionArmed' : ''}`.trim()}
-                          style={{ width: 30, height: 30, marginLeft: 6 }}
-                          onPointerDown={e => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                          }}
-                          onClick={e => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            onSqlConnectionDeleteClick(conn.id)
-                          }}
-                          aria-label={sqlConnDeleteArmedId === conn.id ? `Confirm delete connection ${conn.name || idx + 1}` : `Delete connection ${conn.name || idx + 1}`}
-                          title={sqlConnDeleteArmedId === conn.id ? 'Confirm delete' : 'Delete'}
-                        >
-                          {sqlConnDeleteArmedId === conn.id ? <span className="confirmActionGlyph">!</span> : <CloseIcon size={16} />}
-                        </button>
-                      </summary>
-                      <div className="section">
-                        <div className="formRow">
-                          <div className="formLabel">Name</div>
-                          <input
-                            className="mono"
-                            value={conn.name}
-                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, name: e.target.value }))}
-                            placeholder={`Connection ${idx + 1}`}
-                          />
-                        </div>
+              <div className="formRow">
+                <div className="formLabel">Application cache</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <button type="button" onClick={clearAppCache} disabled={cacheSizeBytes <= 0}>Clear cache</button>
+                  <span className="small mono">{formatMegabytes(cacheSizeBytes)}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
-                        <div className="formRow">
-                          <div className="formLabel">Type</div>
-                          <div className="selectMenuWrap" data-sql-type-wrap={conn.id}>
+          {!activeSettingsTabExtension?.render && settingsTab === 'certificates' ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label className="checkRow">
+                <input
+                  type="checkbox"
+                  className="checkInput"
+                  checked={validateCertificates}
+                  onChange={e => setValidateCertificates(e.target.checked)}
+                />
+                <span className="checkBox" aria-hidden="true" />
+                <span className="checkText">Validate certificates</span>
+              </label>
+
+              <details className="accordion" open>
+                <summary>
+                  <span style={{ flex: 1 }}>CA certificates</span>
+                  <span className="badge">{caCertificates.length}</span>
+                </summary>
+                <div className="section">
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div className="small">Paste PEM certificate(s)</div>
+                    <textarea
+                      className="mono"
+                      value={caCertInput}
+                      onChange={e => setCaCertInput(e.target.value)}
+                      placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
+                      spellCheck={false}
+                      style={{
+                        width: '100%',
+                        minHeight: 120,
+                        resize: 'vertical',
+                        padding: 10,
+                        borderRadius: 10,
+                        border: '1px solid rgba(255,255,255,.12)',
+                        background: 'rgba(255,255,255,.04)',
+                        color: 'inherit',
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                      <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
+                        {caCertBusy ? 'Adding...' : 'Add'}
+                      </button>
+                    </div>
+                    {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
+                  </div>
+
+                  {caCertificates.length ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {caCertificates.map(cert => {
+                        const title = cert.subject || 'Certificate'
+                        const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
+                        return (
+                          <div
+                            key={cert.id}
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr auto',
+                              gap: 10,
+                              alignItems: 'center',
+                              padding: 10,
+                              borderRadius: 10,
+                              border: '1px solid rgba(255,255,255,.12)',
+                              background: 'rgba(255,255,255,.03)',
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+                              {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
+                              {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
+                            </div>
                             <button
                               type="button"
-                              className="selectMenuBtn"
-                              onPointerDown={e => e.stopPropagation()}
-                              onClick={e => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setSqlConnTypeMenuOpenId(prev => (prev === conn.id ? null : conn.id))
-                              }}
-                              aria-haspopup="menu"
-                              aria-expanded={sqlConnTypeMenuOpenId === conn.id}
-                              aria-label="Database type"
-                              title="Database type"
+                              className="headerDeleteBtn"
+                              onClick={() => deleteCaCertificate(cert.id)}
+                              aria-label="Delete certificate"
+                              title="Delete"
                             >
-                              {conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}
+                              <CloseIcon size={18} />
                             </button>
-                            {sqlConnTypeMenuOpenId === conn.id ? (
-                              <div
-                                className="selectMenuPanel"
-                                role="menu"
-                                onPointerDown={e => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                }}
-                                onClick={e => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  className={`selectMenuItem ${conn.type === 'postgres' ? 'selectMenuItemActive' : ''}`}
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setSqlConnTypeMenuOpenId(null)
-                                    setConnectionTypeAndMaybeDefaultPort(conn.id, 'postgres')
-                                  }}
-                                >
-                                  PostgreSQL
-                                </button>
-                                <button
-                                  type="button"
-                                  className={`selectMenuItem ${conn.type === 'mysql' ? 'selectMenuItemActive' : ''}`}
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setSqlConnTypeMenuOpenId(null)
-                                    setConnectionTypeAndMaybeDefaultPort(conn.id, 'mysql')
-                                  }}
-                                >
-                                  MySQL
-                                </button>
-                              </div>
-                            ) : null}
                           </div>
-                        </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
+                  )}
+                </div>
+              </details>
+            </div>
+          ) : null}
 
-                        {conn.type === 'postgres' ? (
+          {!activeSettingsTabExtension?.render && settingsTab === 'update' ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div className="small">App version: <span className="mono">v{appVersion ?? '-'}</span></div>
+              {pendingUpdateVersion ? <div className="small">Available: <span className="mono">v{pendingUpdateVersion}</span></div> : null}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                {hasPendingUpdate ? (
+                  updateDownloaded ? (
+                    <>
+                      <button onClick={onRestartToUpdate} disabled={updateBusy}>
+                        {updateTask === 'installing' ? 'Restarting...' : 'Restart'}
+                      </button>
+                      <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
+                    </>
+                  ) : (
+                    <button onClick={onUpdateNow} disabled={updateBusy}>
+                      {updateTask === 'downloading' ? 'Downloading...' : 'Update'}
+                    </button>
+                  )
+                ) : (
+                  <button onClick={onCheckUpdates} disabled={updateBusy}>
+                    {updateTask === 'checking' ? 'Checking...' : 'Check updates'}
+                  </button>
+                )}
+                {updateHint && !updateErrorLog ? (
+                  <div
+                    className="small"
+                    style={{
+                      opacity: 0.85,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      color: hasPendingUpdate ? '#6ee7a8' : undefined,
+                    }}
+                  >
+                    {updateHint}
+                  </div>
+                ) : null}
+              </div>
+
+              {updateErrorLog ? (
+                <details open>
+                  <summary className="small" style={{ cursor: 'pointer', opacity: 0.9 }}>
+                    Update error log
+                  </summary>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard?.writeText(updateErrorLog)}
+                      disabled={!navigator.clipboard}
+                    >
+                      Copy log
+                    </button>
+                  </div>
+                  <pre
+                    className="mono small"
+                    style={{
+                      marginTop: 8,
+                      maxHeight: 220,
+                      overflow: 'auto',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere',
+                      background: '#0b1220',
+                      color: '#d1d5db',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                    }}
+                  >
+                    {updateErrorLog}
+                  </pre>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!activeSettingsTabExtension?.render && settingsTab === 'sql' ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <div className="small">SQL connections</div>
+
+              {!globalSqlConnections.length ? (
+                <div className="section">
+                  <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {globalSqlConnections.map((conn, idx) => {
+                    const test = sqlConnTestById[conn.id] ?? { inFlight: false, error: null, log: null, okMs: null }
+                    const connectionString = buildDbConnectionString(conn)
+                    const connectionPreview = getDbConnectionStringPreview(connectionString)
+                    const urlInput = sqlConnUrlInputById[conn.id] ?? connectionPreview
+                    return (
+                      <details key={conn.id} className="accordion">
+                        <summary>
+                          <span style={{ flex: 1 }}>{conn.name || `Connection ${idx + 1}`}</span>
+                          <span className="small" style={{ opacity: 0.7 }}>{conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}</span>
+                          <button
+                            type="button"
+                            data-sql-delete-btn={conn.id}
+                            className={`headerDeleteBtn ${sqlConnDeleteArmedId === conn.id ? 'confirmActionArmed' : ''}`.trim()}
+                            style={{ width: 30, height: 30, marginLeft: 6 }}
+                            onPointerDown={e => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                            }}
+                            onClick={e => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              onSqlConnectionDeleteClick(conn.id)
+                            }}
+                            aria-label={sqlConnDeleteArmedId === conn.id ? `Confirm delete connection ${conn.name || idx + 1}` : `Delete connection ${conn.name || idx + 1}`}
+                            title={sqlConnDeleteArmedId === conn.id ? 'Confirm delete' : 'Delete'}
+                          >
+                            {sqlConnDeleteArmedId === conn.id ? <span className="confirmActionGlyph">!</span> : <CloseIcon size={16} />}
+                          </button>
+                        </summary>
+                        <div className="section">
                           <div className="formRow">
-                            <div className="formLabel">SSL mode</div>
-                            <div className="selectMenuWrap" data-sql-ssl-wrap={conn.id}>
+                            <div className="formLabel">Name</div>
+                            <input
+                              className="mono"
+                              value={conn.name}
+                              onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, name: e.target.value }))}
+                              placeholder={`Connection ${idx + 1}`}
+                            />
+                          </div>
+
+                          <div className="formRow">
+                            <div className="formLabel">Type</div>
+                            <div className="selectMenuWrap" data-sql-type-wrap={conn.id}>
                               <button
                                 type="button"
                                 className="selectMenuBtn"
@@ -4208,16 +4186,16 @@ export default function App() {
                                 onClick={e => {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  setSqlConnSslMenuOpenId(prev => (prev === conn.id ? null : conn.id))
+                                  setSqlConnTypeMenuOpenId(prev => (prev === conn.id ? null : conn.id))
                                 }}
                                 aria-haspopup="menu"
-                                aria-expanded={sqlConnSslMenuOpenId === conn.id}
-                                aria-label="PostgreSQL SSL mode"
-                                title="PostgreSQL SSL mode"
+                                aria-expanded={sqlConnTypeMenuOpenId === conn.id}
+                                aria-label="Database type"
+                                title="Database type"
                               >
-                                {conn.sslmode}
+                                {conn.type === 'mysql' ? 'MySQL' : 'PostgreSQL'}
                               </button>
-                              {sqlConnSslMenuOpenId === conn.id ? (
+                              {sqlConnTypeMenuOpenId === conn.id ? (
                                 <div
                                   className="selectMenuPanel"
                                   role="menu"
@@ -4230,282 +4208,342 @@ export default function App() {
                                     e.stopPropagation()
                                   }}
                                 >
-                                  {([
-                                    { value: 'prefer', label: 'prefer (default)' },
-                                    { value: 'require', label: 'require (encrypt, no verify)' },
-                                    { value: 'verify-ca', label: 'verify-ca' },
-                                    { value: 'verify-full', label: 'verify-full' },
-                                    { value: 'disable', label: 'disable' },
-                                    { value: 'allow', label: 'allow' },
-                                  ] as Array<{ value: PgSslMode; label: string }>).map(o => (
-                                    <button
-                                      key={o.value}
-                                      type="button"
-                                      className={`selectMenuItem ${conn.sslmode === o.value ? 'selectMenuItemActive' : ''}`}
-                                      role="menuitem"
-                                      onClick={() => {
-                                        setSqlConnSslMenuOpenId(null)
-                                        updateGlobalSqlConnection(conn.id, prev => ({ ...prev, sslmode: o.value }))
-                                      }}
-                                    >
-                                      {o.label}
-                                    </button>
-                                  ))}
+                                  <button
+                                    type="button"
+                                    className={`selectMenuItem ${conn.type === 'postgres' ? 'selectMenuItemActive' : ''}`}
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setSqlConnTypeMenuOpenId(null)
+                                      setConnectionTypeAndMaybeDefaultPort(conn.id, 'postgres')
+                                    }}
+                                  >
+                                    PostgreSQL
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`selectMenuItem ${conn.type === 'mysql' ? 'selectMenuItemActive' : ''}`}
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setSqlConnTypeMenuOpenId(null)
+                                      setConnectionTypeAndMaybeDefaultPort(conn.id, 'mysql')
+                                    }}
+                                  >
+                                    MySQL
+                                  </button>
                                 </div>
                               ) : null}
                             </div>
                           </div>
-                        ) : null}
 
-                        <div className="formRow">
-                          <div className="formLabel">Host</div>
-                          <input className="mono" value={conn.host} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, host: e.target.value }))} placeholder="localhost" />
-                        </div>
+                          {conn.type === 'postgres' ? (
+                            <div className="formRow">
+                              <div className="formLabel">SSL mode</div>
+                              <div className="selectMenuWrap" data-sql-ssl-wrap={conn.id}>
+                                <button
+                                  type="button"
+                                  className="selectMenuBtn"
+                                  onPointerDown={e => e.stopPropagation()}
+                                  onClick={e => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSqlConnSslMenuOpenId(prev => (prev === conn.id ? null : conn.id))
+                                  }}
+                                  aria-haspopup="menu"
+                                  aria-expanded={sqlConnSslMenuOpenId === conn.id}
+                                  aria-label="PostgreSQL SSL mode"
+                                  title="PostgreSQL SSL mode"
+                                >
+                                  {conn.sslmode}
+                                </button>
+                                {sqlConnSslMenuOpenId === conn.id ? (
+                                  <div
+                                    className="selectMenuPanel"
+                                    role="menu"
+                                    onPointerDown={e => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                    }}
+                                    onClick={e => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                    }}
+                                  >
+                                    {([
+                                      { value: 'prefer', label: 'prefer (default)' },
+                                      { value: 'require', label: 'require (encrypt, no verify)' },
+                                      { value: 'verify-ca', label: 'verify-ca' },
+                                      { value: 'verify-full', label: 'verify-full' },
+                                      { value: 'disable', label: 'disable' },
+                                      { value: 'allow', label: 'allow' },
+                                    ] as Array<{ value: PgSslMode; label: string }>).map(o => (
+                                      <button
+                                        key={o.value}
+                                        type="button"
+                                        className={`selectMenuItem ${conn.sslmode === o.value ? 'selectMenuItemActive' : ''}`}
+                                        role="menuitem"
+                                        onClick={() => {
+                                          setSqlConnSslMenuOpenId(null)
+                                          updateGlobalSqlConnection(conn.id, prev => ({ ...prev, sslmode: o.value }))
+                                        }}
+                                      >
+                                        {o.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : null}
 
-                        <div className="formRow">
-                          <div className="formLabel">Port</div>
-                          <input
-                            className="mono"
-                            inputMode="numeric"
-                            value={conn.port}
-                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, port: e.target.value.replaceAll(/\s+/g, '') }))}
-                            placeholder={conn.type === 'mysql' ? '3306' : '5432'}
-                          />
-                        </div>
+                          <div className="formRow">
+                            <div className="formLabel">Host</div>
+                            <input className="mono" value={conn.host} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, host: e.target.value }))} placeholder="localhost" />
+                          </div>
 
-                        <div className="formRow">
-                          <div className="formLabel">Database</div>
-                          <input className="mono" value={conn.database} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, database: e.target.value }))} placeholder="mydb" />
-                        </div>
-
-                        <div className="formRow">
-                          <div className="formLabel">Username</div>
-                          <input
-                            className="mono"
-                            value={conn.username}
-                            onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, username: e.target.value }))}
-                            onCopy={e => e.preventDefault()}
-                            onCut={e => e.preventDefault()}
-                            placeholder="postgres"
-                          />
-                        </div>
-
-                        <div className="formRow">
-                          <div className="formLabel">Password</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, alignItems: 'center' }}>
+                          <div className="formRow">
+                            <div className="formLabel">Port</div>
                             <input
                               className="mono"
-                              type="password"
-                              value={conn.password}
-                              onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, password: e.target.value }))}
-                              autoComplete="off"
-                              autoCorrect="off"
-                              autoCapitalize="none"
-                              spellCheck={false}
-                              onCopy={e => e.preventDefault()}
-                              onCut={e => e.preventDefault()}
-                              placeholder="********"
+                              inputMode="numeric"
+                              value={conn.port}
+                              onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, port: e.target.value.replaceAll(/\s+/g, '') }))}
+                              placeholder={conn.type === 'mysql' ? '3306' : '5432'}
                             />
                           </div>
-                        </div>
 
-                        <div className="formRow">
-                          <div className="formLabel">URL</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                          <div className="formRow">
+                            <div className="formLabel">Database</div>
+                            <input className="mono" value={conn.database} onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, database: e.target.value }))} placeholder="mydb" />
+                          </div>
+
+                          <div className="formRow">
+                            <div className="formLabel">Username</div>
                             <input
                               className="mono"
-                              type="text"
-                              value={urlInput}
-                              onChange={e => {
-                                const next = e.target.value
-                                setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: next }))
-                                if (!next.trim()) {
-                                  updateGlobalSqlConnection(conn.id, prev => ({
-                                    ...prev,
-                                    sslmode: 'prefer',
-                                    host: '',
-                                    port: '',
-                                    database: '',
-                                    username: '',
-                                    password: '',
-                                  }))
-                                  return
-                                }
-                                const parsed = parseDbConnectionString(next)
-                                if (!parsed) return
-                                updateGlobalSqlConnection(conn.id, prev => ({
-                                  ...prev,
-                                  type: parsed.type,
-                                  sslmode: parsed.sslmode,
-                                  host: parsed.host,
-                                  port: parsed.port,
-                                  database: parsed.database,
-                                  username: parsed.username,
-                                  password: parsed.password,
-                                }))
-                              }}
-                              onPaste={e => {
-                                const pasted = e.clipboardData?.getData('text') ?? ''
-                                if (!pasted.trim()) return
-                                e.preventDefault()
-                                setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: pasted }))
-                                const parsed = parseDbConnectionString(pasted)
-                                if (!parsed) return
-                                updateGlobalSqlConnection(conn.id, prev => ({
-                                  ...prev,
-                                  type: parsed.type,
-                                  sslmode: parsed.sslmode,
-                                  host: parsed.host,
-                                  port: parsed.port,
-                                  database: parsed.database,
-                                  username: parsed.username,
-                                  password: parsed.password,
-                                }))
-                                setSqlConnUrlInputById(prev => {
-                                  if (!(conn.id in prev)) return prev
-                                  const nextState = { ...prev }
-                                  delete nextState[conn.id]
-                                  return nextState
-                                })
-                              }}
-                              onBlur={e => {
-                                const raw = e.target.value.trim()
-                                if (!raw) {
-                                  updateGlobalSqlConnection(conn.id, prev => ({
-                                    ...prev,
-                                    sslmode: 'prefer',
-                                    host: '',
-                                    port: '',
-                                    database: '',
-                                    username: '',
-                                    password: '',
-                                  }))
-                                  setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: '' }))
-                                  return
-                                }
-                                const parsed = parseDbConnectionString(raw)
-                                if (!parsed) return
-                                updateGlobalSqlConnection(conn.id, prev => ({
-                                  ...prev,
-                                  type: parsed.type,
-                                  sslmode: parsed.sslmode,
-                                  host: parsed.host,
-                                  port: parsed.port,
-                                  database: parsed.database,
-                                  username: parsed.username,
-                                  password: parsed.password,
-                                }))
-                                setSqlConnUrlInputById(prev => {
-                                  if (!(conn.id in prev)) return prev
-                                  const nextState = { ...prev }
-                                  delete nextState[conn.id]
-                                  return nextState
-                                })
-                              }}
+                              value={conn.username}
+                              onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, username: e.target.value }))}
                               onCopy={e => e.preventDefault()}
                               onCut={e => e.preventDefault()}
-                              placeholder="Paste postgres://... or mysql://..."
-                              style={{
-                                fontSize: 12,
-                                lineHeight: 1.25,
-                                opacity: connectionPreview ? 1 : 0.7,
-                                overflowWrap: 'anywhere',
-                                wordBreak: 'break-word',
-                                whiteSpace: 'normal',
-                              }}
+                              placeholder="postgres"
                             />
-                            <button
-                              type="button"
-                              className="headerDeleteBtn"
-                              style={test.okMs !== null ? { width: 64, justifySelf: 'end', background: 'rgba(80, 220, 140, .18)', borderColor: 'rgba(80, 220, 140, .45)', color: 'rgb(120, 255, 185)' } : { width: 64, justifySelf: 'end' }}
-                              onClick={() => void testSqlConnection(conn.id)}
-                              disabled={test.inFlight || !connectionString}
-                            >
-                              {test.inFlight ? 'Testing...' : test.okMs !== null ? `${test.okMs}ms` : 'Test'}
-                            </button>
                           </div>
-                        </div>
 
-                        {test.error ? (
-                          <div className="section" style={{ gap: 6 }}>
-                            <div className="small" style={{ color: '#ff9a9a' }}>{test.error}</div>
-                            {test.log ? (
-                              <div
+                          <div className="formRow">
+                            <div className="formLabel">Password</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, alignItems: 'center' }}>
+                              <input
                                 className="mono"
+                                type="password"
+                                value={conn.password}
+                                onChange={e => updateGlobalSqlConnection(conn.id, prev => ({ ...prev, password: e.target.value }))}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                onCopy={e => e.preventDefault()}
+                                onCut={e => e.preventDefault()}
+                                placeholder="********"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="formRow">
+                            <div className="formLabel">URL</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
+                              <input
+                                className="mono"
+                                type="text"
+                                value={urlInput}
+                                onChange={e => {
+                                  const next = e.target.value
+                                  setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: next }))
+                                  if (!next.trim()) {
+                                    updateGlobalSqlConnection(conn.id, prev => ({
+                                      ...prev,
+                                      sslmode: 'prefer',
+                                      host: '',
+                                      port: '',
+                                      database: '',
+                                      username: '',
+                                      password: '',
+                                    }))
+                                    return
+                                  }
+                                  const parsed = parseDbConnectionString(next)
+                                  if (!parsed) return
+                                  updateGlobalSqlConnection(conn.id, prev => ({
+                                    ...prev,
+                                    type: parsed.type,
+                                    sslmode: parsed.sslmode,
+                                    host: parsed.host,
+                                    port: parsed.port,
+                                    database: parsed.database,
+                                    username: parsed.username,
+                                    password: parsed.password,
+                                  }))
+                                }}
+                                onPaste={e => {
+                                  const pasted = e.clipboardData?.getData('text') ?? ''
+                                  if (!pasted.trim()) return
+                                  e.preventDefault()
+                                  setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: pasted }))
+                                  const parsed = parseDbConnectionString(pasted)
+                                  if (!parsed) return
+                                  updateGlobalSqlConnection(conn.id, prev => ({
+                                    ...prev,
+                                    type: parsed.type,
+                                    sslmode: parsed.sslmode,
+                                    host: parsed.host,
+                                    port: parsed.port,
+                                    database: parsed.database,
+                                    username: parsed.username,
+                                    password: parsed.password,
+                                  }))
+                                  setSqlConnUrlInputById(prev => {
+                                    if (!(conn.id in prev)) return prev
+                                    const nextState = { ...prev }
+                                    delete nextState[conn.id]
+                                    return nextState
+                                  })
+                                }}
+                                onBlur={e => {
+                                  const raw = e.target.value.trim()
+                                  if (!raw) {
+                                    updateGlobalSqlConnection(conn.id, prev => ({
+                                      ...prev,
+                                      sslmode: 'prefer',
+                                      host: '',
+                                      port: '',
+                                      database: '',
+                                      username: '',
+                                      password: '',
+                                    }))
+                                    setSqlConnUrlInputById(prev => ({ ...prev, [conn.id]: '' }))
+                                    return
+                                  }
+                                  const parsed = parseDbConnectionString(raw)
+                                  if (!parsed) return
+                                  updateGlobalSqlConnection(conn.id, prev => ({
+                                    ...prev,
+                                    type: parsed.type,
+                                    sslmode: parsed.sslmode,
+                                    host: parsed.host,
+                                    port: parsed.port,
+                                    database: parsed.database,
+                                    username: parsed.username,
+                                    password: parsed.password,
+                                  }))
+                                  setSqlConnUrlInputById(prev => {
+                                    if (!(conn.id in prev)) return prev
+                                    const nextState = { ...prev }
+                                    delete nextState[conn.id]
+                                    return nextState
+                                  })
+                                }}
+                                onCopy={e => e.preventDefault()}
+                                onCut={e => e.preventDefault()}
+                                placeholder="Paste postgres://... or mysql://..."
                                 style={{
                                   fontSize: 12,
-                                  lineHeight: 1.35,
-                                  padding: 10,
-                                  borderRadius: 10,
-                                  border: '1px solid rgba(255,255,255,.12)',
-                                  background: 'rgba(255,255,255,.04)',
-                                  whiteSpace: 'pre-wrap',
+                                  lineHeight: 1.25,
+                                  opacity: connectionPreview ? 1 : 0.7,
                                   overflowWrap: 'anywhere',
+                                  wordBreak: 'break-word',
+                                  whiteSpace: 'normal',
                                 }}
+                              />
+                              <button
+                                type="button"
+                                className="headerDeleteBtn"
+                                style={test.okMs !== null ? { width: 64, justifySelf: 'end', background: 'rgba(80, 220, 140, .18)', borderColor: 'rgba(80, 220, 140, .45)', color: 'rgb(120, 255, 185)' } : { width: 64, justifySelf: 'end' }}
+                                onClick={() => void testSqlConnection(conn.id)}
+                                disabled={test.inFlight || !connectionString}
                               >
-                                {test.log}
-                              </div>
-                            ) : null}
+                                {test.inFlight ? 'Testing...' : test.okMs !== null ? `${test.okMs}ms` : 'Test'}
+                              </button>
+                            </div>
                           </div>
-                        ) : null}
-                      </div>
-                    </details>
-                  )
-                })}
-                <div className="section" style={{ marginTop: 2 }}>
-                  <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+
+                          {test.error ? (
+                            <div className="section" style={{ gap: 6 }}>
+                              <div className="small" style={{ color: '#ff9a9a' }}>{test.error}</div>
+                              {test.log ? (
+                                <div
+                                  className="mono"
+                                  style={{
+                                    fontSize: 12,
+                                    lineHeight: 1.35,
+                                    padding: 10,
+                                    borderRadius: 10,
+                                    border: '1px solid rgba(255,255,255,.12)',
+                                    background: 'rgba(255,255,255,.04)',
+                                    whiteSpace: 'pre-wrap',
+                                    overflowWrap: 'anywhere',
+                                  }}
+                                >
+                                  {test.log}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+                    )
+                  })}
+                  <div className="section" style={{ marginTop: 2 }}>
+                    <button type="button" onClick={addGlobalSqlConnection}>Add Connection</button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        ) : null}
-
-        <div className="modalActions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
-          <button onClick={closeSettings}>Save</button>
-        </div>
-      </dialog>
-
-      {sidebarToolExtensions.map(tool => (
-        <div key={tool.id}>
-          {tool.render({
-            openDrawerId,
-            closeDrawer,
-            collections,
-            environmentsByCollection: envByCollection,
-            globalSqlConnections,
-          })}
-        </div>
-      ))}
-
-      {showUpdateToast && hasPendingUpdate ? (
-        <div className="updateToast" role="dialog" aria-label="Update available">
-          <div className="updateToastTitle">
-            {updateDownloaded
-              ? 'Download complete. Restart the app to install?'
-              : updateTask === 'downloading'
-                ? `Downloading update${typeof updateDownloadPct === 'number' ? ` (${updateDownloadPct}%)` : ''}...`
-                : 'New version is available!'}
-          </div>
-          {updateTask === 'downloading' && typeof updateDownloadPct === 'number' ? (
-            <div className="small" style={{ opacity: 0.85, marginTop: 4 }}>
-              {updateDownloadPct}%
+              )}
             </div>
           ) : null}
-          <div className="updateToastActions">
-            {updateDownloaded ? (
-              <>
-                <button onClick={onRestartToUpdate} disabled={updateBusy}>Restart</button>
-                <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
-              </>
-            ) : (
-              <>
-                <button onClick={onUpdateNow} disabled={updateBusy}>Update</button>
-                <button onClick={onUpdateLater} disabled={updateBusy}>Later</button>
-              </>
-            )}
+
+          <div className="modalActions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+            <button onClick={closeSettings}>Save</button>
           </div>
-        </div>
-      ) : null}
+        </dialog>
+
+        {sidebarToolExtensions.map(tool => (
+          <div key={tool.id}>
+            {tool.render({
+              openDrawerId,
+              closeDrawer,
+              collections,
+              environmentsByCollection: envByCollection,
+              globalSqlConnections,
+            })}
+          </div>
+        ))}
+
+        {showUpdateToast && hasPendingUpdate ? (
+          <div className="updateToast" role="dialog" aria-label="Update available">
+            <div className="updateToastTitle">
+              {updateDownloaded
+                ? 'Download complete. Restart the app to install?'
+                : updateTask === 'downloading'
+                  ? `Downloading update${typeof updateDownloadPct === 'number' ? ` (${updateDownloadPct}%)` : ''}...`
+                  : 'New version is available!'}
+            </div>
+            {updateTask === 'downloading' && typeof updateDownloadPct === 'number' ? (
+              <div className="small" style={{ opacity: 0.85, marginTop: 4 }}>
+                {updateDownloadPct}%
+              </div>
+            ) : null}
+            <div className="updateToastActions">
+              {updateDownloaded ? (
+                <>
+                  <button onClick={onRestartToUpdate} disabled={updateBusy}>Restart</button>
+                  <button onClick={onUpdateLater} disabled={updateBusy}>Not now</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={onUpdateNow} disabled={updateBusy}>Update</button>
+                  <button onClick={onUpdateLater} disabled={updateBusy}>Later</button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
 
       </div>
     </div>

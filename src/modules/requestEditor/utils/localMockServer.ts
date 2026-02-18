@@ -10,6 +10,7 @@ export type LocalMockServerStatus = {
 export type LocalMockRouteArgs = {
   method: string
   path: string
+  port?: number
   status: number
   headers?: Array<[string, string]>
   body: string
@@ -85,7 +86,6 @@ export function setLocalMockTargetOrigin(originRaw: string): void {
     localStorage.removeItem(LOCAL_MOCK_TARGET_ORIGIN_KEY)
     return
   }
-
   try {
     const normalized = new URL(raw).origin
     localStorage.setItem(LOCAL_MOCK_TARGET_ORIGIN_KEY, normalized)
@@ -103,4 +103,24 @@ export function getLocalMockTargetOrigin(): string {
   } catch {
     return ''
   }
+}
+
+export async function listLocalMockAdditionalServers(): Promise<LocalMockServerStatus[]> {
+  return await tauriInvoke<LocalMockServerStatus[]>('mocker_server_additional_list')
+}
+
+export async function startLocalMockAdditionalServer(port?: number): Promise<LocalMockServerStatus> {
+  const out = await tauriInvoke<LocalMockServerStatus>('mocker_server_additional_start', {
+    args: { port },
+  })
+  emitLocalMockServerUpdated()
+  return out
+}
+
+export async function stopLocalMockAdditionalServer(port: number): Promise<LocalMockServerStatus[]> {
+  const out = await tauriInvoke<LocalMockServerStatus[]>('mocker_server_additional_stop', {
+    args: { port },
+  })
+  emitLocalMockServerUpdated()
+  return out
 }

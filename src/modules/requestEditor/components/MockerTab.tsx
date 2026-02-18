@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   getLocalMockServerStatus,
+  listLocalMockAdditionalServers,
   onLocalMockServerUpdated,
   setLocalMockTargetOrigin,
   setLocalMockRoute,
@@ -15,38 +16,74 @@ type MockerTabProps = {
   targetOriginDefault: string
 }
 
+type ServerOption = {
+  port: number
+  label: string
+  baseUrl: string
+  running: boolean
+}
+
 export function MockerTab(props: MockerTabProps) {
   const [localServerLoading, setLocalServerLoading] = useState(false)
-  const [localServerStatus, setLocalServerStatus] = useState<{
-    running: boolean
-    port: number
-    baseUrl: string
-    routesCount: number
-  } | null>(null)
   const [localRouteMethod, setLocalRouteMethod] = useState((props.routeMethodDefault || 'GET').toUpperCase())
   const [localRoutePath, setLocalRoutePath] = useState(props.routePathDefault || '/')
   const [localRouteStatus, setLocalRouteStatus] = useState('200')
   const [localRouteBody, setLocalRouteBody] = useState('{}')
   const [localServerError, setLocalServerError] = useState('')
   const [localServerInfo, setLocalServerInfo] = useState('')
+  const [serverOptions, setServerOptions] = useState<ServerOption[]>([
+    { port: 7777, label: 'Server 1', baseUrl: 'http://127.0.0.1:7777', running: false },
+  ])
+  const [selectedServerPort, setSelectedServerPort] = useState(7777)
 
-  async function refreshLocalServerStatus() {
+  async function refreshMockServersState() {
     try {
-      const status = await getLocalMockServerStatus()
-      setLocalServerStatus(status)
+      const [status, additional] = await Promise.all([
+        getLocalMockServerStatus(),
+        listLocalMockAdditionalServers(),
+      ])
+
+      const primaryPort = status.port > 0 ? status.port : 7777
+      const primaryOption: ServerOption = {
+        port: primaryPort,
+        label: 'Server 1',
+        baseUrl: status.baseUrl || `http://127.0.0.1:${primaryPort}`,
+        running: !!status.running,
+      }
+      const additionalOptions: ServerOption[] = additional.map(server => ({
+        port: server.port,
+        label: `Server ${server.port}`,
+        baseUrl: server.baseUrl,
+        running: !!server.running,
+      }))
+
+      const nextOptions = [primaryOption, ...additionalOptions]
+        .reduce<ServerOption[]>((acc, item) => {
+          if (acc.some(x => x.port === item.port)) return acc
+          acc.push(item)
+          return acc
+        }, [])
+        .sort((a, b) => a.port - b.port)
+
+      setServerOptions(nextOptions)
+      setSelectedServerPort(prev => (
+        nextOptions.some(x => x.port === prev)
+          ? prev
+          : (nextOptions.find(x => x.running)?.port ?? nextOptions[0]?.port ?? 7777)
+      ))
       setLocalServerError('')
     } catch (error) {
-      setLocalServerError((error as Error | null)?.message || 'Failed to read local mock server status')
+      setLocalServerError((error as Error | null)?.message || 'Failed to read local mock server state')
     }
   }
 
   useEffect(() => {
-    void refreshLocalServerStatus()
+    void refreshMockServersState()
   }, [])
 
   useEffect(() => {
     return onLocalMockServerUpdated(() => {
-      void refreshLocalServerStatus()
+      void refreshMockServersState()
     })
   }, [])
 
@@ -59,6 +96,11 @@ export function MockerTab(props: MockerTabProps) {
     setLocalMockTargetOrigin(props.targetOriginDefault || '')
   }, [props.requestId, props.targetOriginDefault])
 
+  const selectedServer = useMemo(
+    () => serverOptions.find(s => s.port === selectedServerPort) ?? null,
+    [selectedServerPort, serverOptions],
+  )
+
   return (
     <div className="accordion">
       <div className="section" style={{ display: 'grid', gap: 10 }}>
@@ -66,13 +108,22 @@ export function MockerTab(props: MockerTabProps) {
           <div style={{ fontWeight: 600, opacity: 0.95 }}>Local Mock Server</div>
         </div>
 
-        <div className="small" style={{ opacity: 0.85 }}>
-          Status: <span className="mono">{localServerStatus?.running ? `RUNNING ${localServerStatus.baseUrl}` : 'STOPPED'}</span>
-          {localServerStatus?.running ? <span> / routes: <span className="mono">{localServerStatus.routesCount}</span></span> : null}
-        </div>
-
-        <div className="small" style={{ opacity: 0.78 }}>
-          Start/stop server moved to sidebar tool "Local Mock Server". This tab only manages mock routes.
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div className="small" style={{ opacity: 0.78 }}>Server</div>
+          <select
+            className="mono"
+            value={String(selectedServerPort)}
+            onChange={e => setSelectedServerPort(Number.parseInt(e.target.value, 10) || 7777)}
+          >
+            {serverOptions.map(server => (
+              <option key={server.port} value={String(server.port)}>
+                {server.running ? '🟢 ' : ''}{server.label} ({server.port})
+              </option>
+            ))}
+          </select>
+          <div className="small" style={{ opacity: 0.72 }}>
+            {selectedServer?.baseUrl || 'http://127.0.0.1:7777'}
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 8, alignItems: 'center' }}>
@@ -101,15 +152,16 @@ export function MockerTab(props: MockerTabProps) {
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             type="button"
-            disabled={localServerLoading || !localServerStatus?.running}
+            disabled={localServerLoading || !selectedServer?.running}
             onClick={async () => {
               setLocalServerLoading(true)
               setLocalServerInfo('')
               setLocalServerError('')
               try {
-                const status = await setLocalMockRoute({
+                await setLocalMockRoute({
                   method: localRouteMethod,
                   path: localRoutePath,
+                  port: selectedServerPort,
                   status: (() => {
                     const parsed = Number.parseInt(localRouteStatus.trim(), 10)
                     if (!Number.isFinite(parsed)) return 200
@@ -118,8 +170,8 @@ export function MockerTab(props: MockerTabProps) {
                   headers: [['Content-Type', 'application/json']],
                   body: localRouteBody,
                 })
-                setLocalServerStatus(status)
-                setLocalServerInfo(`Route published: ${localRouteMethod} ${localRoutePath}`)
+                setLocalServerInfo(`Route published to port ${selectedServerPort}: ${localRouteMethod} ${localRoutePath}`)
+                await refreshMockServersState()
               } catch (error) {
                 setLocalServerError((error as Error | null)?.message || 'Failed to publish route')
               } finally {
@@ -129,6 +181,11 @@ export function MockerTab(props: MockerTabProps) {
           >
             Publish Route
           </button>
+          {!selectedServer?.running ? (
+            <div className="small" style={{ opacity: 0.72, alignSelf: 'center' }}>
+              Selected server is stopped
+            </div>
+          ) : null}
         </div>
 
         {localServerInfo ? <div className="small" style={{ color: '#9ad19a' }}>{localServerInfo}</div> : null}
