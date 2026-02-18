@@ -64,6 +64,7 @@ pub struct MockerServerSetRouteArgs {
 pub struct MockerServerDeleteRouteArgs {
     pub method: String,
     pub path: String,
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -912,86 +913,135 @@ pub fn mocker_server_set_route(args: MockerServerSetRouteArgs) -> Result<MockerS
 }
 
 #[tauri::command]
-pub fn mocker_server_list_routes() -> Result<Vec<MockerServerRouteItem>, String> {
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    cleanup_stale_runtime(&mut guard);
+pub fn mocker_server_list_routes(
+    args: Option<MockerServerPortArgs>,
+) -> Result<Vec<MockerServerRouteItem>, String> {
+    let target_port = args.map(|x| x.port).unwrap_or(7777);
 
-    let runtime = guard
-        .as_mut()
-        .ok_or_else(|| "local mock server is not running".to_string())?;
+    {
+        let mut guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        cleanup_stale_runtime(&mut guard);
 
-    let (status, body) = http_local_request(runtime.port, "GET", "/__control/routes", None)?;
-    if status != 200 {
-        return Err(format!("failed to fetch routes, status {status}"));
+        if let Some(runtime) = guard.as_mut() {
+            if runtime.port == target_port {
+                let (status, body) = http_local_request(runtime.port, "GET", "/__control/routes", None)?;
+                if status != 200 {
+                    return Err(format!("failed to fetch routes from port {}, status {status}", runtime.port));
+                }
+                let parsed = serde_json::from_str::<ChildRoutesResponse>(&body)
+                    .map_err(|e| format!("failed to parse routes response: {e}"))?;
+                runtime.routes_count = parsed.routes.len();
+                return Ok(parsed.routes);
+            }
+        }
     }
-
-    let parsed = serde_json::from_str::<ChildRoutesResponse>(&body)
-        .map_err(|e| format!("failed to parse routes response: {e}"))?;
-    runtime.routes_count = parsed.routes.len();
-    Ok(parsed.routes)
-}
-
-#[tauri::command]
-pub fn mocker_server_delete_route(args: MockerServerDeleteRouteArgs) -> Result<MockerServerStatus, String> {
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    cleanup_stale_runtime(&mut guard);
-
-    let runtime = guard
-        .as_mut()
-        .ok_or_else(|| "local mock server is not running".to_string())?;
-
-    let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
-    let (status, body) = http_local_request(runtime.port, "DELETE", "/__control/route", Some(&payload))?;
-    if status != 200 {
-        return Err(format!(
-            "failed to delete route, status {status}: {}",
-            body.trim()
-        ));
-    }
-
-    refresh_runtime_routes_count(runtime);
 
     {
         let mut additional_guard = additional_server_state()
             .lock()
             .map_err(|_| "additional server state lock failed".to_string())?;
         cleanup_stale_runtimes(&mut additional_guard);
-        let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
-        for additional_runtime in additional_guard.iter_mut() {
-            if let Ok((additional_status, _)) = http_local_request(
-                additional_runtime.port,
-                "DELETE",
-                "/__control/route",
-                Some(&payload),
-            ) {
-                if additional_status == 200 || additional_status == 404 {
-                    refresh_runtime_routes_count(additional_runtime);
+        if let Some(runtime) = additional_guard.iter_mut().find(|x| x.port == target_port) {
+            let (status, body) = http_local_request(runtime.port, "GET", "/__control/routes", None)?;
+            if status != 200 {
+                return Err(format!("failed to fetch routes from port {}, status {status}", runtime.port));
+            }
+            let parsed = serde_json::from_str::<ChildRoutesResponse>(&body)
+                .map_err(|e| format!("failed to parse routes response: {e}"))?;
+            runtime.routes_count = parsed.routes.len();
+            return Ok(parsed.routes);
+        }
+    }
+
+    Err(format!("local mock server on port {target_port} is not running"))
+}
+
+#[tauri::command]
+pub fn mocker_server_delete_route(args: MockerServerDeleteRouteArgs) -> Result<MockerServerStatus, String> {
+    let target_port = args.port.unwrap_or(7777);
+    let payload = serde_json::to_string(&args).map_err(|e| e.to_string())?;
+
+    {
+        let mut guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        cleanup_stale_runtime(&mut guard);
+
+        if let Some(runtime) = guard.as_mut() {
+            if runtime.port == target_port {
+                let (status, body) =
+                    http_local_request(runtime.port, "DELETE", "/__control/route", Some(&payload))?;
+                if status != 200 {
+                    return Err(format!(
+                        "failed to delete route on port {}, status {status}: {}",
+                        runtime.port,
+                        body.trim()
+                    ));
                 }
+                refresh_runtime_routes_count(runtime);
+                return Ok(runtime_status(runtime));
             }
         }
     }
 
-    Ok(runtime_status(runtime))
+    {
+        let mut additional_guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        cleanup_stale_runtimes(&mut additional_guard);
+        if let Some(runtime) = additional_guard.iter_mut().find(|x| x.port == target_port) {
+            let (status, body) =
+                http_local_request(runtime.port, "DELETE", "/__control/route", Some(&payload))?;
+            if status != 200 {
+                return Err(format!(
+                    "failed to delete route on port {}, status {status}: {}",
+                    runtime.port,
+                    body.trim()
+                ));
+            }
+            refresh_runtime_routes_count(runtime);
+            return Ok(runtime_status(runtime));
+        }
+    }
+
+    Err(format!("local mock server on port {target_port} is not running"))
 }
 
 #[tauri::command]
-pub fn mocker_server_logs() -> Result<Vec<String>, String> {
-    let mut guard = server_state()
-        .lock()
-        .map_err(|_| "server state lock failed".to_string())?;
-    cleanup_stale_runtime(&mut guard);
+pub fn mocker_server_logs(args: Option<MockerServerPortArgs>) -> Result<Vec<String>, String> {
+    let target_port = args.map(|x| x.port).unwrap_or(7777);
+    let mut runtime_port: Option<u16> = None;
 
-    let runtime = guard
-        .as_mut()
-        .ok_or_else(|| "local mock server is not running".to_string())?;
+    {
+        let mut primary_guard = server_state()
+            .lock()
+            .map_err(|_| "server state lock failed".to_string())?;
+        cleanup_stale_runtime(&mut primary_guard);
+        if let Some(runtime) = primary_guard.as_ref() {
+            if runtime.port == target_port {
+                runtime_port = Some(runtime.port);
+            }
+        }
+    }
 
-    let (status, body) = http_local_request(runtime.port, "GET", "/__control/logs", None)?;
+    if runtime_port.is_none() {
+        let mut additional_guard = additional_server_state()
+            .lock()
+            .map_err(|_| "additional server state lock failed".to_string())?;
+        cleanup_stale_runtimes(&mut additional_guard);
+        if let Some(runtime) = additional_guard.iter().find(|x| x.port == target_port) {
+            runtime_port = Some(runtime.port);
+        }
+    }
+
+    let port = runtime_port
+        .ok_or_else(|| format!("local mock server on port {target_port} is not running"))?;
+
+    let (status, body) = http_local_request(port, "GET", "/__control/logs", None)?;
     if status != 200 {
-        return Err(format!("failed to fetch logs, status {status}"));
+        return Err(format!("failed to fetch logs from port {port}, status {status}"));
     }
 
     let parsed = serde_json::from_str::<ChildLogsResponse>(&body)

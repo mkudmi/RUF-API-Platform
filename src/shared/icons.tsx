@@ -136,6 +136,23 @@ export function TrashIcon(props: { size?: number }) {
   )
 }
 
+export function PencilIcon(props: { size?: number }) {
+  const size = props.size ?? 16
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path d="M4 20h4l10.5-10.5a1.8 1.8 0 0 0 0-2.5l-1.5-1.5a1.8 1.8 0 0 0-2.5 0L4 16v4Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      <path d="m13.5 6.5 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function StarIcon(props: { size?: number }) {
   const size = props.size ?? 16
   return (

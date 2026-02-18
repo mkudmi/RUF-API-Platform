@@ -1,10 +1,28 @@
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { CloseIcon } from '../../../shared/icons'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { CloseIcon, PencilIcon, TrashIcon } from '../../../shared/icons'
+import { ValueHistorySelect } from '../../../shared/components/ValueHistorySelect'
 import { copyText } from '../../../shared/utils/clipboard'
 import { logWarn } from '../../../shared/utils/logger'
+import type { VariableSuggestion } from '../../../shared/utils/variables'
 import type { Collection } from '../../collectionTree'
+import { JsonCodeEditor } from '../../requestEditor/components/JsonCodeEditor'
 import {
+  applyPreparedLocalMockRoutes,
+  addPreparedLocalMockRoute,
+  addConfiguredLocalMockAdditionalPort,
+  clearPreparedLocalMockRoutes,
+  getLocalMockServerBaseUrl,
+  listPreparedLocalMockRoutes,
   listLocalMockAdditionalServers,
+  listConfiguredLocalMockAdditionalPorts,
+  LOCAL_MOCK_METHOD_OPTIONS,
+  LOCAL_MOCK_PRIMARY_PORT,
+  normalizeLocalMockHttpStatus,
+  normalizeLocalMockRouteBodyToJson,
+  normalizeLocalMockRoutePath,
+  removePreparedLocalMockRoute,
+  removeConfiguredLocalMockAdditionalPort,
+  setLocalMockRoute,
   startLocalMockAdditionalServer,
   stopLocalMockAdditionalServer,
   setLocalMockTargetOrigin,
@@ -16,6 +34,7 @@ import {
   onLocalMockServerUpdated,
   startLocalMockServer,
   stopLocalMockServer,
+  type LocalMockServerStatus,
   type LocalMockRouteItem,
 } from '../../requestEditor/utils/localMockServer'
 
@@ -28,10 +47,21 @@ type LocalMockServerDrawerProps = {
 const LOCAL_MOCK_SERVER_HEIGHT_KEY = 'ruf_local_mock_server_height_v1'
 const LOCAL_MOCK_SERVER_MIN_HEIGHT_PX = 220
 const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
+const EMPTY_VARIABLE_SUGGESTIONS: VariableSuggestion[] = []
 
 type ServerTab = {
   id: string
   port: number
+}
+
+type DrawerRouteItem = LocalMockRouteItem & { queued?: boolean }
+type RouteEditState = {
+  originalMethod: string
+  originalPath: string
+  method: string
+  path: string
+  status: string
+  body: string
 }
 
 function normalizeAbsoluteOrigin(raw: string): string {
@@ -88,42 +118,33 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
       return null
     }
   })
-  const [primaryStatus, setPrimaryStatus] = useState<{
-    running: boolean
-    port: number
-    baseUrl: string
-    routesCount: number
-  } | null>(null)
-  const [additionalStatuses, setAdditionalStatuses] = useState<Array<{
-    running: boolean
-    port: number
-    baseUrl: string
-    routesCount: number
-  }>>([])
+  const [primaryStatus, setPrimaryStatus] = useState<LocalMockServerStatus | null>(null)
+  const [additionalStatuses, setAdditionalStatuses] = useState<LocalMockServerStatus[]>([])
   const [error, setError] = useState('')
-  const [info, setInfo] = useState('')
   const [snippetCopied, setSnippetCopied] = useState(false)
-  const [routes, setRoutes] = useState<LocalMockRouteItem[]>([])
+  const [routes, setRoutes] = useState<DrawerRouteItem[]>([])
   const [routesLoading, setRoutesLoading] = useState(false)
   const [deletingRouteKey, setDeletingRouteKey] = useState<string | null>(null)
-  const [serverTabs, setServerTabs] = useState<ServerTab[]>([{ id: 'server-1', port: 7777 }])
+  const [serverTabs, setServerTabs] = useState<ServerTab[]>(() => {
+    const configured = listConfiguredLocalMockAdditionalPorts()
+    const tabs: ServerTab[] = [{ id: 'server-1', port: LOCAL_MOCK_PRIMARY_PORT }]
+    for (const port of configured) tabs.push({ id: `server-${port}`, port })
+    return tabs.sort((a, b) => a.port - b.port)
+  })
   const [activeTabId, setActiveTabId] = useState<string>('server-1')
   const [targetOriginByPort, setTargetOriginByPort] = useState<Record<number, string>>(() => ({
-    7777: getLocalMockTargetOrigin(),
+    [LOCAL_MOCK_PRIMARY_PORT]: getLocalMockTargetOrigin(),
   }))
-  const [logs, setLogs] = useState<string[]>([])
+  const [logsByPort, setLogsByPort] = useState<Record<number, string[]>>({})
   const [logsLoading, setLogsLoading] = useState(false)
+  const [routeEditState, setRouteEditState] = useState<RouteEditState | null>(null)
+  const routeEditDialogRef = useRef<HTMLDialogElement | null>(null)
   const collectionTargetOrigins = useMemo(
     () => collectCollectionTargetOrigins(props.collections),
     [props.collections],
   )
   const serverStatusByPort = useMemo(() => {
-    const map = new Map<number, {
-      running: boolean
-      port: number
-      baseUrl: string
-      routesCount: number
-    }>()
+    const map = new Map<number, LocalMockServerStatus>()
     if (primaryStatus) map.set(primaryStatus.port, primaryStatus)
     for (const status of additionalStatuses) map.set(status.port, status)
     return map
@@ -131,14 +152,20 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   const activeTab = useMemo(() => (
     serverTabs.find(tab => tab.id === activeTabId) ?? serverTabs[0]
   ), [activeTabId, serverTabs])
-  const activePort = activeTab?.port ?? 7777
+  const activePort = activeTab?.port ?? LOCAL_MOCK_PRIMARY_PORT
   const activeServerStatus = serverStatusByPort.get(activePort) ?? null
+  const activeServerUrl = getLocalMockServerBaseUrl(activePort, activeServerStatus?.baseUrl)
+  const activeLogs = logsByPort[activePort] ?? []
   const activeTargetOrigin = targetOriginByPort[activePort] || ''
   const targetOriginOptions = useMemo(() => {
     const out = new Set<string>(collectionTargetOrigins)
     if (activeTargetOrigin) out.add(activeTargetOrigin)
     return Array.from(out)
   }, [activeTargetOrigin, collectionTargetOrigins])
+  const targetOriginLabel = activeTargetOrigin || 'not selected (fallback: https://api.example.com)'
+  const onRouteEditBodyChange = useCallback((next: string) => {
+    setRouteEditState(prev => (prev ? { ...prev, body: next } : prev))
+  }, [])
 
   useEffect(() => {
     if (!serverTabs.length) return
@@ -157,9 +184,15 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
       setServerTabs(prev => {
         const byPort = new Map<number, ServerTab>()
         for (const tab of prev) byPort.set(tab.port, tab)
-        if (!byPort.has(7777)) byPort.set(7777, { id: 'server-1', port: 7777 })
+        if (!byPort.has(LOCAL_MOCK_PRIMARY_PORT)) {
+          byPort.set(LOCAL_MOCK_PRIMARY_PORT, { id: 'server-1', port: LOCAL_MOCK_PRIMARY_PORT })
+        }
+        for (const port of listConfiguredLocalMockAdditionalPorts()) {
+          if (port === LOCAL_MOCK_PRIMARY_PORT) continue
+          if (!byPort.has(port)) byPort.set(port, { id: `server-${port}`, port })
+        }
         for (const status of nextAdditionalStatuses) {
-          if (status.port === 7777) continue
+          if (status.port === LOCAL_MOCK_PRIMARY_PORT) continue
           if (!byPort.has(status.port)) {
             byPort.set(status.port, { id: `server-${status.port}`, port: status.port })
           }
@@ -167,18 +200,33 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
         return Array.from(byPort.values()).sort((a, b) => a.port - b.port)
       })
 
-      if (!nextPrimaryStatus.running) {
-        setRoutes([])
-        setLogs([])
-        setError('')
-        return
-      }
       setRoutesLoading(true)
       setLogsLoading(true)
-      const nextRoutes = await listLocalMockRoutes()
-      const nextLogs = await getLocalMockServerLogs()
-      setRoutes(nextRoutes)
-      setLogs(nextLogs)
+      const activePortCandidate = activeTab?.port ?? LOCAL_MOCK_PRIMARY_PORT
+      const activeStatusCandidate = activePortCandidate === LOCAL_MOCK_PRIMARY_PORT
+        ? nextPrimaryStatus
+        : (nextAdditionalStatuses.find(x => x.port === activePortCandidate) ?? null)
+      const nextRoutes = activeStatusCandidate?.running
+        ? await listLocalMockRoutes(activePortCandidate)
+        : []
+      const preparedRoutes = listPreparedLocalMockRoutes(activePortCandidate)
+      const mergedRoutes: DrawerRouteItem[] = nextRoutes.map(route => ({ ...route, queued: false }))
+      for (const prepared of preparedRoutes) {
+        if (mergedRoutes.some(route => route.method === prepared.method && route.path === prepared.path)) continue
+        mergedRoutes.push({
+          method: prepared.method,
+          path: prepared.path,
+          status: prepared.status,
+          queued: true,
+        })
+      }
+      const nextLogs = activeStatusCandidate?.running
+        ? await getLocalMockServerLogs(activePortCandidate)
+        : null
+      setRoutes(mergedRoutes)
+      if (nextLogs) {
+        setLogsByPort(prev => ({ ...prev, [activePortCandidate]: nextLogs }))
+      }
       setError('')
     } catch (e) {
       setError((e as Error | null)?.message || 'Failed to refresh local mock server state')
@@ -189,14 +237,11 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   }
 
   async function refreshLogs() {
-    if (!primaryStatus?.running) {
-      setLogs([])
-      return
-    }
+    if (!activeServerStatus?.running) return
     setLogsLoading(true)
     try {
-      const next = await getLocalMockServerLogs()
-      setLogs(next)
+      const next = await getLocalMockServerLogs(activePort)
+      setLogsByPort(prev => ({ ...prev, [activePort]: next }))
     } catch {
       // ignore transient log polling errors
     } finally {
@@ -209,9 +254,14 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
     void refreshAll()
     setTargetOriginByPort(prev => ({
       ...prev,
-      7777: getLocalMockTargetOrigin(),
+      [LOCAL_MOCK_PRIMARY_PORT]: getLocalMockTargetOrigin(),
     }))
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    void refreshAll()
+  }, [open, activePort])
 
   useEffect(() => {
     return onLocalMockServerUpdated(() => {
@@ -221,13 +271,23 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   }, [open])
 
   useEffect(() => {
-    if (!open || !primaryStatus?.running) return
+    if (!open || !activeServerStatus?.running) return
     void refreshLogs()
     const timer = window.setInterval(() => {
       void refreshLogs()
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [open, primaryStatus?.running])
+  }, [open, activePort, activeServerStatus?.running])
+
+  useEffect(() => {
+    const dialog = routeEditDialogRef.current
+    if (!dialog) return
+    if (routeEditState) {
+      if (!dialog.open) dialog.showModal()
+    } else if (dialog.open) {
+      dialog.close()
+    }
+  }, [routeEditState])
 
   useEffect(() => {
     if (heightPx == null) return
@@ -260,36 +320,145 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
       ...prev,
       [port]: normalized,
     }))
-    if (port === 7777) setLocalMockTargetOrigin(normalized)
+    if (port === LOCAL_MOCK_PRIMARY_PORT) setLocalMockTargetOrigin(normalized)
+  }
+
+  function openRouteEditor(route: DrawerRouteItem) {
+    const prepared = listPreparedLocalMockRoutes(activePort).find(
+      item => item.method === route.method && item.path === route.path,
+    )
+    setRouteEditState({
+      originalMethod: route.method,
+      originalPath: route.path,
+      method: (prepared?.method ?? route.method ?? 'GET').toUpperCase(),
+      path: prepared?.path ?? route.path ?? '/',
+      status: String(prepared?.status ?? route.status ?? 200),
+      body: prepared?.body ?? '{}',
+    })
+  }
+
+  async function saveRouteEditor() {
+    if (!routeEditState) return
+    const method = (routeEditState.method || 'GET').trim().toUpperCase() || 'GET'
+    const path = normalizeLocalMockRoutePath(routeEditState.path)
+    const status = normalizeLocalMockHttpStatus(routeEditState.status, 200)
+    const body = normalizeLocalMockRouteBodyToJson(routeEditState.body)
+
+    const preparedBefore = listPreparedLocalMockRoutes(activePort).find(
+      item => item.method === routeEditState.originalMethod && item.path === routeEditState.originalPath,
+    )
+    const headers = preparedBefore?.headers?.length
+      ? preparedBefore.headers
+      : [['Content-Type', 'application/json']] as Array<[string, string]>
+
+    setLoading(true)
+    setError('')
+    try {
+      removePreparedLocalMockRoute({
+        port: activePort,
+        method: routeEditState.originalMethod,
+        path: routeEditState.originalPath,
+      })
+      const payload = { method, path, port: activePort, status, headers, body }
+      addPreparedLocalMockRoute(payload)
+
+      if (activeServerStatus?.running) {
+        if (routeEditState.originalMethod !== method || routeEditState.originalPath !== path) {
+          try {
+            await deleteLocalMockRoute({
+              method: routeEditState.originalMethod,
+              path: routeEditState.originalPath,
+              port: activePort,
+            })
+          } catch {
+            // Ignore old-route delete failures; next upsert still applies edited route.
+          }
+        }
+        await setLocalMockRoute(payload)
+      }
+
+      setRouteEditState(null)
+      await refreshAll()
+    } catch (e) {
+      setError((e as Error | null)?.message || 'Failed to update route')
+    } finally {
+      setLoading(false)
+    }
   }
 
   function addServerTab() {
+    const usedPorts = new Set(serverTabs.map(tab => tab.port))
+    let candidate = LOCAL_MOCK_PRIMARY_PORT + 1
+    while (usedPorts.has(candidate) && candidate < 65535) candidate += 1
+    if (candidate > 65535) {
+      setError('No free port available for additional mock server')
+      return
+    }
+    addConfiguredLocalMockAdditionalPort(candidate)
+    setError('')
     setServerTabs(prev => {
-      const usedPorts = new Set(prev.map(tab => tab.port))
-      let candidate = 7778
-      while (usedPorts.has(candidate) && candidate < 65535) candidate += 1
-      if (candidate > 65535) return prev
-      const nextTab = { id: `server-${candidate}`, port: candidate }
-      setActiveTabId(nextTab.id)
-      setTargetOriginByPort(prevTarget => {
-        if (prevTarget[candidate]) return prevTarget
-        const fallback = collectionTargetOrigins[0] || ''
-        return { ...prevTarget, [candidate]: fallback }
-      })
-      return [...prev, nextTab]
+      if (prev.some(tab => tab.port === candidate)) return prev
+      return [...prev, { id: `server-${candidate}`, port: candidate }].sort((a, b) => a.port - b.port)
     })
+    setActiveTabId(`server-${candidate}`)
+    setTargetOriginByPort(prev => {
+      if (prev[candidate]) return prev
+      const fallback = collectionTargetOrigins[0] || ''
+      return { ...prev, [candidate]: fallback }
+    })
+  }
+
+  async function removeServerTab(tabId: string) {
+    const tab = serverTabs.find(x => x.id === tabId)
+    if (!tab) return
+    if (tab.port === LOCAL_MOCK_PRIMARY_PORT) return
+
+    setLoading(true)
+    setError('')
+    try {
+      const status = serverStatusByPort.get(tab.port)
+      if (status?.running) await stopLocalMockAdditionalServer(tab.port)
+      removeConfiguredLocalMockAdditionalPort(tab.port)
+      clearPreparedLocalMockRoutes(tab.port)
+      setTargetOriginByPort(prev => {
+        const next = { ...prev }
+        delete next[tab.port]
+        return next
+      })
+      setLogsByPort(prev => {
+        const next = { ...prev }
+        delete next[tab.port]
+        return next
+      })
+      setServerTabs(prev => {
+        const idx = prev.findIndex(x => x.id === tabId)
+        if (idx < 0) return prev
+        const next = [...prev.slice(0, idx), ...prev.slice(idx + 1)]
+        if (activeTabId === tabId) {
+          const fallback = next[idx - 1] ?? next[idx] ?? next[0] ?? null
+          setActiveTabId(fallback?.id ?? 'server-1')
+        }
+        return next
+      })
+      await refreshAll()
+    } catch (e) {
+      setError((e as Error | null)?.message || 'Failed to remove local server')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function startActiveServer() {
     if (!activeTab) return
     setLoading(true)
-    setInfo('')
     setError('')
     try {
-      const next = activeTab.port === 7777
-        ? await startLocalMockServer(activeTab.port)
-        : await startLocalMockAdditionalServer(activeTab.port)
-      setInfo(`Local server started: ${next.baseUrl}`)
+      if (activeTab.port === LOCAL_MOCK_PRIMARY_PORT) {
+        await startLocalMockServer(activeTab.port)
+      } else {
+        await startLocalMockAdditionalServer(activeTab.port)
+      }
+      await applyPreparedLocalMockRoutes(activeTab.port)
       await refreshAll()
     } catch (e) {
       setError((e as Error | null)?.message || 'Failed to start local server')
@@ -301,15 +470,13 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   async function stopActiveServer() {
     if (!activeTab) return
     setLoading(true)
-    setInfo('')
     setError('')
     try {
-      if (activeTab.port === 7777) {
+      if (activeTab.port === LOCAL_MOCK_PRIMARY_PORT) {
         await stopLocalMockServer()
       } else {
         await stopLocalMockAdditionalServer(activeTab.port)
       }
-      setInfo(`Local server stopped: http://127.0.0.1:${activeTab.port}`)
       await refreshAll()
     } catch (e) {
       setError((e as Error | null)?.message || 'Failed to stop local server')
@@ -319,9 +486,9 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   }
 
   const devtoolsSnippet = useMemo(() => {
-    const base = activeServerStatus?.baseUrl || `http://127.0.0.1:${activePort || 7777}`
+    const base = getLocalMockServerBaseUrl(activePort || LOCAL_MOCK_PRIMARY_PORT, activeServerStatus?.baseUrl)
     const target = activeTargetOrigin || 'https://api.example.com'
-    return `(() => {\n  const TARGET_ORIGIN = '${target}';\n  const MOCK_ORIGIN = '${base}';\n  const orig = window.fetch.bind(window);\n  const isMiss = async (res) => {\n    if (res.headers.get('x-ruf-local-mock-miss') === '1') return true;\n    const ct = (res.headers.get('content-type') || '').toLowerCase();\n    if (!ct.includes('application/json')) return false;\n    try {\n      const data = await res.clone().json();\n      return String(data?.error || '').toLowerCase() === 'mock route not found';\n    } catch {\n      return false;\n    }\n  };\n  window.fetch = async (input, init) => {\n    const url = typeof input === 'string' ? input : input.url;\n    if (!url.startsWith(TARGET_ORIGIN + '/')) return orig(input, init);\n    const redirected = url.replace(TARGET_ORIGIN, MOCK_ORIGIN);\n    const res = await orig(redirected, init);\n    if (await isMiss(res)) return orig(input, init);\n    return res;\n  };\n  console.log('[Ruf] Local mock redirect is enabled for', TARGET_ORIGIN);\n})();`
+    return `(() => {\n  const TARGET_ORIGIN = '${target}';\n  const MOCK_ORIGIN = '${base}';\n\n  // Prevent wrapper stacking when snippet is executed multiple times.\n  if (!window.__rufOrigFetch) window.__rufOrigFetch = window.fetch.bind(window);\n  const origFetch = window.__rufOrigFetch;\n\n  const isMiss = async (res) => {\n    if (res.headers.get('x-ruf-local-mock-miss') === '1') return true;\n    if (res.status !== 404) return false;\n    try {\n      const data = await res.clone().json();\n      return String(data?.error || '').toLowerCase() === 'mock route not found';\n    } catch {\n      return false;\n    }\n  };\n\n  window.fetch = async (input, init) => {\n    const url = typeof input === 'string' || input instanceof URL ? String(input) : input.url;\n    if (!url.startsWith(TARGET_ORIGIN + '/')) return origFetch(input, init);\n\n    try {\n      const mockedUrl = url.replace(TARGET_ORIGIN, MOCK_ORIGIN);\n      const mockInput = input instanceof Request ? new Request(mockedUrl, input) : mockedUrl;\n      const res = await origFetch(mockInput, init);\n      if (await isMiss(res)) return origFetch(input, init);\n      return res;\n    } catch {\n      return origFetch(input, init);\n    }\n  };\n\n  console.log('[Ruf] Local mock redirect enabled:', TARGET_ORIGIN, '->', MOCK_ORIGIN);\n})();`
   }, [activePort, activeServerStatus?.baseUrl, activeTargetOrigin])
 
   function onResizeHandlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -402,17 +569,65 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
   return (
     <>
       <div
-        className={open ? 'terminalBackdrop terminalBackdropOpen' : 'terminalBackdrop'}
+        className={open ? 'terminalBackdrop terminalBackdropOpen localMockBackdrop' : 'terminalBackdrop localMockBackdrop'}
         onClick={onClose}
       />
       <section
-        className={open ? 'terminalDrawer terminalDrawerOpen' : 'terminalDrawer'}
+        className={open ? 'terminalDrawer terminalDrawerOpen localMockServerDrawer' : 'terminalDrawer localMockServerDrawer'}
         aria-hidden={!open}
         style={drawerHeightPx != null ? { height: `${drawerHeightPx}px`, maxHeight: `${drawerMaxHeightPx}px` } : { maxHeight: `${drawerMaxHeightPx}px` }}
       >
         <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} />
         <header className="terminalHeader">
-          <div className="terminalTitle mono">Local Mock Server</div>
+          <div className="terminalTitle mono">
+            Local Mock Server
+            <div className="terminalTabs" role="tablist" aria-label="Local mock server tabs">
+              {serverTabs.map((tab, i) => {
+                const tabStatus = serverStatusByPort.get(tab.port)
+                const running = !!tabStatus?.running
+                const active = tab.id === activeTabId
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={active ? 'terminalTab terminalTabActive' : 'terminalTab'}
+                    onClick={() => setActiveTabId(tab.id)}
+                    disabled={loading}
+                    role="tab"
+                    aria-selected={active}
+                    title={`Port ${tab.port}`}
+                  >
+                    <span className="terminalTabLabel">{`Server ${i + 1}`}</span>
+                    {running ? <span className="localMockStatusDot localMockStatusDotRunning" aria-hidden="true" style={{ flex: '0 0 auto' }} /> : null}
+                    {tab.port !== LOCAL_MOCK_PRIMARY_PORT ? (
+                      <span
+                        className="terminalTabClose"
+                        role="button"
+                        aria-label="Delete server"
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          void removeServerTab(tab.id)
+                        }}
+                      >
+                        ✕
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                className="terminalAddBtn"
+                onClick={addServerTab}
+                disabled={loading}
+                aria-label="Add server tab"
+                title="Add server tab"
+              >
+                +
+              </button>
+            </div>
+          </div>
           <div className="terminalHeaderActions">
             <button type="button" className="iconBtn headerDeleteBtn terminalCloseBtn" onClick={onClose} aria-label="Close" title="Close">
               <CloseIcon size={18} />
@@ -422,187 +637,237 @@ export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
 
         <div className="terminalOutput">
           <div className="section" style={{ display: 'grid', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-              {serverTabs.map((tab, i) => {
-                const tabStatus = serverStatusByPort.get(tab.port)
-                const running = !!tabStatus?.running
-                const active = tab.id === activeTabId
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveTabId(tab.id)}
-                    style={{
-                      minHeight: 26,
-                      height: 26,
-                      padding: '0 9px',
-                      borderRadius: 8,
-                      border: active ? '1px solid rgba(120,220,160,.65)' : '1px solid rgba(255,255,255,.18)',
-                      background: active ? 'rgba(120,220,160,.14)' : 'rgba(255,255,255,.04)',
-                      color: running ? '#9fe7b6' : undefined,
-                    }}
-                    title={`Port ${tab.port}`}
-                  >
-                    {`Server ${i + 1}`}
-                  </button>
-                )
-              })}
-              <button
-                type="button"
-                onClick={addServerTab}
-                style={{ minHeight: 26, height: 26, padding: '0 10px', borderRadius: 8 }}
-                title="Add server tab"
-              >
-                +
-              </button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ display: 'grid', gap: 6, minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'grid', gap: 6, minWidth: 0, maxWidth: 560 }}>
+                  <ValueHistorySelect
+                    value={activeTargetOrigin}
+                    valueLabel={targetOriginLabel}
+                    ariaLabel="Select target origin"
+                    title="Select target origin"
+                    options={[
+                      { value: '', label: 'not selected (fallback: https://api.example.com)' },
+                      ...targetOriginOptions.map(origin => ({ value: origin, label: origin })),
+                    ]}
+                    onChange={next => setTargetOriginForPort(activePort, next)}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span className={`localMockStatusDot ${activeServerStatus?.running ? 'localMockStatusDotRunning' : 'localMockStatusDotStopped'}`} aria-hidden="true" />
+                <div className="mono small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }} title={activeServerUrl}>
+                  {activeServerUrl}
+                </div>
+                <button
+                  type="button"
+                  disabled={loading || !activeTab}
+                  onClick={() => {
+                    if (!activeTab) return
+                    if (activeServerStatus?.running) {
+                      void stopActiveServer()
+                    } else {
+                      void startActiveServer()
+                    }
+                  }}
+                  title={activeServerStatus?.running ? 'Stop active server' : 'Start active server'}
+                >
+                  {loading ? '...' : (activeServerStatus?.running ? 'Stop' : 'Start')}
+                </button>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                disabled={loading || !!activeServerStatus?.running}
-                onClick={() => {
-                  void startActiveServer()
-                }}
-              >
-                Start
-              </button>
-              <button
-                type="button"
-                disabled={loading || !activeServerStatus?.running}
-                onClick={() => {
-                  void stopActiveServer()
-                }}
-              >
-                Stop
-              </button>
-            </div>
-
-            <div className="small" style={{ opacity: 0.85 }}>
-              Port: <span className="mono">{activePort}</span>
-              {' / '}
-              Status: <span className="mono">{activeServerStatus?.running ? `RUNNING ${activeServerStatus.baseUrl}` : 'STOPPED'}</span>
-              {activePort === 7777 && primaryStatus?.running ? <span> / routes: <span className="mono">{primaryStatus.routesCount}</span></span> : null}
-            </div>
-
-            {info ? <div className="small" style={{ color: '#9ad19a' }}>{info}</div> : null}
             {error ? <div className="small" style={{ color: '#ff9a9a' }}>{error}</div> : null}
 
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div className="small" style={{ opacity: 0.82 }}>Target origin:</div>
-              <select
-                className="mono"
-                value={activeTargetOrigin}
-                onChange={e => setTargetOriginForPort(activePort, e.target.value)}
-              >
-                <option value="">not selected (fallback: https://api.example.com)</option>
-                {targetOriginOptions.map(origin => (
-                  <option key={origin} value={origin}>{origin}</option>
-                ))}
-              </select>
-            </div>
-
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div className="small" style={{ opacity: 0.82 }}>
-                Routes (primary server):
-              </div>
-              {activePort !== 7777 ? (
-                <div className="small" style={{ opacity: 0.7 }}>
-                  Switch to Server 1 to view/manage routes.
+            <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+                <div className="small" style={{ opacity: 0.82 }}>
+                  Routes:
                 </div>
-              ) : routesLoading ? (
-                <div className="small" style={{ opacity: 0.75 }}>Loading routes...</div>
-              ) : routes.length === 0 ? (
-                <div className="small" style={{ opacity: 0.75 }}>No routes published.</div>
-              ) : (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  {routes.map(route => {
-                    const key = `${route.method} ${route.path}`
-                    const deleting = deletingRouteKey === key
-                    return (
-                      <div
-                        key={key}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '80px 1fr 64px 76px',
-                          gap: 8,
-                          alignItems: 'center',
-                          border: '1px solid rgba(255,255,255,.12)',
-                          borderRadius: 10,
-                          padding: '8px 10px',
-                        }}
-                      >
-                        <div className="mono small">{route.method}</div>
-                        <div className="mono small" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route.path}>
-                          {route.path}
-                        </div>
-                        <div className="mono small" style={{ opacity: 0.85 }}>{route.status}</div>
-                        <button
-                          type="button"
-                          disabled={deleting || loading || !primaryStatus?.running}
-                          onClick={async () => {
-                            setDeletingRouteKey(key)
-                            setInfo('')
-                            setError('')
-                            try {
-                              const nextStatus = await deleteLocalMockRoute({
-                                method: route.method,
-                                path: route.path,
-                              })
-                              setPrimaryStatus(nextStatus)
-                              setInfo(`Route deleted: ${route.method} ${route.path}`)
-                            } catch (e) {
-                              setError((e as Error | null)?.message || 'Failed to delete route')
-                            } finally {
-                              setDeletingRouteKey(null)
-                            }
+                {routesLoading ? (
+                  <div className="small" style={{ opacity: 0.75 }}>Loading routes...</div>
+                ) : routes.length === 0 ? (
+                  <div className="small" style={{ opacity: 0.75 }}>No routes published.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {routes.map(route => {
+                      const key = `${route.method} ${route.path}`
+                      const deleting = deletingRouteKey === key
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '64px minmax(0, 1fr) max-content auto',
+                            gap: 4,
+                            alignItems: 'center',
+                            border: '1px solid rgba(255,255,255,.12)',
+                            borderRadius: 8,
+                            padding: '4px 4px 4px 6px',
+                            minHeight: 30,
                           }}
-                          style={{ minHeight: 28, height: 28, padding: '0 8px' }}
                         >
-                          {deleting ? '...' : 'Delete'}
-                        </button>
-                      </div>
-                    )
-                  })}
+                          <div className="mono" style={{ fontSize: 12 }}>{route.method}</div>
+                          <div className="mono" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={route.path}>
+                            {route.path}
+                          </div>
+                          <div className="mono" style={{ fontSize: 12, opacity: 0.85, whiteSpace: 'nowrap' }}>
+                            {route.status}{route.queued ? ' / QUEUED' : ''}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifySelf: 'end', gap: 8, marginLeft: 14 }}>
+                            <button
+                              type="button"
+                              className="iconBtn historyDeleteBtn"
+                              aria-label="Edit route"
+                              title="Edit route"
+                              disabled={loading}
+                              onClick={() => openRouteEditor(route)}
+                            >
+                              <PencilIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className="iconBtn historyDeleteBtn"
+                              aria-label={route.queued ? 'Delete queued route' : 'Delete route'}
+                              title={route.queued ? 'Delete queued route' : 'Delete route'}
+                              disabled={deleting || loading}
+                              onClick={async () => {
+                                setDeletingRouteKey(key)
+                                setError('')
+                                try {
+                                  removePreparedLocalMockRoute({
+                                    port: activePort,
+                                    method: route.method,
+                                    path: route.path,
+                                  })
+                                  if (route.queued) {
+                                    setRoutes(prev => prev.filter(x => !(x.method === route.method && x.path === route.path && !!x.queued)))
+                                  } else {
+                                    const nextStatus = await deleteLocalMockRoute({
+                                      method: route.method,
+                                      path: route.path,
+                                      port: activePort,
+                                    })
+                                    if (activePort === LOCAL_MOCK_PRIMARY_PORT) {
+                                      setPrimaryStatus(nextStatus)
+                                    } else {
+                                      setAdditionalStatuses(prev => prev.map(s => (s.port === activePort ? nextStatus : s)))
+                                    }
+                                    setRoutes(prev => prev.filter(x => !(x.method === route.method && x.path === route.path && !x.queued)))
+                                  }
+                                } catch (e) {
+                                  setError((e as Error | null)?.message || 'Failed to delete route')
+                                } finally {
+                                  setDeletingRouteKey(null)
+                                }
+                              }}
+                            >
+                              {deleting ? '...' : <TrashIcon size={14} />}
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 10 }}>
+              <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div className="small" style={{ opacity: 0.82 }}>DevTools snippet for external frontend URL rewrite:</div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await copyText(devtoolsSnippet)
+                      setSnippetCopied(true)
+                      window.setTimeout(() => setSnippetCopied(false), 900)
+                    }}
+                    style={{ height: 28, minHeight: 28, padding: '0 10px' }}
+                  >
+                    {snippetCopied ? 'Copied' : 'Copy Snippet'}
+                  </button>
                 </div>
-              )}
-            </div>
+                <textarea className="mono" rows={8} readOnly value={devtoolsSnippet} style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }} />
+              </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div className="small" style={{ opacity: 0.82 }}>DevTools snippet for external frontend URL rewrite:</div>
-              <button
-                type="button"
-                onClick={async () => {
-                  await copyText(devtoolsSnippet)
-                  setSnippetCopied(true)
-                  window.setTimeout(() => setSnippetCopied(false), 900)
-                }}
-                style={{ height: 28, minHeight: 28, padding: '0 10px' }}
-              >
-                {snippetCopied ? 'Copied' : 'Copy Snippet'}
-              </button>
-            </div>
-            <textarea className="mono" rows={8} readOnly value={devtoolsSnippet} style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }} />
-
-            <div className="small" style={{ opacity: 0.82 }}>Server logs (primary server):</div>
-            {activePort !== 7777 ? (
-              <div className="small" style={{ opacity: 0.7 }}>Switch to Server 1 to view logs.</div>
-            ) : (
-              <>
-                {logsLoading && !logs.length ? (
+              <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
+                <div className="small" style={{ opacity: 0.82 }}>Server logs:</div>
+                {logsLoading && !activeLogs.length ? (
                   <div className="small" style={{ opacity: 0.75 }}>Loading logs...</div>
                 ) : null}
                 <textarea
                   className="mono"
                   rows={8}
                   readOnly
-                  value={logs.length ? logs.join('\n') : 'No logs yet.'}
+                  value={activeLogs.length ? activeLogs.join('\n') : 'No logs yet.'}
                   style={{ width: '100%', boxSizing: 'border-box', opacity: 0.9 }}
                 />
-              </>
-            )}
+              </div>
+            </div>
           </div>
         </div>
+
+        <dialog
+          ref={routeEditDialogRef}
+          className="modal modalSmall localMockRouteEditDialog"
+          onClose={() => setRouteEditState(null)}
+        >
+          <div className="modalHeader">
+            <b>Edit Route</b>
+            <button
+              type="button"
+              className="iconBtn"
+              onClick={() => setRouteEditState(null)}
+              aria-label="Close"
+              title="Close"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div className="small" style={{ opacity: 0.82 }}>Method</div>
+            <ValueHistorySelect
+              value={routeEditState?.method ?? 'GET'}
+              valueLabel={routeEditState?.method ?? 'GET'}
+              ariaLabel="Select route method"
+              title="Select route method"
+              options={LOCAL_MOCK_METHOD_OPTIONS.map(option => ({ value: option, label: option }))}
+              onChange={next => setRouteEditState(prev => (prev ? { ...prev, method: next } : prev))}
+            />
+
+            <div className="small" style={{ opacity: 0.82 }}>Path</div>
+            <input
+              className="mono"
+              value={routeEditState?.path ?? '/'}
+              onChange={e => setRouteEditState(prev => (prev ? { ...prev, path: e.target.value } : prev))}
+              placeholder="/api/v3/pet/2"
+            />
+
+            <div className="small" style={{ opacity: 0.82 }}>Status</div>
+            <input
+              className="mono"
+              value={routeEditState?.status ?? '200'}
+              onChange={e => setRouteEditState(prev => (prev ? { ...prev, status: e.target.value } : prev))}
+              placeholder="200"
+            />
+
+            <div className="small" style={{ opacity: 0.82 }}>Body (JSON)</div>
+            <JsonCodeEditor
+              value={routeEditState?.body ?? '{}'}
+              onChangeValue={onRouteEditBodyChange}
+              variableSuggestions={EMPTY_VARIABLE_SUGGESTIONS}
+            />
+          </div>
+
+          <div className="modalActions">
+            <button type="button" onClick={() => setRouteEditState(null)}>
+              Cancel
+            </button>
+            <button type="button" onClick={() => { void saveRouteEditor() }} disabled={!routeEditState || loading}>
+              Save
+            </button>
+          </div>
+        </dialog>
       </section>
     </>
   )
