@@ -3051,7 +3051,12 @@ export function RequestEditor(props: {
       !!(methodAllowsBody && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
     const effectiveHeadersForSend = (() => {
       if (!hasAnyBodyInput) return baseHeadersForSend
-      if (bodyFormat === 'auto') return baseHeadersForSend
+      if (bodyFormat === 'auto') {
+        if (bodyFormatForDisplay !== 'json') return baseHeadersForSend
+        const next = { ...baseHeadersForSend }
+        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = 'application/json'
+        return next
+      }
       const next = { ...baseHeadersForSend }
       if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
       return next
