@@ -27,8 +27,10 @@ import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
 import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
 import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
+import { JsCodeEditor } from '../../../shared/components/JsCodeEditor'
 import { logWarn } from '../../../shared/utils/logger'
 import { getLocalMockServerStatus } from '../utils/localMockServer'
+import { executeResponseTests, type TestFunctionRef } from '../../tests'
 
 type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
@@ -116,7 +118,6 @@ function shouldDefaultOpenFileTab(method: HttpMethod, contentType: string | unde
   const ct = (contentType || '').toLowerCase()
   return ct.includes('multipart/form-data') || ct.includes('application/octet-stream')
 }
-
 
 function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
   let out = ''
@@ -1455,6 +1456,7 @@ function HeaderDraftRow(props: {
 export function RequestEditor(props: {
   environment?: Environment
   globalSqlConnections?: GlobalSqlConnectionItem[]
+  globalTestFunctions?: TestFunctionRef[]
   tabExtensions?: RequestEditorTabExtension[]
   collection: Collection
   request: RequestItem
@@ -1892,6 +1894,50 @@ export function RequestEditor(props: {
   const [dataDrivenInput, setDataDrivenInput] = useState('')
   const [dataDrivenInputEditorOpen, setDataDrivenInputEditorOpen] = useState(false)
   const [dataDrivenInputEditorText, setDataDrivenInputEditorText] = useState('')
+  const [selectedTestFunction, setSelectedTestFunction] = useState('')
+  const testFunctionMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const [testFunctionMenuOpen, setTestFunctionMenuOpen] = useState(false)
+  const [requestTestScript, setRequestTestScript] = useState('')
+  const availableGlobalTestFunctions = props.globalTestFunctions ?? []
+  const availableGlobalTestFunctionNames = useMemo(
+    () => Array.from(new Set(
+      availableGlobalTestFunctions
+        .map(item => `${item.className.trim()}.${item.functionName.trim()}`)
+        .filter(name => name && name !== '.'),
+    )),
+    [availableGlobalTestFunctions],
+  )
+
+  useEffect(() => {
+    if (!selectedTestFunction) return
+    if (availableGlobalTestFunctionNames.includes(selectedTestFunction)) return
+    if (!selectedTestFunction.includes('.')) {
+      const matches = availableGlobalTestFunctionNames.filter(name => name.endsWith(`.${selectedTestFunction}`))
+      if (matches.length === 1) {
+        setSelectedTestFunction(matches[0])
+        return
+      }
+    }
+    setSelectedTestFunction('')
+  }, [availableGlobalTestFunctionNames, selectedTestFunction])
+
+  useEffect(() => {
+    if (!testFunctionMenuOpen) return
+    function onPointerDown(e: PointerEvent) {
+      const wrap = testFunctionMenuWrapRef.current
+      const target = e.target as Node | null
+      if (!wrap || !target) return
+      if (wrap.contains(target)) return
+      setTestFunctionMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [testFunctionMenuOpen])
+
+  useEffect(() => {
+    if (activeTabId === 'tests') return
+    setTestFunctionMenuOpen(false)
+  }, [activeTabId])
   const [dataDrivenRunReport, setDataDrivenRunReport] = useState<DataDrivenRunReport | null>(null)
   const [dataDrivenRunning, setDataDrivenRunning] = useState(false)
   const [dataDrivenReportSheetOpen, setDataDrivenReportSheetOpen] = useState(false)
@@ -2277,6 +2323,8 @@ export function RequestEditor(props: {
     setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
     setDataDrivenInput(draft?.dataDrivenInput ?? '')
+    setSelectedTestFunction(typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '')
+    setRequestTestScript(typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '')
     setDataDrivenInputEditorText('')
     setDataDrivenInputEditorOpen(false)
     setDataDrivenRunReport(null)
@@ -2427,6 +2475,8 @@ export function RequestEditor(props: {
     setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
     setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
     setDataDrivenInput(draft?.dataDrivenInput ?? '')
+    setSelectedTestFunction(typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '')
+    setRequestTestScript(typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '')
     setDataDrivenInputEditorText('')
     setDataDrivenInputEditorOpen(false)
     setDataDrivenRunReport(null)
@@ -2470,6 +2520,8 @@ export function RequestEditor(props: {
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
       dataDrivenInput: draft?.dataDrivenInput ?? '',
+      selectedTestFunction: typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '',
+      requestTestScript: typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '',
     })
   }, [applyDraftToken])
 
@@ -2503,6 +2555,8 @@ export function RequestEditor(props: {
          baseUrlKey,
          urlTemplateOverride,
          dataDrivenInput,
+         selectedTestFunction,
+         requestTestScript,
        })
      }, 200)
      return () => {
@@ -2534,6 +2588,8 @@ export function RequestEditor(props: {
     disabledQueryParamNames,
     urlTemplateOverride,
     dataDrivenInput,
+    selectedTestFunction,
+    requestTestScript,
   ])
 
   const grouped = useMemo(() => {
@@ -2717,6 +2773,10 @@ export function RequestEditor(props: {
     return hasActiveCommittedHeaders || hasActiveHeaderDraftRows
   }, [committedHeaders, headerDraftRows, inactiveHeaderNames])
   const hasDataTabData = useMemo(() => !!dataDrivenInput.trim(), [dataDrivenInput])
+  const hasTestsTabData = useMemo(
+    () => !!selectedTestFunction.trim() || !!requestTestScript.trim(),
+    [requestTestScript, selectedTestFunction],
+  )
 
   function normalizeMockRoutePath(pathRaw: string): string {
     const cleaned = (pathRaw || '').trim()
@@ -2836,13 +2896,24 @@ export function RequestEditor(props: {
     const allTabs = [...coreTabs, ...extTabs]
     const dataIndex = allTabs.findIndex(tab => tab.id === 'data')
     const authIndex = allTabs.findIndex(tab => tab.id === 'authorization')
+    const next = [...allTabs]
     if (dataIndex >= 0 && authIndex >= 0) {
-      const next = [...allTabs]
       ;[next[dataIndex], next[authIndex]] = [next[authIndex], next[dataIndex]]
-      return next
     }
-    return allTabs
-  }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, requestEditorTabExtensions, tabExtensionContext])
+
+    const withoutTests = next.filter(tab => tab.id !== 'tests')
+    const sqlIndex = withoutTests.findIndex(tab => tab.id === 'sql')
+    const dataIndexAfter = withoutTests.findIndex(tab => tab.id === 'data')
+    const testsTab = { id: 'tests', label: 'Tests', hasData: hasTestsTabData }
+    const insertAt = sqlIndex >= 0
+      ? sqlIndex
+      : (dataIndexAfter >= 0 ? dataIndexAfter + 1 : withoutTests.length)
+    return [
+      ...withoutTests.slice(0, insertAt),
+      testsTab,
+      ...withoutTests.slice(insertAt),
+    ]
+  }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, hasTestsTabData, requestEditorTabExtensions, tabExtensionContext])
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === activeTabId)) {
@@ -3251,6 +3322,8 @@ export function RequestEditor(props: {
           baseUrlKey,
           urlTemplateOverride,
           dataDrivenInput,
+          selectedTestFunction,
+          requestTestScript,
         },
       })
 
@@ -3402,6 +3475,15 @@ export function RequestEditor(props: {
         }
       }
 
+      const testResults = executeResponseTests({
+        selectedGlobalTestFunction: selectedTestFunction,
+        globalTestFunctions: availableGlobalTestFunctions,
+        requestTestScript,
+        request: props.request,
+        result,
+      })
+      result = { ...result, testResults }
+
       props.onResult(props.request.id, result, runId)
       return result
     } finally {
@@ -3417,6 +3499,8 @@ export function RequestEditor(props: {
     bodyText,
     buildSendSnapshot,
     dataDrivenInput,
+    selectedTestFunction,
+    requestTestScript,
     displayUrl,
     fileRows,
     getCanceledResult,
@@ -3432,6 +3516,7 @@ export function RequestEditor(props: {
     runDbSql,
     selectedSqlConnection,
     selectedSqlConnectionId,
+    availableGlobalTestFunctions,
     urlTemplateOverride,
     variables,
     pathParamsList,
@@ -4339,6 +4424,72 @@ export function RequestEditor(props: {
 
       {requestEditorTabExtensions.some(tab => tab.id === activeTabId) ? (
         <>{requestEditorTabExtensions.find(tab => tab.id === activeTabId)?.render(tabExtensionContext) ?? null}</>
+      ) : activeTabId === 'tests' ? (
+        <div className="accordion">
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div className="small" style={{ opacity: 0.78 }}>Function</div>
+            <div ref={testFunctionMenuWrapRef} className="selectMenuWrap" style={{ width: '100%' }}>
+              <button
+                type="button"
+                className="selectMenuBtn mono"
+                aria-haspopup="listbox"
+                aria-expanded={testFunctionMenuOpen}
+                onClick={e => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setTestFunctionMenuOpen(prev => !prev)
+                }}
+              >
+                {selectedTestFunction || 'No function'}
+              </button>
+              {testFunctionMenuOpen ? (
+                <div className="selectMenuPanel" role="listbox" style={{ position: 'absolute', left: 0, top: 'calc(100% + 6px)', width: '100%', zIndex: 210 }}>
+                  <button
+                    type="button"
+                    className={`selectMenuItem ${selectedTestFunction === '' ? 'selectMenuItemActive' : ''}`}
+                    role="option"
+                    aria-selected={selectedTestFunction === ''}
+                    onClick={() => {
+                      setSelectedTestFunction('')
+                      setTestFunctionMenuOpen(false)
+                    }}
+                  >
+                    <div className="mono">No function</div>
+                  </button>
+                  {availableGlobalTestFunctionNames.map(fnName => (
+                    <button
+                      key={fnName}
+                      type="button"
+                      className={`selectMenuItem ${selectedTestFunction === fnName ? 'selectMenuItemActive' : ''}`}
+                      role="option"
+                      aria-selected={selectedTestFunction === fnName}
+                      onClick={() => {
+                        setSelectedTestFunction(fnName)
+                        setTestFunctionMenuOpen(false)
+                      }}
+                    >
+                      <div className="mono">{fnName}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            {!availableGlobalTestFunctionNames.length ? (
+              <div className="small" style={{ color: '#ffb46a' }}>
+                Global test functions list is empty. Add functions via the sidebar Tests button.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="section" style={{ display: 'grid', gap: 8 }}>
+            <div className="small" style={{ opacity: 0.78 }}>Request Test Script (JS)</div>
+            <JsCodeEditor
+              value={requestTestScript}
+              onChangeValue={setRequestTestScript}
+              minHeight={220}
+            />
+          </div>
+        </div>
       ) : activeTabId === 'data' ? (
         <div className="accordion">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>

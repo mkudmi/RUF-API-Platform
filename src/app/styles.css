@@ -684,6 +684,15 @@ button:hover { background: rgba(255,255,255,.10); }
   place-items: center;
   border-radius: var(--radius);
 }
+.globalTestItemDeleteBtn {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+.globalTestItemDeleteBtn:hover,
+.globalTestItemDeleteBtn:focus-visible {
+  border-color: rgba(255,255,255,.12) !important;
+  background: rgba(255,255,255,.10) !important;
+}
 .jsonSearchQueryRow > input,
 .jsonSearchQueryRow > button {
   height: 34px;
@@ -1290,6 +1299,15 @@ button:hover { background: rgba(255,255,255,.10); }
   border: 1px solid rgba(255,255,255,.12);
   font-size: 12px;
   opacity: .9;
+}
+.testResultBadge {
+  width: 44px;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .small { font-size: 15px; opacity: .8; }
@@ -2386,6 +2404,22 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 }
 .tab:last-child { border-right: 0; }
 .tabActive { background: rgba(255,255,255,.12); }
+.tab.tabTestsPass {
+  background: rgba(36, 208, 90, .16);
+  box-shadow: inset 0 0 0 1px rgba(36, 208, 90, .35);
+}
+.tab.tabTestsFail {
+  background: rgba(231, 76, 60, .16);
+  box-shadow: inset 0 0 0 1px rgba(231, 76, 60, .38);
+}
+.tab.tabTestsPass.tabActive {
+  background: rgba(36, 208, 90, .24);
+  box-shadow: inset 0 0 0 1px rgba(36, 208, 90, .45);
+}
+.tab.tabTestsFail.tabActive {
+  background: rgba(231, 76, 60, .24);
+  box-shadow: inset 0 0 0 1px rgba(231, 76, 60, .48);
+}
 .tabLabelWithIndicator {
   display: inline-flex;
   align-items: center;
@@ -2474,6 +2508,17 @@ html.platform-macos .modalSettings .tabs .tab {
   border: 1px solid rgba(255,255,255,.08);
   border-radius: var(--radius);
   background: rgba(255,255,255,.03);
+}
+.testResultItemBtn {
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.testResultItemBtn:hover {
+  background: rgba(255,255,255,.08) !important;
+  border-color: rgba(255,255,255,.2) !important;
+}
+.testResultItemBtn:focus-visible {
+  outline: 2px solid rgba(255,255,255,.35);
+  outline-offset: 1px;
 }
 .historyInfoValue {
   font-size: 12px;

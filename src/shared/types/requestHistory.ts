@@ -31,6 +31,8 @@ export type RequestDraft = {
   baseUrlKey?: string
   urlTemplateOverride?: string
   dataDrivenInput?: string
+  selectedTestFunction?: string
+  requestTestScript?: string
 }
 
 export type RequestHistoryItem = {

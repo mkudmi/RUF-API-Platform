@@ -162,11 +162,21 @@ function prettyPrintXml(xmlText: string) {
   return out.join('\n')
 }
 
+function formatUnknownForPanel(value: unknown) {
+  if (typeof value === 'undefined') return 'n/a'
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   inFlightCount?: number
-  tab: 'body' | 'headers' | 'history'
-  onTabChange: (tab: 'body' | 'headers' | 'history') => void
+  tab: 'body' | 'headers' | 'history' | 'tests'
+  onTabChange: (tab: 'body' | 'headers' | 'history' | 'tests') => void
   historyItems?: RequestHistoryItem[]
   onSelectHistoryItem?: (item: RequestHistoryItem) => void
   onDeleteHistoryItem?: (item: RequestHistoryItem) => void
@@ -186,10 +196,12 @@ export function ResponseViewer(props: {
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
   const responseSearchHistoryPanelRef = useRef<HTMLDivElement | null>(null)
   const historyInfoPanelRef = useRef<HTMLDivElement | null>(null)
+  const testDetailsDialogRef = useRef<HTMLDialogElement | null>(null)
   const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>(() => loadResponseSearchHistory())
   const [responseSearchHistoryOpen, setResponseSearchHistoryOpen] = useState(false)
   const [responseSearchHistoryAnchor, setResponseSearchHistoryAnchor] = useState<{ left: number, top: number, width: number, placement: 'above' | 'below' } | null>(null)
   const [historyInfoOpenId, setHistoryInfoOpenId] = useState<string | null>(null)
+  const [selectedTestResultId, setSelectedTestResultId] = useState<string | null>(null)
   const [historyInfoAnchor, setHistoryInfoAnchor] = useState<{ left: number, top: number, width: number, placement: 'above' | 'below' } | null>(null)
   const sizePopoverAnchorRef = useRef<HTMLSpanElement | null>(null)
   const sizePopoverCloseTimerRef = useRef<number | null>(null)
@@ -253,6 +265,10 @@ export function ResponseViewer(props: {
     () => stripUrlParams(activeHistoryInfoItem?.url || ''),
     [activeHistoryInfoItem?.url],
   )
+  const selectedTestResult = useMemo(() => {
+    if (!selectedTestResultId || !result?.testResults?.length) return null
+    return result.testResults.find((test, idx) => `${test.source}:${test.name}:${idx}` === selectedTestResultId) ?? null
+  }, [result, selectedTestResultId])
   const historyInfoMaxHeightPx = useMemo(() => {
     if (!historyInfoAnchor) return undefined
     const margin = 8
@@ -263,7 +279,16 @@ export function ResponseViewer(props: {
         : Math.max(120, window.innerHeight - historyInfoAnchor.top - margin)
     return Math.max(120, Math.min(hardCap, available))
   }, [historyInfoAnchor])
-  const copyPayload = tab === 'body' ? bodyView.text : headersCopyPayload
+  const testsText = result?.testResults?.length
+    ? JSON.stringify(result.testResults, null, 2)
+    : ''
+  const testsTabStatusClass = (() => {
+    const tests = result?.testResults ?? []
+    if (!tests.length) return ''
+    const allPassed = tests.every(test => test.passed)
+    return allPassed ? 'tabTestsPass' : 'tabTestsFail'
+  })()
+  const copyPayload = tab === 'body' ? bodyView.text : tab === 'headers' ? headersCopyPayload : tab === 'tests' ? testsText : ''
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
   const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
@@ -522,13 +547,23 @@ export function ResponseViewer(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const statusLine = inFlightCount > 0 ? 'Sending...' : 'Run a request to see the response.'
 
-  function handleTabChange(nextTab: 'body' | 'headers' | 'history') {
+  function handleTabChange(nextTab: 'body' | 'headers' | 'history' | 'tests') {
     if (nextTab !== 'body') {
       setResponseSearchOpen(false)
       closeResponseSearchHistoryMenu()
     }
     if (nextTab !== 'history') closeHistoryInfoMenu()
     props.onTabChange(nextTab)
+  }
+
+  function closeTestDetailsDialog() {
+    setSelectedTestResultId(null)
+    testDetailsDialogRef.current?.close()
+  }
+
+  function openTestDetailsDialog(testId: string) {
+    setSelectedTestResultId(testId)
+    testDetailsDialogRef.current?.showModal()
   }
 
   useEffect(() => {
@@ -554,6 +589,12 @@ export function ResponseViewer(props: {
     if (historyItems.some(item => item.id === historyInfoOpenId)) return
     closeHistoryInfoMenu()
   }, [historyInfoOpenId, historyItems])
+
+  useEffect(() => {
+    if (!selectedTestResultId) return
+    if (selectedTestResult) return
+    closeTestDetailsDialog()
+  }, [selectedTestResult, selectedTestResultId])
 
   useDismissibleLayer({
     open: !!historyInfoOpenId,
@@ -711,6 +752,9 @@ export function ResponseViewer(props: {
         <button className={`tab ${tab === 'history' ? 'tabActive' : ''}`} onClick={() => handleTabChange('history')}>
           History
         </button>
+        <button className={`tab ${tab === 'tests' ? 'tabActive' : ''} ${testsTabStatusClass}`.trim()} onClick={() => handleTabChange('tests')}>
+          Tests
+        </button>
       </div>
 
       {tab === 'history' ? (
@@ -807,6 +851,51 @@ export function ResponseViewer(props: {
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : tab === 'tests' ? (
+        <div style={{ display: 'grid', gridTemplateRows: '1fr', overflow: 'hidden', marginTop: 10, minHeight: 0, flex: 1 }}>
+          <div style={{ overflow: 'auto', height: '100%' }}>
+            {result?.testResults?.length ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {result.testResults.map((test, idx) => (
+                  <button
+                    key={`${test.source}:${test.name}:${idx}`}
+                    type="button"
+                    className="historyInfoRow testResultItemBtn"
+                    onClick={() => openTestDetailsDialog(`${test.source}:${test.name}:${idx}`)}
+                    style={{
+                      border: '1px solid rgba(255,255,255,.1)',
+                      background: 'rgba(255,255,255,.03)',
+                      borderRadius: 10,
+                      padding: '8px 10px',
+                      width: '100%',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span className={`badge testResultBadge ${test.passed ? 'status2xx' : 'status5xx'}`}>{test.passed ? 'PASS' : 'FAIL'}</span>
+                      <span className="mono" style={{ fontSize: 13 }}>{test.name}</span>
+                      <span className="small" style={{ opacity: 0.75 }}>{test.source}</span>
+                      <span className="small" style={{ opacity: 0.75 }}>{formatResponseTime(test.durationMs)}</span>
+                    </div>
+                    {(() => {
+                      const msg = (test.message || '').trim().toLowerCase()
+                      const hideDefaultMessage = msg === 'passed' || msg === 'returned false' || msg === 'returned falsy value'
+                      return test.passed && !hideDefaultMessage
+                        ? <div className="small" style={{ marginTop: 6, opacity: 0.9 }}>{test.message}</div>
+                        : null
+                    })()}
+                    {test.error ? <pre className="historyInfoBody mono" style={{ marginTop: 6 }}>{test.error}</pre> : null}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="small" style={{ fontSize: 13, opacity: 0.75 }}>
+                No test results for this response.
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -1271,6 +1360,62 @@ export function ResponseViewer(props: {
                 </div>
               </div>
             </div>
+          </dialog>
+
+          <dialog
+            ref={testDetailsDialogRef}
+            className="modal"
+            style={{ fontSize: 13 }}
+            onCancel={e => {
+              e.preventDefault()
+              closeTestDetailsDialog()
+            }}
+            onClick={e => {
+              if (e.target === e.currentTarget) closeTestDetailsDialog()
+            }}
+          >
+            <div className="modalHeader">
+              <b>Test Result Details</b>
+              <button className="iconBtn" onClick={closeTestDetailsDialog} aria-label="Close" title="Close">
+                <CloseIcon />
+              </button>
+            </div>
+
+            {selectedTestResult ? (
+              <div style={{ display: 'grid', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className={`badge testResultBadge ${selectedTestResult.passed ? 'status2xx' : 'status5xx'}`}>{selectedTestResult.passed ? 'PASS' : 'FAIL'}</span>
+                  <span className="mono">{selectedTestResult.name}</span>
+                  <span className="small" style={{ opacity: 0.75 }}>{selectedTestResult.source}</span>
+                  <span className="small" style={{ opacity: 0.75 }}>{formatResponseTime(selectedTestResult.durationMs)}</span>
+                </div>
+
+                {!!selectedTestResult.message.trim()
+                  && typeof selectedTestResult.expected === 'undefined'
+                  && typeof selectedTestResult.actual === 'undefined' ? (
+                  <div className="small" style={{ opacity: 0.9 }}>{selectedTestResult.message}</div>
+                ) : null}
+
+                {selectedTestResult.error ? <pre className="historyInfoBody mono">{selectedTestResult.error}</pre> : null}
+
+                {typeof selectedTestResult.expected !== 'undefined' || typeof selectedTestResult.actual !== 'undefined'
+                  ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="small" style={{ marginBottom: 6, opacity: 0.85 }}>Expected</div>
+                        <pre className="historyInfoBody mono">{formatUnknownForPanel(selectedTestResult.expected)}</pre>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="small" style={{ marginBottom: 6, opacity: 0.85 }}>Actual</div>
+                        <pre className="historyInfoBody mono">{formatUnknownForPanel(selectedTestResult.actual)}</pre>
+                      </div>
+                    </div>
+                  )
+                  : null}
+              </div>
+            ) : (
+              <div className="small" style={{ opacity: 0.75 }}>Test result not found.</div>
+            )}
           </dialog>
       </div>
     </div>

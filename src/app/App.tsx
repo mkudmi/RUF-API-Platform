@@ -59,9 +59,20 @@ import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256H
 import { buildSidebarToolExtensions } from './extensions'
 import { buildSettingsTabExtensions } from './settingsExtensions'
 import { useDismissibleLayer } from '../shared/hooks/useDismissibleLayer'
+import { JsCodeEditor } from '../shared/components/JsCodeEditor'
 import { safeParseJson } from '../shared/utils/json'
 import { findRequestByIds } from '../core/services/appBootstrapService'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../shared/utils/localStorageJson'
+import {
+  TEST_CLASSES_STORAGE_KEY,
+  TESTS_DOCS_TEXT,
+  createDefaultTestClass,
+  buildAvailableTestFunctions,
+  loadTestClasses,
+  sanitizeTestClasses,
+  saveTestClasses,
+  type TestClass,
+} from '../modules/tests'
 import { logError, logWarn } from '../shared/utils/logger'
 import {
   getLocalMockServerStatus,
@@ -107,6 +118,7 @@ const APP_CACHE_KEYS = [
   'ruf_value_history_v1',
   'ruf_response_search_history_v1',
   COLLECTION_RUN_HISTORY_KEY,
+  TEST_CLASSES_STORAGE_KEY,
   'ruf.update.toastSuppress',
 ] as const
 
@@ -451,6 +463,10 @@ export default function App() {
   const [collectionSubfolderName, setCollectionSubfolderName] = useState('New Folder')
   const [collectionSubfolderError, setCollectionSubfolderError] = useState<string | null>(null)
   const [collectionSubfolderTarget, setCollectionSubfolderTarget] = useState<{ collectionId: string, parentFolderId: string | null } | null>(null)
+  const globalTestsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const testsDocsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const [globalTestClasses, setGlobalTestClasses] = useState<TestClass[]>(() => loadTestClasses())
+  const [selectedGlobalTestClassId, setSelectedGlobalTestClassId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmDeleteName, setConfirmDeleteName] = useState<string>('')
   const confirmDeleteDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -507,12 +523,12 @@ export default function App() {
   const editorWidthRef = useRef(editorWidth)
   const viewportWidthRef = useRef(0)
   const treeCommandNonceRef = useRef(0)
-  const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers' | 'history'>>(() => {
+  const [responseTabByRequest, setResponseTabByRequest] = useState<Record<string, 'body' | 'headers' | 'history' | 'tests'>>(() => {
     const parsed = safeParseJson<any>(localStorage.getItem(RESPONSE_TAB_BY_REQUEST_KEY))
     if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, 'body' | 'headers' | 'history'> = {}
+    const out: Record<string, 'body' | 'headers' | 'history' | 'tests'> = {}
     for (const [k, v] of Object.entries(parsed)) {
-      if (typeof k === 'string' && (v === 'body' || v === 'headers' || v === 'history')) out[k] = v
+      if (typeof k === 'string' && (v === 'body' || v === 'headers' || v === 'history' || v === 'tests')) out[k] = v
     }
     return out
   })
@@ -3106,6 +3122,72 @@ export default function App() {
     setEditorWidth(getDefaultEditorWidthPx(w))
   }, [editorWidth])
 
+  useEffect(() => {
+    saveTestClasses(globalTestClasses)
+  }, [globalTestClasses])
+
+  useEffect(() => {
+    if (!globalTestClasses.length) {
+      setSelectedGlobalTestClassId(null)
+      return
+    }
+    setSelectedGlobalTestClassId(prevClassId => {
+      if (prevClassId && globalTestClasses.some(c => c.id === prevClassId)) return prevClassId
+      return globalTestClasses[0].id
+    })
+  }, [globalTestClasses])
+
+  function openGlobalTestsDialog() {
+    if (!globalTestClasses.length) {
+      const seededClass = createDefaultTestClass()
+      setGlobalTestClasses([seededClass])
+      setSelectedGlobalTestClassId(seededClass.id)
+    }
+    globalTestsDialogRef.current?.showModal()
+  }
+
+  function closeGlobalTestsDialog() {
+    globalTestsDialogRef.current?.close()
+  }
+
+  function openTestsDocsDialog() {
+    testsDocsDialogRef.current?.showModal()
+  }
+
+  function closeTestsDocsDialog() {
+    testsDocsDialogRef.current?.close()
+  }
+
+  function addGlobalTestClass() {
+    const nextClass: TestClass = {
+      id: uid('gtc'),
+      name: 'NewTestClass',
+      code: 'function newTestFunction(ctx) {\n  return true\n}\n',
+    }
+    setGlobalTestClasses(prev => [nextClass, ...prev])
+    setSelectedGlobalTestClassId(nextClass.id)
+  }
+
+  function updateSelectedGlobalTestClassName(nextNameRaw: string) {
+    const classId = selectedGlobalTestClassId
+    if (!classId) return
+    const nextName = nextNameRaw
+    setGlobalTestClasses(prev => prev.map(item => item.id === classId ? { ...item, name: nextName } : item))
+  }
+
+  function updateSelectedGlobalTestClassCode(nextCode: string) {
+    const classId = selectedGlobalTestClassId
+    if (!classId) return
+    setGlobalTestClasses(prev => prev.map(item => item.id === classId ? { ...item, code: nextCode } : item))
+  }
+
+  function deleteGlobalTestClass(classIdRaw: string) {
+    const classId = classIdRaw.trim()
+    if (!classId) return
+    setGlobalTestClasses(prev => prev.filter(item => item.id !== classId))
+    setSelectedGlobalTestClassId(prev => (prev === classId ? null : prev))
+  }
+
   function onSidebarResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     e.preventDefault()
     const startX = e.clientX
@@ -3424,6 +3506,12 @@ export default function App() {
       })()
     }
   }
+
+  const selectedGlobalTestClass = useMemo(
+    () => globalTestClasses.find(item => item.id === selectedGlobalTestClassId) ?? null,
+    [globalTestClasses, selectedGlobalTestClassId],
+  )
+
   const windowControls = (
     <div className="windowControls">
       <button
@@ -3627,6 +3715,15 @@ export default function App() {
                   </svg>
                 </span>
               </button>
+              <button
+                className="iconBtn"
+                onClick={openGlobalTestsDialog}
+                aria-label="Global tests"
+                title="Global tests"
+                style={{ width: 'auto', minWidth: 0, padding: '0 10px' }}
+              >
+                <span className="mono small" aria-hidden="true" style={{ fontWeight: 700, letterSpacing: '-0.02em' }}>λ</span>
+              </button>
             </div>
             <div className="sidebarVersion mono">
               v{appVersion ?? '-'}
@@ -3657,6 +3754,7 @@ export default function App() {
                   <RequestEditor
                     environment={envByCollection[active.col.id] ?? DEFAULT_ENVIRONMENT}
                     globalSqlConnections={globalSqlConnections}
+                    globalTestFunctions={buildAvailableTestFunctions(globalTestClasses)}
                     collection={active.col}
                     request={active.req}
                     inFlightCount={inFlightCountByRequestId[active.req.id] ?? 0}
@@ -3760,6 +3858,143 @@ export default function App() {
             onClose={() => setEnvModalCollectionId(null)}
           />
         )}
+
+        <dialog
+          ref={globalTestsDialogRef}
+          className="modal"
+          onCancel={e => {
+            e.preventDefault()
+            closeGlobalTestsDialog()
+          }}
+          onClick={e => {
+            if (e.target === e.currentTarget) closeGlobalTestsDialog()
+          }}
+          onClose={() => {
+            setGlobalTestClasses(prev => sanitizeTestClasses(prev))
+          }}
+        >
+          <div className="modalHeader">
+            <b>Tests</b>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button type="button" onClick={openTestsDocsDialog} title="Open tests docs">Docs</button>
+              <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeGlobalTestsDialog} aria-label="Close" title="Close">
+                <CloseIcon size={18} />
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 12, minHeight: 420 }}>
+            <div style={{ display: 'grid', gridTemplateRows: '1fr auto', gap: 8 }}>
+              <div style={{ border: '1px solid rgba(255,255,255,.12)', borderRadius: 'var(--radius)', padding: 8, overflow: 'auto' }}>
+                <div className="small" style={{ marginBottom: 8, opacity: 0.8 }}>Classes</div>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {globalTestClasses.map(item => (
+                    <div key={item.id} style={{ position: 'relative' }}>
+                      <button
+                        type="button"
+                        className={`tab ${selectedGlobalTestClassId === item.id ? 'tabActive' : ''}`}
+                        style={{ justifyContent: 'flex-start', width: '100%', minWidth: 0, borderRadius: 'var(--radius)', paddingRight: 34 }}
+                        onClick={() => setSelectedGlobalTestClassId(item.id)}
+                      >
+                        <span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="iconBtn globalTestItemDeleteBtn"
+                        aria-label={`Delete ${item.name}`}
+                        title="Delete class"
+                        style={{
+                          position: 'absolute',
+                          right: 4,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          width: 24,
+                          height: 24,
+                          minHeight: 24,
+                          padding: 0,
+                          borderRadius: 'var(--radius)',
+                        }}
+                        onClick={e => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          deleteGlobalTestClass(item.id)
+                        }}
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {!globalTestClasses.length ? <div className="small" style={{ opacity: 0.7 }}>No classes yet</div> : null}
+                </div>
+              </div>
+              <button type="button" onClick={addGlobalTestClass}>Add Class</button>
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              {selectedGlobalTestClass ? (
+                <>
+                  <div className="small">Class Name</div>
+                  <input
+                    className="mono"
+                    value={selectedGlobalTestClass.name}
+                    onChange={e => updateSelectedGlobalTestClassName(e.target.value)}
+                    placeholder="ApiTests"
+                    style={{ borderRadius: 'var(--radius)' }}
+                  />
+                  <div className="small">JS Code</div>
+                  <JsCodeEditor
+                    value={selectedGlobalTestClass.code}
+                    onChangeValue={updateSelectedGlobalTestClassCode}
+                    minHeight={320}
+                  />
+                </>
+              ) : (
+                <div className="small" style={{ opacity: 0.7 }}>Select or create a test class.</div>
+              )}
+            </div>
+          </div>
+
+          <div className="modalActions">
+            <button onClick={closeGlobalTestsDialog}>Done</button>
+          </div>
+        </dialog>
+
+        <dialog
+          ref={testsDocsDialogRef}
+          className="modal"
+          style={{ fontSize: 13 }}
+          onCancel={e => {
+            e.preventDefault()
+            closeTestsDocsDialog()
+          }}
+          onClick={e => {
+            if (e.target === e.currentTarget) closeTestsDocsDialog()
+          }}
+        >
+          <div className="modalHeader">
+            <b>Tests Docs</b>
+            <button className="iconBtn headerDeleteBtn importCloseBtn" onClick={closeTestsDocsDialog} aria-label="Close" title="Close">
+              <CloseIcon size={18} />
+            </button>
+          </div>
+
+          <pre
+            className="mono"
+            style={{
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              maxHeight: 'min(62vh, 640px)',
+              overflow: 'auto',
+              border: '1px solid rgba(255,255,255,.12)',
+              borderRadius: 'var(--radius)',
+              padding: 10,
+              background: 'rgba(255,255,255,.03)',
+              fontSize: 13,
+            }}
+          >
+            {TESTS_DOCS_TEXT}
+          </pre>
+        </dialog>
 
         <dialog
           ref={createProjectDialogRef}
@@ -4585,4 +4820,3 @@ export default function App() {
     </div>
   )
 }
-

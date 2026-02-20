@@ -20,6 +20,7 @@ export type RunResult = {
   responseHeaders: Record<string, string>
   bodyText: string
   file?: RunResultFile
+  testResults?: RunTestResult[]
 }
 
 export type RunResultFile = {
@@ -28,6 +29,17 @@ export type RunResultFile = {
   size: number
   blob: Blob
   suppressBody: boolean
+}
+
+export type RunTestResult = {
+  name: string
+  source: 'global' | 'request'
+  passed: boolean
+  message: string
+  expected?: unknown
+  actual?: unknown
+  error?: string
+  durationMs: number
 }
 
 function byteLengthUtf8(text: string): number {
