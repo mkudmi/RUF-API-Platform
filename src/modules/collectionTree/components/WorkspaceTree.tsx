@@ -59,6 +59,7 @@ export function WorkspaceTree(props: {
   onDeleteCollection: (collectionId: string) => void
   onMoveCollectionToWorkspaceFolder: (collectionId: string, workspaceFolderId: string | null) => void
   onMoveWorkspaceFolder: (workspaceFolderId: string, targetParentWorkspaceFolderId: string | null) => void
+  onCreateCollectionInWorkspaceFolder: (workspaceFolderId: string) => void
   onAddWorkspaceFolderToFolder: (workspaceFolderId: string) => void
   onRenameWorkspaceFolder: (workspaceFolderId: string, name: string) => void
   onDeleteWorkspaceFolder: (workspaceFolderId: string) => void
@@ -460,6 +461,18 @@ export function WorkspaceTree(props: {
                         onClick={() => {
                           setOpenMenuWorkspaceFolderId(null)
                           setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
+                          props.onCreateCollectionInWorkspaceFolder(folder.id)
+                        }}
+                      >
+                        Add Collection
+                      </button>
+                      <button
+                        type="button"
+                        className="treeMenuItem"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenuWorkspaceFolderId(null)
+                          setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
                           props.onAddWorkspaceFolderToFolder(folder.id)
                         }}
                       >
@@ -623,4 +636,3 @@ export function WorkspaceTree(props: {
     </div>
   )
 }
-

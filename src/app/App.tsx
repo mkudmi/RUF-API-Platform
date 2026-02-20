@@ -440,6 +440,7 @@ export default function App() {
   const createProjectInputRef = useRef<HTMLInputElement | null>(null)
   const [projectName, setProjectName] = useState('')
   const [projectError, setProjectError] = useState<string | null>(null)
+  const [createProjectWorkspaceFolderId, setCreateProjectWorkspaceFolderId] = useState<string | null>(null)
   const createWorkspaceFolderDialogRef = useRef<HTMLDialogElement | null>(null)
   const createWorkspaceFolderInputRef = useRef<HTMLInputElement | null>(null)
   const [workspaceFolderName, setWorkspaceFolderName] = useState('New Folder')
@@ -3013,9 +3014,10 @@ export default function App() {
     })
   }
 
-  function openCreateProject() {
+  function openCreateProject(workspaceFolderId: string | null = null) {
     setProjectError(null)
     setProjectName('New Collection')
+    setCreateProjectWorkspaceFolderId(workspaceFolderId)
     createProjectDialogRef.current?.showModal()
     requestAnimationFrame(() => {
       const input = createProjectInputRef.current
@@ -3028,6 +3030,7 @@ export default function App() {
 
   function closeCreateProject() {
     createProjectDialogRef.current?.close()
+    setCreateProjectWorkspaceFolderId(null)
   }
 
   function createProject() {
@@ -3057,6 +3060,38 @@ export default function App() {
     }
 
     addCollection(col)
+
+    if (createProjectWorkspaceFolderId) {
+      const targetWorkspaceFolderId = createProjectWorkspaceFolderId
+      setWorkspace(prev => {
+        function addToFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
+          let changed = false
+          const nextFolders = folders.map(f => {
+            const nested = f.folders ?? []
+            const nestedRes = nested.length ? addToFolders(nested) : { folders: nested, changed: false }
+            const nextNested = nestedRes.folders
+            const shouldAddHere = f.id === targetWorkspaceFolderId
+            const nextCollectionIds = shouldAddHere
+              ? (f.collectionIds.includes(col.id) ? f.collectionIds : [...f.collectionIds, col.id])
+              : f.collectionIds
+            const idsChanged = nextCollectionIds !== f.collectionIds
+            if (!nestedRes.changed && !idsChanged) return f
+            changed = true
+            return nextNested.length
+              ? { ...f, collectionIds: nextCollectionIds, folders: nextNested }
+              : { ...f, collectionIds: nextCollectionIds, folders: undefined }
+          })
+          return changed ? { folders: nextFolders, changed } : { folders, changed }
+        }
+
+        const res = addToFolders(prev.folders)
+        if (!res.changed) return prev
+        const next: Workspace = { ...prev, folders: res.folders }
+        saveWorkspace(next)
+        return next
+      })
+    }
+
     setActive({ col, req })
     saveActiveSelection({ collectionId: col.id, requestId: req.id })
     closeCreateProject()
@@ -3550,6 +3585,7 @@ export default function App() {
                 onDeleteCollection={requestDeleteCollection}
                 onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
                 onMoveWorkspaceFolder={moveWorkspaceFolder}
+                onCreateCollectionInWorkspaceFolder={folderId => openCreateProject(folderId)}
                 onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
                 onRenameWorkspaceFolder={renameWorkspaceFolder}
                 onDeleteWorkspaceFolder={deleteWorkspaceFolder}
@@ -4549,6 +4585,4 @@ export default function App() {
     </div>
   )
 }
-
-
 
