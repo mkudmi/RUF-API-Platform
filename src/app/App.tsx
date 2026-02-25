@@ -81,13 +81,7 @@ import {
 } from '../modules/requestEditor/utils/localMockServer'
 
 //TODO:
-// Double-click the bottom border of the body editor to expand to text height; make the entire bottom border resizable
-// "Reload" button: restore headers/params from the initial import; re-add missing ones
-// On reload from URL/file, also restore headers/params if they are missing
-// Undo after deleting a param/header via Ctrl+Z
-// Response search history: is it recorded after every change?? mouse clicks??
-// Send a series of requests with an iteration count input??
-// App data storage structure
+// Кафка
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n))
