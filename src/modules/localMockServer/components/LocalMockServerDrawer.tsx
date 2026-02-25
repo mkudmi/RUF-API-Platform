@@ -102,7 +102,7 @@ function getLocalMockServerMaxHeightPx() {
 function getLocalMockServerBaseHeightPx() {
   if (typeof window === 'undefined') return 420
   const max = getLocalMockServerMaxHeightPx()
-  return Math.round(Math.min(window.innerHeight * 0.38, max))
+  return Math.round(Math.min(window.innerHeight * 0.5, max))
 }
 
 export function LocalMockServerDrawer(props: LocalMockServerDrawerProps) {
