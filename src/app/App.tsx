@@ -2789,19 +2789,28 @@ export default function App() {
     }
 
     setWorkspace(prev => {
-      const existing = new Set<string>()
-      const visit = (folders: WorkspaceFolder[]) => {
+      const parentId = workspaceFolderCreateParentId
+
+      function findSiblingFolders(folders: WorkspaceFolder[], targetParentId: string | null): WorkspaceFolder[] | null {
+        if (!targetParentId) return folders
         for (const f of folders) {
-          existing.add(f.name)
-          if (f.folders?.length) visit(f.folders)
+          if (f.id === targetParentId) return f.folders ?? []
+          const nested = f.folders ?? []
+          if (!nested.length) continue
+          const found = findSiblingFolders(nested, targetParentId)
+          if (found) return found
         }
+        return null
       }
-      visit(prev.folders)
+
+      const siblingFolders = findSiblingFolders(prev.folders, parentId)
+      if (parentId && !siblingFolders) return prev
+
+      const existing = new Set<string>((siblingFolders ?? prev.folders).map(f => f.name))
       let name = base
       for (let i = 2; existing.has(name); i++) name = `${base} ${i}`
 
       const newFolder: WorkspaceFolder = { id: uid('wfolder'), name, collectionIds: [], folders: [] }
-      const parentId = workspaceFolderCreateParentId
 
       if (!parentId) {
         const next: Workspace = {
@@ -3993,6 +4002,9 @@ export default function App() {
         <dialog
           ref={createProjectDialogRef}
           className="modal modalSmall"
+          onClick={e => {
+            if (e.target === e.currentTarget) closeCreateProject()
+          }}
           onClose={() => {
             setProjectError(null)
             setProjectName('New Collection')
@@ -4007,7 +4019,18 @@ export default function App() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
             <div className="small">Name</div>
-            <input ref={createProjectInputRef} style={{ width: '100%' }} value={projectName} onChange={e => setProjectName(e.target.value)} placeholder="New Collection" />
+            <input
+              ref={createProjectInputRef}
+              style={{ width: '100%' }}
+              value={projectName}
+              onChange={e => setProjectName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter' || (e.nativeEvent as KeyboardEvent).isComposing) return
+                e.preventDefault()
+                createProject()
+              }}
+              placeholder="New Collection"
+            />
           </div>
 
           {projectError && <div className="small" style={{ color: '#ff9a9a', marginTop: 8 }}>{projectError}</div>}
@@ -4020,6 +4043,9 @@ export default function App() {
         <dialog
           ref={createWorkspaceFolderDialogRef}
           className="modal modalSmall"
+          onClick={e => {
+            if (e.target === e.currentTarget) closeCreateWorkspaceFolder()
+          }}
           onClose={() => {
             setWorkspaceFolderError(null)
             setWorkspaceFolderName('New Folder')
@@ -4040,6 +4066,11 @@ export default function App() {
               style={{ width: '100%' }}
               value={workspaceFolderName}
               onChange={e => setWorkspaceFolderName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter' || (e.nativeEvent as KeyboardEvent).isComposing) return
+                e.preventDefault()
+                createWorkspaceFolder()
+              }}
               autoFocus
               placeholder="New Folder"
             />
@@ -4055,6 +4086,9 @@ export default function App() {
         <dialog
           ref={createCollectionSubfolderDialogRef}
           className="modal modalSmall"
+          onClick={e => {
+            if (e.target === e.currentTarget) closeCreateCollectionSubfolder()
+          }}
           onClose={() => {
             setCollectionSubfolderError(null)
             setCollectionSubfolderName('New Folder')
@@ -4075,6 +4109,11 @@ export default function App() {
               style={{ width: '100%' }}
               value={collectionSubfolderName}
               onChange={e => setCollectionSubfolderName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key !== 'Enter' || (e.nativeEvent as KeyboardEvent).isComposing) return
+                e.preventDefault()
+                createCollectionSubfolder()
+              }}
               autoFocus
               placeholder="New Folder"
             />
