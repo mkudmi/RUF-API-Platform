@@ -13,6 +13,7 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+coverage/
 
 # Local env files
 *.local
@@ -32,9 +33,17 @@ dist-ssr/
 
 # TypeScript incremental
 *.tsbuildinfo
+.eslintcache
+.cache/
+.vite/
 
 # Misc
 Thumbs.db
+*.tmp
+*.temp
+
+# Tauri / Rust
+src-tauri/target/
 
 # Test Files
 testfiles
