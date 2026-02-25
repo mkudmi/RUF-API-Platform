@@ -52,6 +52,15 @@ function normalizeRufCollectionFileName(rawName: string) {
   return `${base}.rufcollection`
 }
 
+function getRequestHoverTitle(r: RequestItem) {
+  const method = String(r.method || '').trim().toUpperCase()
+  const endpoint = String(r.path || r.urlTemplate || '').trim()
+  if (method && endpoint) return `${method} ${endpoint}`
+  if (endpoint) return endpoint
+  if (method) return method
+  return r.name
+}
+
 async function saveTextWithSuggestedName(args: { suggestedName: string, text: string }) {
   try {
     const w = window as unknown as { showSaveFilePicker?: (options: unknown) => Promise<FileSystemFileHandleLike> }
@@ -815,7 +824,7 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                         startRenameRequest()
                       }}
-                      title={r.name}
+                      title={getRequestHoverTitle(r)}
                     >
                       {r.name}
                     </span>
@@ -873,17 +882,42 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                       }}
                     >
-                      <button
-                        type="button"
-                        className="treeMenuItem"
-                        role="menuitem"
-                        onClick={() => {
-                          setOpenMenuRequestId(null)
-                          void copyText(r.name)
-                        }}
-                      >
-                        Copy Name
-                      </button>
+                      <div className="treeMenuSubmenu">
+                        <button
+                          type="button"
+                          className="treeMenuItem treeMenuSubmenuTrigger"
+                          role="menuitem"
+                          aria-haspopup="menu"
+                          aria-label="Copy"
+                        >
+                          <span>Copy</span>
+                          <span className="treeMenuSubmenuCaret" aria-hidden="true">{'>'}</span>
+                        </button>
+                        <div className="treeMenuSubmenuPanel" role="menu" aria-label="Copy menu">
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuRequestId(null)
+                              void copyText(r.name)
+                            }}
+                          >
+                            Copy Name
+                          </button>
+                          <button
+                            type="button"
+                            className="treeMenuItem"
+                            role="menuitem"
+                            onClick={() => {
+                              setOpenMenuRequestId(null)
+                              void copyText(getRequestHoverTitle(r))
+                            }}
+                          >
+                            Copy Path
+                          </button>
+                        </div>
+                      </div>
                       <button
                         type="button"
                         className="treeMenuItem"
@@ -1457,7 +1491,7 @@ export function CollectionsTree(props: {
                         e.stopPropagation()
                         startRenameRequest()
                       }}
-                      title={r.name}
+                      title={getRequestHoverTitle(r)}
                     >
                       {r.name}
                     </span>
@@ -1515,17 +1549,42 @@ export function CollectionsTree(props: {
                           e.stopPropagation()
                         }}
                       >
-                        <button
-                          type="button"
-                          className="treeMenuItem"
-                          role="menuitem"
-                          onClick={() => {
-                            setOpenMenuRequestId(null)
-                            void copyText(r.name)
-                          }}
-                        >
-                          Copy Name
-                        </button>
+                        <div className="treeMenuSubmenu">
+                          <button
+                            type="button"
+                            className="treeMenuItem treeMenuSubmenuTrigger"
+                            role="menuitem"
+                            aria-haspopup="menu"
+                            aria-label="Copy"
+                          >
+                            <span>Copy</span>
+                            <span className="treeMenuSubmenuCaret" aria-hidden="true">{'>'}</span>
+                          </button>
+                          <div className="treeMenuSubmenuPanel" role="menu" aria-label="Copy menu">
+                            <button
+                              type="button"
+                              className="treeMenuItem"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuRequestId(null)
+                                void copyText(r.name)
+                              }}
+                            >
+                              Copy Name
+                            </button>
+                            <button
+                              type="button"
+                              className="treeMenuItem"
+                              role="menuitem"
+                              onClick={() => {
+                                setOpenMenuRequestId(null)
+                                void copyText(getRequestHoverTitle(r))
+                              }}
+                            >
+                              Copy Path
+                            </button>
+                          </div>
+                        </div>
                         <button
                           type="button"
                           className="treeMenuItem"
