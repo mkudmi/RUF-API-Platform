@@ -1879,6 +1879,15 @@ export function RequestEditor(props: {
     return applySchemeIfHostLike(effective, scheme)
   }, [baseUrlKey, props.collection.baseUrl, props.environment])
 
+  const resolvedBaseUrlDisplayKey = useMemo(() => {
+    const envVars = props.environment?.variables ?? {}
+    const envKey = props.environment?.baseUrlKey || 'baseUrl'
+    const preferredKey = baseUrlKey || envKey
+    const resolvedKey = Object.prototype.hasOwnProperty.call(envVars, preferredKey) ? preferredKey : envKey
+    const rawEnvBaseUrl = String(envVars[resolvedKey] ?? '').trim()
+    return rawEnvBaseUrl ? resolvedKey : ''
+  }, [baseUrlKey, props.environment])
+
   const variables = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
     const envKey = props.environment?.baseUrlKey || 'baseUrl'
@@ -2129,6 +2138,12 @@ export function RequestEditor(props: {
     if (!qs) return withPathParams
     return withPathParams + (withPathParams.includes('?') ? '&' : '?') + qs
   }, [baseUrl, effectiveQueryParams, inactiveQueryParamNames, pathParams, props.request.path, props.request.urlTemplate, queryDraftRows, variables, urlTemplateOverride])
+
+  const editorUrlMainDisplay = useMemo(() => {
+    if (!resolvedBaseUrlDisplayKey || !baseUrl) return displayUrl
+    if (!displayUrl.startsWith(baseUrl)) return displayUrl
+    return `{{${resolvedBaseUrlDisplayKey}}}${displayUrl.slice(baseUrl.length)}`
+  }, [baseUrl, displayUrl, resolvedBaseUrlDisplayKey])
 
   const canSend = useMemo(() => {
     const override = urlTemplateOverride.trim()
@@ -4238,7 +4253,7 @@ export function RequestEditor(props: {
               className="editorUrlMain"
               role="button"
               tabIndex={0}
-              title={displayUrl}
+              title={editorUrlMainDisplay}
               onClick={() => {
                 if (isEditingUrl) return
                 startUrlEdit(true)
@@ -4272,7 +4287,7 @@ export function RequestEditor(props: {
                 />
               ) : (
                 <span className="editorUrlValue">
-                  {displayUrl}
+                  {editorUrlMainDisplay}
                 </span>
               )}
 
