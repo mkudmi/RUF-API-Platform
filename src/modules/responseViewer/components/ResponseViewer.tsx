@@ -221,32 +221,33 @@ export function ResponseViewer(props: {
   }, [isJson, props.result])
 
   const bodyView = useMemo(() => {
-    if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null }
+    if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
 
     if (props.result.file?.suppressBody) {
       const name = props.result.file.fileName || 'download'
       const sizeText = props.result.file.size ? ` (${formatBytes(props.result.file.size)})` : ''
-      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null }
+      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
     }
 
     if (!isJson) {
       const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
       if (looksLikeXml(ct, props.result.bodyText)) {
         const pretty = prettyPrintXml(props.result.bodyText)
-        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null }
+        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
       }
-      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null }
+      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
     }
 
     const q = bodyQuery.trim()
-    if (!q) return { text: JSON.stringify(parsed, null, 2), matchesCount: null as number | null, error: null as string | null }
+    if (!q) return { text: JSON.stringify(parsed, null, 2), matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
 
-    const { matches, error } = evaluateJsonSearch(parsed as JsonValue, q)
-    if (error) return { text: '', matchesCount: matches.length, error }
-    if (!matches.length) return { text: '', matchesCount: 0, error: null as string | null }
+    const { matches, displayMatches, highlightPlan, error } = evaluateJsonSearch(parsed as JsonValue, q)
+    if (error) return { text: '', matchesCount: matches.length, error, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
+    if (!matches.length) return { text: '', matchesCount: 0, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
 
-    const out = Array.isArray(parsed) ? matches : (matches.length === 1 ? matches[0] : matches)
-    return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null as string | null }
+    const outputMatches = displayMatches.length ? displayMatches : matches
+    const out = Array.isArray(parsed) ? outputMatches : (outputMatches.length === 1 ? outputMatches[0] : outputMatches)
+    return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null as string | null, highlightPlan }
   }, [bodyQuery, isJson, parsed, props.result])
 
   const result = props.result
@@ -294,6 +295,9 @@ export function ResponseViewer(props: {
   const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
   const responseSearchMatchesCount = !bodyView.error && bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? bodyView.matchesCount : null
   const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
+  const bodyHighlightPlan = tab === 'body' && responseSearchOpen && isJson && !bodyView.error
+    ? bodyView.highlightPlan
+    : { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
 
   const onDownloadFile = useCallback(async () => {
     const f = result?.file
@@ -835,7 +839,7 @@ export function ResponseViewer(props: {
                     {idx + 1}
                   </div>
                   <div className="mono codeRowText">
-                    {isJson ? renderJsonLineSyntax(line) : isXmlBody ? renderXmlLineSyntax(line) : line}
+                    {isJson ? renderJsonLineSyntax(line, bodyHighlightPlan) : isXmlBody ? renderXmlLineSyntax(line) : line}
                   </div>
                 </div>
               ))}

@@ -1404,6 +1404,12 @@ button:hover { background: rgba(255,255,255,.10); }
 .codeRowText .xmlCommentToken { color: #9aa6b2 !important; }
 .codeRowText .xmlDeclarationToken { color: #d8b4fe !important; }
 .codeRowText .xmlTextToken { color: #e5e7eb !important; }
+.codeRowText .searchMatchToken {
+  background: rgba(250, 204, 21, 0.85);
+  color: #111827 !important;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.18);
+}
 
 .codeRowText:empty::before {
   content: ' ';
