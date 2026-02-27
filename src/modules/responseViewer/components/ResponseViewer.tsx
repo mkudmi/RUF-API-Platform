@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../../shared/utils/http'
 import { generateJsonSchema } from '../../../shared/utils/jsonSchema'
 import type { RequestHistoryItem } from '../../../shared/types/requestHistory'
-import type { RunResult } from '../../requestRunner/runRequest'
+import type { RequestItem } from '../../collectionTree'
+import { runRequest, type RunResult } from '../../requestRunner/runRequest'
 import { evaluateJsonSearch, type JsonValue } from '../utils/jsonPathSearch'
 import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
@@ -172,8 +173,206 @@ function formatUnknownForPanel(value: unknown) {
   }
 }
 
+type SearchBodyView = {
+  text: string
+  matchesCount: number | null
+  error: string | null
+  highlightPlan: { keyTerms: string[], valuesByKey: Record<string, string[]>, standaloneTerms: string[] }
+}
+
+type PaginationPlan =
+  | { kind: 'page', pageParam: string, currentPage: number, totalPages: number, pageSize: number | null }
+  | { kind: 'offset', offsetParam: string, currentOffset: number, limitParam: string, limit: number, totalItems: number }
+
+const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+const MAX_PAGINATION_PAGES = 50
+
+function deepFindNumericByNames(node: unknown, names: string[], depth = 0): number | null {
+  if (depth > 4 || !node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const found = deepFindNumericByNames(item, names, depth + 1)
+      if (found !== null) return found
+    }
+    return null
+  }
+
+  const record = node as Record<string, unknown>
+  for (const [key, value] of Object.entries(record)) {
+    if (names.includes(key)) {
+      const num = typeof value === 'number' ? value : Number(value)
+      if (Number.isFinite(num)) return num
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    const found = deepFindNumericByNames(value, names, depth + 1)
+    if (found !== null) return found
+  }
+
+  return null
+}
+
+function inferItemsLength(node: unknown, depth = 0): number | null {
+  if (depth > 3 || !node || typeof node !== 'object') return null
+  if (Array.isArray(node)) return node.length
+
+  const record = node as Record<string, unknown>
+  for (const key of ['items', 'data', 'results', 'content', 'rows', 'list']) {
+    const value = record[key]
+    if (Array.isArray(value)) return value.length
+  }
+
+  for (const value of Object.values(record)) {
+    const found = inferItemsLength(value, depth + 1)
+    if (found !== null) return found
+  }
+
+  return null
+}
+
+function buildPaginationPlan(args: { url: string | undefined, parsed: JsonValue | null }): PaginationPlan | null {
+  const rawUrl = (args.url || '').trim()
+  if (!rawUrl || !args.parsed) return null
+
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return null
+  }
+
+  const pageParamCandidates = ['page', 'pageNumber', 'page_number', 'pageNum', 'page_num', 'pageno', 'pageNo']
+  for (const name of pageParamCandidates) {
+    const raw = url.searchParams.get(name)
+    if (!raw) continue
+    const currentPage = Number(raw)
+    if (!Number.isFinite(currentPage) || currentPage < 1) continue
+
+    const totalPages = deepFindNumericByNames(args.parsed, ['totalPages', 'total_pages', 'pageCount', 'page_count', 'pages'])
+    const pageSize = deepFindNumericByNames(args.parsed, ['pageSize', 'page_size', 'perPage', 'per_page', 'limit'])
+    const totalItems = deepFindNumericByNames(args.parsed, ['total', 'totalCount', 'total_count', 'total_size', 'count'])
+    const derivedTotalPages =
+      totalPages && totalPages >= currentPage
+        ? Math.floor(totalPages)
+        : (totalItems && pageSize && pageSize > 0 ? Math.ceil(totalItems / pageSize) : null)
+
+    if (derivedTotalPages && derivedTotalPages > 1) {
+      return {
+        kind: 'page',
+        pageParam: name,
+        currentPage,
+        totalPages: derivedTotalPages,
+        pageSize: pageSize && pageSize > 0 ? Math.floor(pageSize) : null,
+      }
+    }
+  }
+
+  const offsetParamCandidates = ['offset', 'skip', 'start']
+  const limitParamCandidates = ['limit', 'pageSize', 'page_size', 'per_page', 'perPage']
+  for (const offsetName of offsetParamCandidates) {
+    const rawOffset = url.searchParams.get(offsetName)
+    if (!rawOffset) continue
+    const currentOffset = Number(rawOffset)
+    if (!Number.isFinite(currentOffset) || currentOffset < 0) continue
+
+    for (const limitName of limitParamCandidates) {
+      const rawLimit = url.searchParams.get(limitName)
+      if (!rawLimit) continue
+      const limit = Number(rawLimit)
+      if (!Number.isFinite(limit) || limit <= 0) continue
+
+      const totalItems = deepFindNumericByNames(args.parsed, ['total', 'totalCount', 'total_count', 'total_size', 'count'])
+      const itemsLength = inferItemsLength(args.parsed)
+      const derivedTotal = totalItems && totalItems > limit
+        ? Math.floor(totalItems)
+        : (itemsLength !== null && itemsLength < limit ? currentOffset + itemsLength : null)
+
+      if (derivedTotal && derivedTotal > limit) {
+        return {
+          kind: 'offset',
+          offsetParam: offsetName,
+          currentOffset,
+          limitParam: limitName,
+          limit: Math.floor(limit),
+          totalItems: derivedTotal,
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function uniqueConcat(values: unknown[][]) {
+  const out: unknown[] = []
+  const objectSeen = new WeakSet<object>()
+  const scalarSeen = new Set<string>()
+
+  for (const list of values) {
+    for (const value of list) {
+      if (value && typeof value === 'object') {
+        const obj = value as object
+        if (objectSeen.has(obj)) continue
+        objectSeen.add(obj)
+        out.push(value)
+        continue
+      }
+
+      const key = `${typeof value}:${String(value)}`
+      if (scalarSeen.has(key)) continue
+      scalarSeen.add(key)
+      out.push(value)
+    }
+  }
+
+  return out
+}
+
+function mergeHighlightPlans(plans: Array<SearchBodyView['highlightPlan']>) {
+  const merged: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+
+  for (const plan of plans) {
+    for (const key of plan.keyTerms) {
+      if (!merged.keyTerms.includes(key)) merged.keyTerms.push(key)
+    }
+    for (const term of plan.standaloneTerms) {
+      if (!merged.standaloneTerms.includes(term)) merged.standaloneTerms.push(term)
+    }
+    for (const [key, values] of Object.entries(plan.valuesByKey)) {
+      const bucket = merged.valuesByKey[key] ?? (merged.valuesByKey[key] = [])
+      for (const value of values) {
+        if (!bucket.includes(value)) bucket.push(value)
+      }
+    }
+  }
+
+  return merged
+}
+
+function buildSearchBodyView(args: {
+  source: JsonValue
+  rootWasArray: boolean
+  bodyQuery: string
+}): SearchBodyView {
+  const q = args.bodyQuery.trim()
+  if (!q) {
+    return { text: JSON.stringify(args.source, null, 2), matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+  }
+
+  const { matches, displayMatches, highlightPlan, error } = evaluateJsonSearch(args.source, q)
+  if (error) return { text: '', matchesCount: matches.length, error, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+  if (!matches.length) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+
+  const outputMatches = displayMatches.length ? displayMatches : matches
+  const out = args.rootWasArray ? outputMatches : (outputMatches.length === 1 ? outputMatches[0] : outputMatches)
+  return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null, highlightPlan }
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
+  request?: RequestItem | null
+  latestHistoryItem?: RequestHistoryItem | null
   inFlightCount?: number
   tab: 'body' | 'headers' | 'history' | 'tests'
   onTabChange: (tab: 'body' | 'headers' | 'history' | 'tests') => void
@@ -207,6 +406,7 @@ export function ResponseViewer(props: {
   const sizePopoverCloseTimerRef = useRef<number | null>(null)
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
   const [sizePopoverPos, setSizePopoverPos] = useState<{ left: number, top: number } | null>(null)
+  const [paginatedBodyView, setPaginatedBodyView] = useState<SearchBodyView | null>(null)
 
   const parsed = useMemo(() => {
     if (!props.result) return null
@@ -221,34 +421,149 @@ export function ResponseViewer(props: {
   }, [isJson, props.result])
 
   const bodyView = useMemo(() => {
-    if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
+    if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
 
     if (props.result.file?.suppressBody) {
       const name = props.result.file.fileName || 'download'
       const sizeText = props.result.file.size ? ` (${formatBytes(props.result.file.size)})` : ''
-      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
+      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
     }
 
     if (!isJson) {
       const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
       if (looksLikeXml(ct, props.result.bodyText)) {
         const pretty = prettyPrintXml(props.result.bodyText)
-        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
+        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
       }
-      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
+      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
     }
 
-    const q = bodyQuery.trim()
-    if (!q) return { text: JSON.stringify(parsed, null, 2), matchesCount: null as number | null, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
-
-    const { matches, displayMatches, highlightPlan, error } = evaluateJsonSearch(parsed as JsonValue, q)
-    if (error) return { text: '', matchesCount: matches.length, error, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
-    if (!matches.length) return { text: '', matchesCount: 0, error: null as string | null, highlightPlan: { keyTerms: [], valuesByKey: {}, standaloneTerms: [] } }
-
-    const outputMatches = displayMatches.length ? displayMatches : matches
-    const out = Array.isArray(parsed) ? outputMatches : (outputMatches.length === 1 ? outputMatches[0] : outputMatches)
-    return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null as string | null, highlightPlan }
+    return buildSearchBodyView({ source: parsed as JsonValue, rootWasArray: Array.isArray(parsed), bodyQuery })
   }, [bodyQuery, isJson, parsed, props.result])
+
+  const paginationPlan = useMemo(
+    () => (isJson ? buildPaginationPlan({ url: props.latestHistoryItem?.url, parsed: parsed as JsonValue | null }) : null),
+    [isJson, parsed, props.latestHistoryItem?.url],
+  )
+
+  useEffect(() => {
+    if (!props.result || !props.request || !isJson || !responseSearchOpen || !bodyQuery.trim() || bodyView.error || !paginationPlan) {
+      setPaginatedBodyView(null)
+      return
+    }
+
+    const latestUrl = (props.latestHistoryItem?.url || '').trim()
+    const requestHeaders = props.latestHistoryItem?.draft?.headers ?? {}
+    if (!latestUrl) {
+      setPaginatedBodyView(null)
+      return
+    }
+    const requestForPagination = props.request
+
+    let canceled = false
+    const abortController = new AbortController()
+
+    const run = async () => {
+      let parsedUrl: URL
+      try {
+        parsedUrl = new URL(latestUrl)
+      } catch {
+        return
+      }
+
+      const baseUrl = `${parsedUrl.origin}/`
+      const urlTemplateOverride = `${parsedUrl.origin}${parsedUrl.pathname}`
+      const allDisplayMatches: unknown[][] = []
+      const allHighlightPlans: Array<SearchBodyView['highlightPlan']> = []
+      let totalMatchesCount = 0
+
+      const currentEval = evaluateJsonSearch(parsed as JsonValue, bodyQuery.trim())
+      if (currentEval.error) return
+      if (currentEval.matches.length) {
+        totalMatchesCount += currentEval.matches.length
+        allDisplayMatches.push(currentEval.displayMatches.length ? currentEval.displayMatches : currentEval.matches)
+        allHighlightPlans.push(currentEval.highlightPlan)
+      }
+
+      const pageValues: number[] = []
+      if (paginationPlan.kind === 'page') {
+        for (let page = 1; page <= paginationPlan.totalPages; page++) {
+          if (pageValues.length >= MAX_PAGINATION_PAGES) break
+          if (page !== paginationPlan.currentPage) pageValues.push(page)
+        }
+      } else {
+        for (let offset = 0; offset < paginationPlan.totalItems; offset += paginationPlan.limit) {
+          if (pageValues.length >= MAX_PAGINATION_PAGES) break
+          if (offset !== paginationPlan.currentOffset) pageValues.push(offset)
+        }
+      }
+
+      for (const value of pageValues) {
+        if (canceled) return
+        const nextQueryParams = Object.fromEntries(parsedUrl.searchParams.entries())
+        if (paginationPlan.kind === 'page') nextQueryParams[paginationPlan.pageParam] = String(value)
+        else nextQueryParams[paginationPlan.offsetParam] = String(value)
+
+        const nextResult = await runRequest({
+          request: requestForPagination,
+          baseUrl,
+          urlTemplateOverride,
+          variables: {},
+          pathParams: {},
+          queryParams: nextQueryParams,
+          headers: requestHeaders,
+          bodyText: props.latestHistoryItem?.draft?.bodyText,
+          signal: abortController.signal,
+        })
+        if (canceled || !nextResult.ok) continue
+
+        const nextParsed = safeJsonParse(nextResult.bodyText)
+        if (nextParsed === null) continue
+
+        const nextEval = evaluateJsonSearch(nextParsed as JsonValue, bodyQuery.trim())
+        if (nextEval.error || !nextEval.matches.length) continue
+        totalMatchesCount += nextEval.matches.length
+        allDisplayMatches.push(nextEval.displayMatches.length ? nextEval.displayMatches : nextEval.matches)
+        allHighlightPlans.push(nextEval.highlightPlan)
+      }
+
+      if (canceled) return
+      if (!totalMatchesCount) {
+        setPaginatedBodyView({ text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
+        return
+      }
+
+      const combined = uniqueConcat(allDisplayMatches)
+      const output = combined.length === 1 ? combined[0] : combined
+      setPaginatedBodyView({
+        text: JSON.stringify(output, null, 2),
+        matchesCount: totalMatchesCount,
+        error: null,
+        highlightPlan: mergeHighlightPlans(allHighlightPlans),
+      })
+    }
+
+    void run()
+
+    return () => {
+      canceled = true
+      abortController.abort()
+    }
+  }, [
+    bodyQuery,
+    bodyView.error,
+    isJson,
+    paginationPlan,
+    parsed,
+    props.latestHistoryItem?.draft?.bodyText,
+    props.latestHistoryItem?.draft?.headers,
+    props.latestHistoryItem?.url,
+    props.request,
+    props.result,
+    responseSearchOpen,
+  ])
+
+  const effectiveBodyView = paginatedBodyView ?? bodyView
 
   const result = props.result
   const tab = props.tab
@@ -289,15 +604,15 @@ export function ResponseViewer(props: {
     const allPassed = tests.every(test => test.passed)
     return allPassed ? 'tabTestsPass' : 'tabTestsFail'
   })()
-  const copyPayload = tab === 'body' ? bodyView.text : tab === 'headers' ? headersCopyPayload : tab === 'tests' ? testsText : ''
+  const copyPayload = tab === 'body' ? effectiveBodyView.text : tab === 'headers' ? headersCopyPayload : tab === 'tests' ? testsText : ''
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
-  const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? bodyView.error : null
-  const responseSearchMatchesCount = !bodyView.error && bodyQuery.trim() && typeof bodyView.matchesCount === 'number' ? bodyView.matchesCount : null
+  const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? effectiveBodyView.error : null
+  const responseSearchMatchesCount = !effectiveBodyView.error && bodyQuery.trim() && typeof effectiveBodyView.matchesCount === 'number' ? effectiveBodyView.matchesCount : null
   const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
-  const bodyHighlightPlan = tab === 'body' && responseSearchOpen && isJson && !bodyView.error
-    ? bodyView.highlightPlan
-    : { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+  const bodyHighlightPlan = tab === 'body' && responseSearchOpen && isJson && !effectiveBodyView.error
+    ? effectiveBodyView.highlightPlan
+    : EMPTY_HIGHLIGHT_PLAN
 
   const onDownloadFile = useCallback(async () => {
     const f = result?.file
@@ -330,7 +645,7 @@ export function ResponseViewer(props: {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }, [result])
 
-  const bodyLines = useMemo(() => splitLines(bodyView.text), [bodyView.text])
+  const bodyLines = useMemo(() => splitLines(effectiveBodyView.text), [effectiveBodyView.text])
   const bodyLineCount = bodyLines.length
   const bodyGutterWidthCh = Math.max(2, String(bodyLineCount).length) + 1
 
