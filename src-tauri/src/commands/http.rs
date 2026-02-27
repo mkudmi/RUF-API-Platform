@@ -49,6 +49,14 @@ fn clamp_ms(value: u64, min: u64, max: u64) -> u64 {
     value.max(min).min(max)
 }
 
+fn normalize_timeout_ms(value: Option<u64>) -> Option<u64> {
+    match value {
+        Some(0) => None,
+        Some(ms) => Some(clamp_ms(ms, 300, 600_000)),
+        None => Some(300_000),
+    }
+}
+
 fn should_drop_header(name_lower: &str) -> bool {
     matches!(
         name_lower,
@@ -126,14 +134,17 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
         let method =
             reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| HttpError::InvalidMethod)?;
 
-        let timeout_ms = clamp_ms(args.timeout_ms.unwrap_or(300_000), 300, 600_000);
+        let timeout_ms = normalize_timeout_ms(args.timeout_ms);
         let insecure_tls = args.insecure_tls.unwrap_or(false);
 
         let mut client_builder = reqwest::Client::builder()
-            .timeout(Duration::from_millis(timeout_ms))
             .danger_accept_invalid_certs(insecure_tls)
             .danger_accept_invalid_hostnames(insecure_tls)
             .user_agent("ruf/0.1.0");
+
+        if let Some(timeout_ms) = timeout_ms {
+            client_builder = client_builder.timeout(Duration::from_millis(timeout_ms));
+        }
 
         if !insecure_tls {
             if let Some(certs) = args.ca_certs_pem {

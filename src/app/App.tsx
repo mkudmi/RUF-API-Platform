@@ -7,6 +7,7 @@ import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
 import { parseJsonOrYaml } from '../modules/import/openapi/openapiLoader'
 import { EnvironmentSettings } from '../modules/environment'
+import { AddCaCertificateDialog, GeneralSettingsPanel } from '../modules/settings'
 import {
   buildDbConnectionString,
   getDbConnectionStringPreview,
@@ -55,7 +56,7 @@ import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
 import { useAppUpdater } from './useAppUpdater'
-import { extractPemCertificates, formatSha256Fingerprint, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
+import { extractPemCertificates, pemToDerBytes, sha256Hex } from '../shared/utils/certificates'
 import { buildSidebarToolExtensions } from './extensions'
 import { buildSettingsTabExtensions } from './settingsExtensions'
 import { useDismissibleLayer } from '../shared/hooks/useDismissibleLayer'
@@ -373,6 +374,7 @@ export default function App() {
   const isMac = platform.includes('mac') || ua.includes('mac os')
 
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
+  const caCertDialogRef = useRef<HTMLDialogElement | null>(null)
   const settingsTabsRef = useRef<HTMLDivElement | null>(null)
   const importOpenRef = useRef<{
     openMenu: () => void
@@ -387,6 +389,7 @@ export default function App() {
   const [requestTimeoutSec, setRequestTimeoutSec] = useState<number | null>(() => (
     initialAppSettings.requestTimeoutSec > 0 ? initialAppSettings.requestTimeoutSec : null
   ))
+  const [disableRequestTimeout, setDisableRequestTimeout] = useState<boolean>(() => initialAppSettings.disableRequestTimeout)
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => initialAppSettings.validateCertificates)
   const [caCertificates, setCaCertificates] = useState<CaCertificate[]>(() => initialAppSettings.caCertificates)
   const [caCertInput, setCaCertInput] = useState('')
@@ -637,6 +640,16 @@ export default function App() {
     settingsDialogRef.current?.close()
   }
 
+  function openCaCertDialog() {
+    setCaCertError(null)
+    caCertDialogRef.current?.showModal()
+  }
+
+  function closeCaCertDialog() {
+    if (caCertBusy) return
+    caCertDialogRef.current?.close()
+  }
+
   function clearAppCache() {
     for (const key of APP_CACHE_KEYS) {
       localStorage.removeItem(key)
@@ -808,6 +821,7 @@ export default function App() {
 
       setCaCertificates(prev => [...(prev || []), ...added])
       setCaCertInput('')
+      caCertDialogRef.current?.close()
     } finally {
       setCaCertBusy(false)
     }
@@ -820,12 +834,13 @@ export default function App() {
   useEffect(() => {
     saveAppSettings({
       requestTimeoutSec: requestTimeoutSec ?? 0,
+      disableRequestTimeout,
       validateCertificates,
       caCertificates,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [caCertificates, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
+  }, [caCertificates, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -4206,6 +4221,16 @@ export default function App() {
           </div>
         </dialog>
 
+        <AddCaCertificateDialog
+          dialogRef={caCertDialogRef}
+          inputValue={caCertInput}
+          onInputChange={setCaCertInput}
+          error={caCertError}
+          busy={caCertBusy}
+          onClose={closeCaCertDialog}
+          onSubmit={addCaCertificatesFromInput}
+        />
+
         <dialog
           ref={settingsDialogRef}
           className="modal modalSmall modalSettings"
@@ -4230,128 +4255,20 @@ export default function App() {
           {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({ closeSettings, appVersion }) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <div className="formRow">
-                <div className="formLabel">Request timeout (seconds)</div>
-                <input
-                  className="mono"
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={3}
-                  placeholder="30s"
-                  value={requestTimeoutSec === null ? '' : String(requestTimeoutSec)}
-                  onChange={e => {
-                    const raw = e.target.value
-                    const digits = raw.replaceAll(/\D+/g, '').slice(0, 3)
-                    if (!digits) {
-                      setRequestTimeoutSec(null)
-                      return
-                    }
-                    const n = Number(digits)
-                    setRequestTimeoutSec(Math.max(1, Math.min(600, Math.round(n))))
-                  }}
-                />
-              </div>
-              <div className="formRow">
-                <div className="formLabel">Application cache</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button type="button" onClick={clearAppCache} disabled={cacheSizeBytes <= 0}>Clear cache</button>
-                  <span className="small mono">{formatMegabytes(cacheSizeBytes)}</span>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {!activeSettingsTabExtension?.render && settingsTab === 'certificates' ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              <label className="checkRow">
-                <input
-                  type="checkbox"
-                  className="checkInput"
-                  checked={validateCertificates}
-                  onChange={e => setValidateCertificates(e.target.checked)}
-                />
-                <span className="checkBox" aria-hidden="true" />
-                <span className="checkText">Validate certificates</span>
-              </label>
-
-              <details className="accordion" open>
-                <summary>
-                  <span style={{ flex: 1 }}>CA certificates</span>
-                  <span className="badge">{caCertificates.length}</span>
-                </summary>
-                <div className="section">
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    <div className="small">Paste PEM certificate(s)</div>
-                    <textarea
-                      className="mono"
-                      value={caCertInput}
-                      onChange={e => setCaCertInput(e.target.value)}
-                      placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
-                      spellCheck={false}
-                      style={{
-                        width: '100%',
-                        minHeight: 120,
-                        resize: 'vertical',
-                        padding: 10,
-                        borderRadius: 10,
-                        border: '1px solid rgba(255,255,255,.12)',
-                        background: 'rgba(255,255,255,.04)',
-                        color: 'inherit',
-                      }}
-                    />
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                      <button onClick={addCaCertificatesFromInput} disabled={caCertBusy || !caCertInput.trim()}>
-                        {caCertBusy ? 'Adding...' : 'Add'}
-                      </button>
-                    </div>
-                    {caCertError ? <div className="small" style={{ color: '#ff9a9a' }}>{caCertError}</div> : null}
-                  </div>
-
-                  {caCertificates.length ? (
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      {caCertificates.map(cert => {
-                        const title = cert.subject || 'Certificate'
-                        const fp = cert.sha256 ? formatSha256Fingerprint(cert.sha256) : ''
-                        return (
-                          <div
-                            key={cert.id}
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: '1fr auto',
-                              gap: 10,
-                              alignItems: 'center',
-                              padding: 10,
-                              borderRadius: 10,
-                              border: '1px solid rgba(255,255,255,.12)',
-                              background: 'rgba(255,255,255,.03)',
-                            }}
-                          >
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 650, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-                              {fp ? <div className="mono small" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'normal' }}>{fp}</div> : null}
-                              {cert.notAfter ? <div className="small">Not after: <span className="mono">{cert.notAfter}</span></div> : null}
-                            </div>
-                            <button
-                              type="button"
-                              className="headerDeleteBtn"
-                              onClick={() => deleteCaCertificate(cert.id)}
-                              aria-label="Delete certificate"
-                              title="Delete"
-                            >
-                              <CloseIcon size={18} />
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="small" style={{ opacity: 0.7 }}>No custom CA certificates.</div>
-                  )}
-                </div>
-              </details>
-            </div>
+            <GeneralSettingsPanel
+              requestTimeoutSec={requestTimeoutSec}
+              disableRequestTimeout={disableRequestTimeout}
+              onRequestTimeoutChange={setRequestTimeoutSec}
+              onDisableRequestTimeoutChange={setDisableRequestTimeout}
+              validateCertificates={validateCertificates}
+              onValidateCertificatesChange={setValidateCertificates}
+              caCertificates={caCertificates}
+              onOpenCaCertDialog={openCaCertDialog}
+              onDeleteCaCertificate={deleteCaCertificate}
+              cacheSizeLabel={formatMegabytes(cacheSizeBytes)}
+              onClearAppCache={clearAppCache}
+              canClearAppCache={cacheSizeBytes > 0}
+            />
           ) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'update' ? (

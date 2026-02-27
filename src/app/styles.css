@@ -1276,6 +1276,14 @@ button:hover { background: rgba(255,255,255,.10); }
 .modalSettings {
   width: min(720px, 92vw);
   max-height: min(80vh, 860px);
+  font-size: 13px;
+}
+
+.modalSettings input,
+.modalSettings textarea,
+.modalSettings select,
+.modalSettings button {
+  font-size: 13px;
 }
 
 .treeItem {
@@ -2053,6 +2061,195 @@ html.platform-macos .bodyResizeHandle::before {
 .sectionTitle { font-size: 12px; opacity: .8; font-weight: 600; }
 .formRow { display: grid; grid-template-columns: 220px 1fr; gap: 10px; align-items: center; }
 .formLabel { font-size: 12px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settingsTable {
+  display: grid;
+  gap: 0;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,.03);
+}
+.settingsTableRow {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 0;
+  border-top: 1px solid rgba(255,255,255,.08);
+  min-height: 53px;
+}
+.settingsTableRow:first-child {
+  border-top: 0;
+}
+.settingsTableRowTop {
+  align-items: start;
+}
+.settingsTableLabel {
+  display: flex;
+  align-items: center;
+  min-height: 53px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: .9;
+  background: rgba(255,255,255,.03);
+  border-right: 1px solid rgba(255,255,255,.08);
+}
+.settingsTableRowTop .settingsTableLabel {
+  align-self: stretch;
+}
+.settingsTableValue {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: 53px;
+  padding: 10px 14px;
+}
+.settingsTimeoutCell {
+  flex-direction: row;
+  align-items: stretch;
+  padding: 0;
+}
+.settingsTimeoutFieldWrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+}
+.settingsTimeoutFieldWrapDisabled {
+  background: rgba(0,0,0,.18);
+}
+.settingsTimeoutField {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.settingsTimeoutField:disabled {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(232,232,232,.55);
+}
+.settingsTimeoutField:focus {
+  outline: none;
+}
+.settingsTimeoutToggle {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-left: 1px solid rgba(255,255,255,.08);
+}
+.settingsActionRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.settingsSplitRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.settingsCertsCell {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.settingsCertsInlineRow {
+  width: 100%;
+  min-width: 0;
+  min-height: 53px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.settingsCertsEmpty {
+  min-width: 0;
+  margin-right: auto;
+  font-size: 13px;
+  line-height: 1.2;
+  opacity: 0.7;
+}
+.settingsCertsScroller {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+  scrollbar-width: thin;
+}
+.settingsCertChip {
+  flex: 0 0 auto;
+  max-width: 220px;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.03);
+}
+.settingsCertChipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.settingsCertChipDelete {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255,255,255,.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.settingsCertChipDelete:hover {
+  background: rgba(255,255,255,.08);
+  color: rgba(255,255,255,.95);
+}
+@media (max-width: 720px) {
+  .modalSettings .settingsTableRow {
+    grid-template-columns: 1fr;
+  }
+
+  .modalSettings .settingsTimeoutCell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .modalSettings .settingsTimeoutToggle {
+    border-left: 0;
+    border-top: 1px solid rgba(255,255,255,.08);
+  }
+
+  .modalSettings .settingsCertsInlineRow {
+    min-height: 53px;
+  }
+
+  .modalSettings .settingsTableLabel {
+    border-right: 0;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+}
 .reqStar { color: #ff9a9a !important; margin-left: 4px; }
 .keyReqStar { color: #ff9a9a !important; position: absolute; right: 10px; top: 0; bottom: 0; display: flex; align-items: center; transform: translateY(2px); margin-left: 0; pointer-events: none; }
 .editor .formRow input.keyInput { padding-right: 24px; }
@@ -2442,9 +2639,24 @@ html.platform-macos .responseViewer .tabs .tab {
 }
 
 html.platform-macos .modalSettings .tabs .tab {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.2;
   font-weight: 500;
+}
+html.platform-macos button:focus,
+html.platform-macos button:focus-visible,
+html.platform-macos input:focus,
+html.platform-macos input:focus-visible,
+html.platform-macos textarea:focus,
+html.platform-macos textarea:focus-visible,
+html.platform-macos select:focus,
+html.platform-macos select:focus-visible,
+html.platform-macos [tabindex]:focus,
+html.platform-macos [tabindex]:focus-visible,
+html.platform-macos dialog:focus,
+html.platform-macos dialog:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 .modalSettings .formLabel {
   font-size: 13px;

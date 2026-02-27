@@ -9,6 +9,7 @@ export type AppSettingsState = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
   requestTimeoutSec: number
+  disableRequestTimeout: boolean
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
 }

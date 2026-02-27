@@ -113,7 +113,9 @@ function getCaCertsPem(): string[] {
 
 function getRequestTimeoutMs(): number {
   try {
-    const secRaw = loadAppSettings().requestTimeoutSec
+    const settings = loadAppSettings()
+    if (settings.disableRequestTimeout) return 0
+    const secRaw = settings.requestTimeoutSec
     const sec = Number.isFinite(secRaw) ? Math.round(secRaw) : 300
     if (sec <= 0) return 300
     return Math.max(1000, Math.min(600_000, sec * 1000))
