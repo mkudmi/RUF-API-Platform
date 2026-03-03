@@ -304,6 +304,7 @@ export async function runRequest(args: {
   file?: File | null
   fileFieldName?: string
   files?: Array<{ fieldName: string, file: File }>
+  emptyFileFieldNames?: string[]
   formFields?: Record<string, string>
   signal?: AbortSignal
 }): Promise<RunResult> {
@@ -359,6 +360,7 @@ export async function runRequest(args: {
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
     const files = (args.files ?? []).filter(x => x?.file instanceof File)
+    const emptyFileFieldNames = (args.emptyFileFieldNames ?? []).map(x => x.trim()).filter(Boolean)
 
     const multipartFiles = files.length
       ? files
@@ -366,9 +368,10 @@ export async function runRequest(args: {
         ? [{ fieldName: args.fileFieldName?.trim() || 'file', file }]
         : []
 
-    if (ct.includes('multipart/form-data') && (multipartFiles.length || (args.formFields && Object.keys(args.formFields).length))) {
+    if (ct.includes('multipart/form-data') && (multipartFiles.length || emptyFileFieldNames.length || (args.formFields && Object.keys(args.formFields).length))) {
       const form = new FormData()
       for (const [k, v] of Object.entries(args.formFields ?? {})) form.set(k, applyVariables(v, vars))
+      for (const fieldName of emptyFileFieldNames) form.append(fieldName, '')
       for (const { fieldName, file } of multipartFiles) {
         form.append(fieldName?.trim() || 'file', file)
       }

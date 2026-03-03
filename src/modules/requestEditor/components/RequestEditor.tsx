@@ -3197,6 +3197,11 @@ export function RequestEditor(props: {
         .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
         .filter((x): x is { fieldName: string, file: File } => !!x.file)
       : undefined
+    const emptyFileFieldNamesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
+      ? activeFileRows
+        .filter(r => !r.file && !!r.fieldName.trim())
+        .map(r => r.fieldName.trim())
+      : undefined
     const firstFileForOctetStream = activeFileRows.find(r => r.file)?.file ?? null
     const fileForOctetStream = supportsFileSend ? firstFileForOctetStream : undefined
 
@@ -3213,6 +3218,7 @@ export function RequestEditor(props: {
       effectiveDisabledQueryParamNamesForSend,
       formFields,
       filesForMultipart,
+      emptyFileFieldNamesForMultipart,
       fileForOctetStream,
       fileFieldName,
     }
@@ -3427,6 +3433,7 @@ export function RequestEditor(props: {
         headers: snapshot.effectiveHeadersForSend,
         bodyText,
         files: snapshot.filesForMultipart,
+        emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
         file: snapshot.fileForOctetStream,
         fileFieldName: snapshot.fileFieldName,
         formFields: snapshot.formFields,
@@ -3454,6 +3461,7 @@ export function RequestEditor(props: {
             headers: snapshot.effectiveHeadersForSend,
             bodyText,
             files: snapshot.filesForMultipart,
+            emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
             file: snapshot.fileForOctetStream,
             fileFieldName: snapshot.fileFieldName,
             formFields: snapshot.formFields,
@@ -3983,6 +3991,7 @@ export function RequestEditor(props: {
       headers: snapshot.effectiveHeadersForSend,
       bodyText,
       files: snapshot.filesForMultipart,
+      emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
       file: snapshot.fileForOctetStream,
       fileFieldName: snapshot.fileFieldName,
       formFields: snapshot.formFields,

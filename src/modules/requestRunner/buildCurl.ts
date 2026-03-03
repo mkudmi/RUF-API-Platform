@@ -109,6 +109,7 @@ export function buildCurlCommand(args: {
   file?: File | null
   fileFieldName?: string
   files?: Array<{ fieldName: string, file: File }>
+  emptyFileFieldNames?: string[]
   formFields?: Record<string, string>
 }): string {
   const vars = args.variables ?? {}
@@ -174,17 +175,21 @@ export function buildCurlCommand(args: {
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
     const files = (args.files ?? []).filter(x => x?.file instanceof File)
+    const emptyFileFieldNames = (args.emptyFileFieldNames ?? []).map(x => x.trim()).filter(Boolean)
     const multipartFiles = files.length
       ? files
       : file
         ? [{ fieldName: args.fileFieldName?.trim() || 'file', file }]
         : []
 
-    if (ct.includes('multipart/form-data') && (multipartFiles.length || (args.formFields && Object.keys(args.formFields).length))) {
+    if (ct.includes('multipart/form-data') && (multipartFiles.length || emptyFileFieldNames.length || (args.formFields && Object.keys(args.formFields).length))) {
       deleteHeader(headers, 'Content-Type')
 
       for (const [k, v] of Object.entries(args.formFields ?? {})) {
         parts.push(`-F ${bashQuote(`${k}=${applyVariables(v, vars)}`)}`)
+      }
+      for (const fieldName of emptyFileFieldNames) {
+        parts.push(`-F ${bashQuote(`${fieldName}=`)}`)
       }
       for (const { fieldName, file } of multipartFiles) {
         const safeField = (fieldName?.trim() || 'file')
