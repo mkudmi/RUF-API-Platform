@@ -21,6 +21,15 @@ type Props = InputProps | TextareaProps
 
 type PendingSelection = { start: number, end: number }
 
+function getSuggestionSelection(name: string, tokenStart: number): PendingSelection | null {
+  if (name === 'random.string(length)') {
+    const param = 'length'
+    const offset = name.indexOf(param)
+    if (offset >= 0) return { start: tokenStart + 2 + offset, end: tokenStart + 2 + offset + param.length }
+  }
+  return null
+}
+
 function computeToken(value: string, cursor: number): { start: number, query: string } | null {
   const before = value.slice(0, cursor)
   const start = before.lastIndexOf('{{')
@@ -183,7 +192,7 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
       const nextValue = value.slice(0, token.start) + insert + after
       const nextCursor = token.start + insert.length + (hasClosing ? 2 : 0)
 
-      pendingSelectionRef.current = { start: nextCursor, end: nextCursor }
+      pendingSelectionRef.current = getSuggestionSelection(name, token.start) ?? { start: nextCursor, end: nextCursor }
       setMenuOpen(false)
       setQuery('')
       onChangeValue(nextValue)

@@ -139,6 +139,18 @@ function computeVariableToken(value: string, cursor: number): { start: number, q
   return { start, query: before.slice(start + 2) }
 }
 
+function getSuggestionSelectionRange(name: string, tokenStart: number, placeholderOffset: number): { anchor: number, head: number } | null {
+  if (name === 'random.string(length)') {
+    const param = 'length'
+    const offset = name.indexOf(param)
+    if (offset >= 0) {
+      const start = tokenStart + placeholderOffset + 2 + offset
+      return { anchor: start, head: start + param.length }
+    }
+  }
+  return null
+}
+
 export function JsonCodeEditor(props: Props) {
   const { value, onChangeValue, onSubmitShortcut, variableSuggestions } = props
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -239,12 +251,14 @@ export function JsonCodeEditor(props: Props) {
     const hasClosing = doc.slice(pos, pos + 2) === '}}'
     const tokenEnd = hasClosing ? pos + 2 : pos
     const placeholder = `{{${name}}}`
-    const insert = isInsideJsonString(doc, token.start) ? placeholder : `"${placeholder}"`
+    const insideJsonString = isInsideJsonString(doc, token.start)
+    const insert = insideJsonString ? placeholder : `"${placeholder}"`
     const anchorPos = token.start + insert.length
+    const selection = getSuggestionSelectionRange(name, token.start, insideJsonString ? 0 : 1)
 
     view.dispatch({
       changes: { from: token.start, to: tokenEnd, insert },
-      selection: { anchor: anchorPos },
+      selection: selection ?? { anchor: anchorPos },
     })
     view.focus()
     setMenuOpen(false)

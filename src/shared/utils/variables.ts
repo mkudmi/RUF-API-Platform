@@ -42,7 +42,7 @@ function formatUtcDateTime(d: Date): string {
 type BuiltinVar = {
   name: string
   description: string
-  get: () => string
+  get?: () => string
 }
 
 function randomUuid(): string {
@@ -63,8 +63,29 @@ function randomUuid(): string {
   return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
 }
 
+function randomString(length: number): string {
+  const size = Math.max(0, Math.min(Math.floor(length), 100000))
+  if (!size) return ''
+
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  const anyCrypto: Crypto | undefined = ('crypto' in globalThis) ? globalThis.crypto : undefined
+
+  if (anyCrypto?.getRandomValues) {
+    const bytes = new Uint8Array(size)
+    anyCrypto.getRandomValues(bytes)
+    let out = ''
+    for (let i = 0; i < bytes.length; i++) out += alphabet[bytes[i] % alphabet.length]
+    return out
+  }
+
+  let out = ''
+  for (let i = 0; i < size; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)]
+  return out
+}
+
 const BUILTIN_VARIABLES: BuiltinVar[] = [
   { name: 'uuid', description: 'Random UUID (v4)', get: () => randomUuid() },
+  { name: 'random.string(length)', description: 'Random alphanumeric string with the given length' },
   { name: 'localdatetimenow', description: 'Local date-time (YYYY-MM-DDTHH:mm:ss)', get: () => formatLocalDateTime(new Date()) },
   { name: 'localdatenow', description: 'Local date (YYYY-MM-DD)', get: () => formatLocalDate(new Date()) },
   { name: 'localtimenow', description: 'Local time (HH:mm:ss)', get: () => formatLocalTime(new Date()) },
@@ -79,11 +100,23 @@ function isUrlLikeEnvironmentKey(name: string): boolean {
   return /url/i.test(name)
 }
 
-const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(BUILTIN_VARIABLES.map(v => [v.name, v]))
+const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(
+  BUILTIN_VARIABLES
+    .filter(v => typeof v.get === 'function')
+    .map(v => [v.name, v]),
+)
+
+function resolveDynamicBuiltinValue(name: string): string | undefined {
+  const randomStringMatch = /^random\.string\(\s*(\d+)\s*\)$/.exec(name)
+  if (randomStringMatch) return randomString(Number(randomStringMatch[1]))
+  return undefined
+}
 
 export function resolveVariableValue(name: string, vars: Record<string, string>): string | undefined {
   if (Object.prototype.hasOwnProperty.call(vars, name)) return vars[name]
-  return BUILTIN_INDEX[name]?.get()
+  const dynamicValue = resolveDynamicBuiltinValue(name)
+  if (dynamicValue !== undefined) return dynamicValue
+  return BUILTIN_INDEX[name]?.get?.()
 }
 
 export function getVariableSuggestions(vars: Record<string, string>): VariableSuggestion[] {
