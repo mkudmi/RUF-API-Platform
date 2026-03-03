@@ -281,11 +281,11 @@ function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?
       const su = new URL(args.serviceBaseUrl)
       const p = trimTrailingSlash(su.pathname || '')
       if (p.endsWith('/swagger-ui/index.html') || p.endsWith('/swagger-ui')) push(`${su.origin}${p}`)
-      push(`${su.origin}/`)
       push(`${su.origin}/swagger-ui/index.html`)
       if (p && p !== '/' && !p.endsWith('/swagger-ui') && !p.endsWith('/swagger-ui/index.html')) {
         push(`${su.origin}${p}/swagger-ui/index.html`)
       }
+      push(`${su.origin}/`)
     }
   } catch (error) {
     logWarn('buildSwaggerUiBaseCandidates.serviceBaseUrl', 'Failed to parse serviceBaseUrl while building Swagger UI candidates', {
@@ -297,13 +297,13 @@ function buildSwaggerUiBaseCandidates(args: { sourceUrl: string; serviceBaseUrl?
   try {
     const u = new URL(args.sourceUrl)
     const p = u.pathname || ''
-    push(`${u.origin}/`)
     push(`${u.origin}/swagger-ui/index.html`)
     const m = p.match(/^(.*?)(?:\/v[23]\/api-docs(?:\/.*)?|\/api-docs(?:\/.*)?|\/openapi\.json(?:\/.*)?)$/i)
     if (m) {
       const prefix = trimTrailingSlash(m[1] || '')
       if (prefix && prefix !== '/') push(`${u.origin}${prefix}/swagger-ui/index.html`)
     }
+    push(`${u.origin}/`)
   } catch (error) {
     logWarn('buildSwaggerUiBaseCandidates.sourceUrl', 'Failed to parse sourceUrl while building Swagger UI candidates', {
       error,
@@ -3438,9 +3438,9 @@ export default function App() {
       serviceBaseUrl: ctx.serviceBaseUrl,
     })
     const cachedBase = swaggerUiBaseCacheRef.current[ctx.sourceUrl]
-    const quickDetectedBasePromise = cachedBase || baseCandidates.length <= 1
-      ? Promise.resolve<string | null>(null)
-      : withTimeout(detectSwaggerUiBase(baseCandidates, 450), 900)
+    const resolvedBasePromise = cachedBase
+      ? Promise.resolve<string | null>(cachedBase)
+      : detectSwaggerUiBase(baseCandidates)
     const opCacheKey = buildSwaggerOpCacheKey(ctx)
     const cachedOperation = swaggerOperationCacheRef.current[opCacheKey]
     const resolvedOperationPromise = getCachedOrResolvedSwaggerOperation({
@@ -3448,14 +3448,13 @@ export default function App() {
       sourceUrl: ctx.sourceUrl,
       method: ctx.method,
       path: ctx.path,
-      timeoutMs: cachedOperation ? undefined : 1200,
     })
-    const [quickDetectedBase, resolvedOperation] = await Promise.all([
-      quickDetectedBasePromise,
+    const [resolvedBase, resolvedOperation] = await Promise.all([
+      resolvedBasePromise,
       resolvedOperationPromise,
     ])
-    if (quickDetectedBase) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = quickDetectedBase
-    const swaggerUiBase = cachedBase || quickDetectedBase || baseCandidates[0] || ctx.sourceUrl
+    if (resolvedBase) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = resolvedBase
+    const swaggerUiBase = resolvedBase || baseCandidates[0] || ctx.sourceUrl
     const initialTag = resolvedOperation?.tag || ctx.fallbackTag
     const initialOperationId = resolvedOperation?.operationId || ctx.fallbackOperationId
     const finalUrl = buildSwaggerUiUrl({ swaggerUiBase, tag: initialTag, operationId: initialOperationId })
@@ -3471,20 +3470,14 @@ export default function App() {
       }
     }
 
-    void (async () => {
-      if (!cachedBase && !quickDetectedBase && baseCandidates.length > 1) {
-        const detected = await detectSwaggerUiBase(baseCandidates)
-        if (detected) swaggerUiBaseCacheRef.current[ctx.sourceUrl] = detected
-      }
-      if (!cachedOperation) {
-        void getCachedOrResolvedSwaggerOperation({
-          cacheKey: opCacheKey,
-          sourceUrl: ctx.sourceUrl,
-          method: ctx.method,
-          path: ctx.path,
-        })
-      }
-    })()
+    if (!cachedOperation) {
+      void getCachedOrResolvedSwaggerOperation({
+        cacheKey: opCacheKey,
+        sourceUrl: ctx.sourceUrl,
+        method: ctx.method,
+        path: ctx.path,
+      })
+    }
   }
 
   async function openCollectionSwagger(collectionId: string) {
