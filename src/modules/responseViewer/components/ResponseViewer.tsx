@@ -186,10 +186,10 @@ type PaginationPlan =
   | { kind: 'offset', offsetParam: string, currentOffset: number, limitParam: string, limit: number, totalItems: number }
 
 const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
-const MAX_PAGINATION_PAGES = 50
+const MAX_PAGINATION_SEARCH_DEPTH = 8
 
 function deepFindNumericByNames(node: unknown, names: string[], depth = 0): number | null {
-  if (depth > 4 || !node || typeof node !== 'object') return null
+  if (depth > MAX_PAGINATION_SEARCH_DEPTH || !node || typeof node !== 'object') return null
   if (Array.isArray(node)) {
     for (const item of node) {
       const found = deepFindNumericByNames(item, names, depth + 1)
@@ -215,7 +215,7 @@ function deepFindNumericByNames(node: unknown, names: string[], depth = 0): numb
 }
 
 function inferItemsLength(node: unknown, depth = 0): number | null {
-  if (depth > 3 || !node || typeof node !== 'object') return null
+  if (depth > MAX_PAGINATION_SEARCH_DEPTH || !node || typeof node !== 'object') return null
   if (Array.isArray(node)) return node.length
 
   const record = node as Record<string, unknown>
@@ -490,12 +490,10 @@ export function ResponseViewer(props: {
       const pageValues: number[] = []
       if (paginationPlan.kind === 'page') {
         for (let page = 1; page <= paginationPlan.totalPages; page++) {
-          if (pageValues.length >= MAX_PAGINATION_PAGES) break
           if (page !== paginationPlan.currentPage) pageValues.push(page)
         }
       } else {
         for (let offset = 0; offset < paginationPlan.totalItems; offset += paginationPlan.limit) {
-          if (pageValues.length >= MAX_PAGINATION_PAGES) break
           if (offset !== paginationPlan.currentOffset) pageValues.push(offset)
         }
       }
