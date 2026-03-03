@@ -2404,9 +2404,21 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .responseFooterUtilityBtn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   white-space: nowrap;
   flex: 0 0 auto;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  box-sizing: border-box;
+  line-height: 1;
+}
+.responseFooterUtilityBtn > svg,
+.responseFooterUtilityBtn > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .syntheticDataGrid {
   display: grid;
