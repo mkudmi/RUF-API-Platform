@@ -6,7 +6,8 @@ import type { RequestHistoryItem } from '../../../shared/types/requestHistory'
 import type { RequestItem } from '../../collectionTree'
 import { runRequest, type RunResult } from '../../requestRunner/runRequest'
 import { evaluateJsonSearch, type JsonValue } from '../utils/jsonPathSearch'
-import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, TrashIcon } from '../../../shared/icons'
+import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, StarIcon, TrashIcon } from '../../../shared/icons'
+import { SyntheticDataDialog } from './SyntheticDataDialog'
 import { copyText } from '../../../shared/utils/clipboard'
 import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
 import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
@@ -391,6 +392,7 @@ export function ResponseViewer(props: {
   const schemaCloseTimerRef = useRef<number | null>(null)
   const [responseSearchOpen, setResponseSearchOpen] = useState(false)
   const [responseSearchCopied, setResponseSearchCopied] = useState(false)
+  const [syntheticDataOpen, setSyntheticDataOpen] = useState(false)
   const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
   const responseSearchHistoryPanelRef = useRef<HTMLDivElement | null>(null)
@@ -1501,14 +1503,27 @@ export function ResponseViewer(props: {
           <div className="treeMenuDivider responseFooterDivider" role="separator" />
 
           <div className="responseFooter">
-            <div className="responseFooterMeta small">
-              {responseSearchErrorText ? (
-                <span className="responseFooterError">{responseSearchErrorText}</span>
-              ) : responseSearchHasMatchesMeta ? (
-                <>
-                  Matches: <span className="mono">{responseSearchMatchesCount}</span>
-                </>
-              ) : null}
+            <div className="responseFooterLeft">
+              <button
+                type="button"
+                className="responseFooterUtilityBtn"
+                onClick={() => setSyntheticDataOpen(true)}
+                title="Open synthetic data generator"
+                aria-label="Open synthetic data generator"
+              >
+                <StarIcon size={14} />
+                <span>Synthetic Data</span>
+              </button>
+
+              <div className="responseFooterMeta small">
+                {responseSearchErrorText ? (
+                  <span className="responseFooterError">{responseSearchErrorText}</span>
+                ) : responseSearchHasMatchesMeta ? (
+                  <>
+                    Matches: <span className="mono">{responseSearchMatchesCount}</span>
+                  </>
+                ) : null}
+              </div>
             </div>
 
             <div className="responseFooterActions">
@@ -1587,6 +1602,8 @@ export function ResponseViewer(props: {
               </button>
             </div>
           </div>
+
+          <SyntheticDataDialog open={syntheticDataOpen} onClose={() => setSyntheticDataOpen(false)} />
 
           <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
             <div className="modalHeader">

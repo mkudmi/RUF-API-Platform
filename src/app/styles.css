@@ -1308,6 +1308,11 @@ button:hover { background: rgba(255,255,255,.10); }
   max-height: min(60vh, 520px);
 }
 
+.modalSyntheticData {
+  width: min(840px, 92vw);
+  max-height: min(85vh, 1040px);
+}
+
 .modalSettings {
   width: min(720px, 92vw);
   max-height: min(80vh, 860px);
@@ -2392,9 +2397,67 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .responseFooterWrap { display: grid; grid-template-rows: auto auto auto; row-gap: 0; min-height: 0; }
 .responseFooterDivider { margin: 0; }
 .responseFooter { display: flex; padding: 5px 0 7px; justify-content: space-between; align-items: center; gap: 12px; }
+.responseFooterLeft { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
 .responseFooterMeta { min-width: 0; opacity: .85; }
 .responseFooterActions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .responseFooterError { color: #ff9a9a; opacity: 1; }
+.responseFooterUtilityBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.syntheticDataGrid {
+  display: grid;
+  gap: 10px;
+}
+.syntheticDataField {
+  display: grid;
+  gap: 6px;
+}
+.syntheticTypeField {
+  position: relative;
+  z-index: 5;
+}
+.syntheticTypeField .syntheticTypeMenuBtn {
+  background: #161b26;
+  border-color: rgba(255,255,255,.16);
+}
+.syntheticTypeField .syntheticTypeMenuBtn:hover,
+.syntheticTypeField .syntheticTypeMenuBtn:focus-visible {
+  background: #1b2230;
+  border-color: rgba(255,255,255,.22);
+}
+.syntheticTypeField .syntheticTypeMenuPanel {
+  background: #161b26;
+  border-color: rgba(255,255,255,.16);
+  max-height: 220px;
+  overflow: auto;
+  z-index: 260;
+}
+.syntheticDataOutput {
+  width: 100%;
+  min-height: 480px;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .responseFooter {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .responseFooterLeft,
+  .responseFooterActions {
+    width: 100%;
+  }
+  .responseFooterActions {
+    justify-content: flex-start;
+  }
+  .responseFooterUtilityBtn {
+    flex: 0 1 auto;
+  }
+}
 
 .responseCard {
   position: static;
