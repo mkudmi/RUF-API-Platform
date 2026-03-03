@@ -223,7 +223,7 @@ html.platform-macos .windowRequestName {
 
 .sidebar {
   border-right: 1px solid rgba(255,255,255,.08);
-  padding: 12px;
+  padding: 12px 12px 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -360,13 +360,48 @@ html.platform-macos .sidebarPlusMenuItem {
 
 .sidebarBottom {
   margin-top: 4px;
-  padding-top: 5px;
+  padding: 5px 0 7px;
   border-top: 1px solid rgba(255,255,255,.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .sidebarBottomLeft { display: flex; gap: 8px; align-items: center; }
+.sidebarBottom .iconBtn,
+.responseFooter .iconBtn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.sidebarBottom .iconBtn .iconGlyph,
+.responseFooter .iconBtn .iconGlyph,
+.sidebarBottom .iconBtn svg,
+.responseFooter .iconBtn svg {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+}
+.sidebarBottom .iconBtn .iconGlyph,
+.responseFooter .iconBtn .iconGlyph {
+  font-size: 16px;
+  line-height: 1;
+  transform: none;
+}
+.footerLambdaGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
 
 .settingsBtn { font-size: 18px; line-height: 1; }
 .settingsBtn > .iconGlyph { display: block; }
@@ -1369,6 +1404,12 @@ button:hover { background: rgba(255,255,255,.10); }
 .codeRowText .xmlCommentToken { color: #9aa6b2 !important; }
 .codeRowText .xmlDeclarationToken { color: #d8b4fe !important; }
 .codeRowText .xmlTextToken { color: #e5e7eb !important; }
+.codeRowText .searchMatchToken {
+  background: rgba(250, 204, 21, 0.85);
+  color: #111827 !important;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.18);
+}
 
 .codeRowText:empty::before {
   content: ' ';
@@ -2348,9 +2389,9 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .sizePopoverValue { color: rgba(255,255,255,.86); }
 .sizePopoverDivider { height: 1px; background: rgba(255,255,255,.10); margin: 10px 0; }
 
-.responseFooterWrap { display: grid; grid-template-rows: auto auto auto; gap: 6px; min-height: 0; }
+.responseFooterWrap { display: grid; grid-template-rows: auto auto auto; row-gap: 0; min-height: 0; }
 .responseFooterDivider { margin: 0; }
-.responseFooter { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.responseFooter { display: flex; padding: 5px 0 7px; justify-content: space-between; align-items: center; gap: 12px; }
 .responseFooterMeta { min-width: 0; opacity: .85; }
 .responseFooterActions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .responseFooterError { color: #ff9a9a; opacity: 1; }
@@ -2358,6 +2399,7 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .responseCard {
   position: static;
   overflow: hidden;
+  padding-bottom: 0;
 }
 
 .responseCardBody {

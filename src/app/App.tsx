@@ -3738,9 +3738,8 @@ export default function App() {
                 onClick={openGlobalTestsDialog}
                 aria-label="Global tests"
                 title="Global tests"
-                style={{ width: 'auto', minWidth: 0, padding: '0 10px' }}
               >
-                <span className="mono small" aria-hidden="true" style={{ fontWeight: 700, letterSpacing: '-0.02em' }}>λ</span>
+                <span className="mono footerLambdaGlyph" aria-hidden="true">λ</span>
               </button>
             </div>
             <div className="sidebarVersion mono">
@@ -3802,6 +3801,8 @@ export default function App() {
               <div className="responseCardBody">
                 <ResponseViewer
                   result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
+                  request={active?.req ?? null}
+                  latestHistoryItem={activeHistory[0] ?? null}
                   inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
                   tab={activeResponseTab}
                   historyItems={activeHistory}

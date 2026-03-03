@@ -2,9 +2,26 @@ import { JSONPath } from 'jsonpath-plus'
 import { logWarn } from '../../../shared/utils/logger'
 
 export type JsonValue = null | boolean | number | string | object | unknown[]
+export type JsonSearchHighlightPlan = {
+  keyTerms: string[]
+  valuesByKey: Record<string, string[]>
+  standaloneTerms: string[]
+}
+export type JsonSearchResult = {
+  matches: unknown[]
+  displayMatches: unknown[]
+  highlightPlan: JsonSearchHighlightPlan
+  error: string | null
+}
 
 type FilterOp = '=' | '==' | '!=' | '>=' | '<=' | '>' | '<' | '~' | '!~'
 type SimpleFilter = { fieldPath: string, op: FilterOp, expected: unknown }
+type SimpleFilterMatch = { container: unknown, actual: unknown, fieldName: string | null }
+type JsonPathMetaMatch = {
+  value?: unknown
+  parent?: unknown
+  parentProperty?: string | number
+}
 
 function errorMessage(e: unknown) {
   return e instanceof Error ? e.message : String(e)
@@ -124,8 +141,10 @@ function compare(op: FilterOp, actual: unknown, expected: unknown): boolean {
   return false
 }
 
-function findMatchingValues(root: JsonValue, filter: SimpleFilter): unknown[] {
-  const values: unknown[] = []
+function findMatchingValues(root: JsonValue, filter: SimpleFilter): SimpleFilterMatch[] {
+  const values: SimpleFilterMatch[] = []
+  const parts = filter.fieldPath.split('.').filter(Boolean)
+  const fieldName = parts.length ? parts[parts.length - 1] : null
 
   function visit(node: unknown) {
     if (!node || typeof node !== 'object') return
@@ -137,7 +156,7 @@ function findMatchingValues(root: JsonValue, filter: SimpleFilter): unknown[] {
 
     const actual = getAtPath(node, filter.fieldPath)
     if (actual !== undefined && compare(filter.op, actual, filter.expected)) {
-      values.push(node)
+      values.push({ container: node, actual, fieldName })
     }
 
     for (const v of Object.values(node as Record<string, unknown>)) visit(v)
@@ -155,22 +174,137 @@ type JsonPathFn = <T>(options: {
 
 const jsonPath = JSONPath as unknown as JsonPathFn
 
-export function evaluateJsonSearch(json: JsonValue, query: string): { matches: unknown[], error: string | null } {
+function makePrimitiveKey(value: unknown) {
+  return `${typeof value}:${String(value)}`
+}
+
+function dedupeValues(values: unknown[]) {
+  const seenObjects = new WeakSet<object>()
+  const seenScalars = new Set<string>()
+  const out: unknown[] = []
+
+  for (const value of values) {
+    if (value && typeof value === 'object') {
+      const obj = value as object
+      if (seenObjects.has(obj)) continue
+      seenObjects.add(obj)
+      out.push(value)
+      continue
+    }
+
+    const key = makePrimitiveKey(value)
+    if (seenScalars.has(key)) continue
+    seenScalars.add(key)
+    out.push(value)
+  }
+
+  return out
+}
+
+function toHighlightText(value: unknown) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value === null) return 'null'
+  return ''
+}
+
+function createEmptyHighlightPlan(): JsonSearchHighlightPlan {
+  return { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+}
+
+function pushUnique(list: string[], text: string) {
+  const normalized = text.trim()
+  if (!normalized || list.includes(normalized)) return
+  list.push(normalized)
+}
+
+function pushUniqueToRecord(record: Record<string, string[]>, key: string, text: string) {
+  const normalizedKey = key.trim()
+  const normalizedText = text.trim()
+  if (!normalizedKey || !normalizedText) return
+  const bucket = record[normalizedKey] ?? (record[normalizedKey] = [])
+  if (bucket.includes(normalizedText)) return
+  bucket.push(normalizedText)
+}
+
+function buildSimpleFilterHighlightPlan(filter: SimpleFilter, matches: SimpleFilterMatch[]) {
+  const plan = createEmptyHighlightPlan()
+  if (filter.op === '!=' || filter.op === '!~') return plan
+
+  const add = (text: string) => {
+    const normalized = text.trim()
+    if (!normalized) return
+    if (filter.fieldPath) {
+      const key = filter.fieldPath.split('.').filter(Boolean).at(-1) ?? ''
+      if (key) pushUniqueToRecord(plan.valuesByKey, key, normalized)
+      return
+    }
+    pushUnique(plan.standaloneTerms, normalized)
+  }
+
+  for (const match of matches) {
+    if (match.fieldName) pushUnique(plan.keyTerms, match.fieldName)
+
+    if (filter.op === '~') {
+      if (Array.isArray(filter.expected)) {
+        for (const item of filter.expected) add(toHighlightText(item))
+      } else {
+        add(toHighlightText(filter.expected))
+      }
+      continue
+    }
+
+    add(toHighlightText(match.actual))
+  }
+
+  return plan
+}
+
+function buildJsonPathDisplayValue(match: JsonPathMetaMatch) {
+  const parent = match.parent
+  if (parent && typeof parent === 'object' && !Array.isArray(parent)) return parent
+  if (Array.isArray(parent) && match.value && typeof match.value === 'object') return match.value
+  return match.value
+}
+
+function buildJsonPathHighlightPlan(matches: JsonPathMetaMatch[]) {
+  const plan = createEmptyHighlightPlan()
+
+  for (const match of matches) {
+    if (typeof match.parentProperty === 'string') {
+      pushUnique(plan.keyTerms, match.parentProperty)
+      pushUniqueToRecord(plan.valuesByKey, match.parentProperty, toHighlightText(match.value))
+      continue
+    }
+    pushUnique(plan.standaloneTerms, toHighlightText(match.value))
+  }
+
+  return plan
+}
+
+export function evaluateJsonSearch(json: JsonValue, query: string): JsonSearchResult {
   const q = query.trim()
-  if (!q) return { matches: [], error: null }
+  if (!q) return { matches: [], displayMatches: [], highlightPlan: createEmptyHighlightPlan(), error: null }
 
   try {
     if (!isJsonPathQuery(q)) {
       const filter = parseSimpleFilter(q)
-      if (!filter) return { matches: [], error: 'Enter JSONPath (starts with $) or a filter like: id = 5' }
-      return { matches: findMatchingValues(json, filter), error: null }
+      if (!filter) return { matches: [], displayMatches: [], highlightPlan: createEmptyHighlightPlan(), error: 'Enter JSONPath (starts with $) or a filter like: id = 5' }
+      const detailedMatches = findMatchingValues(json, filter)
+      const matches = detailedMatches.map(match => match.actual)
+      const displayMatches = dedupeValues(detailedMatches.map(match => match.container))
+      const highlightPlan = buildSimpleFilterHighlightPlan(filter, detailedMatches)
+      return { matches, displayMatches, highlightPlan, error: null }
     }
 
-    const res = jsonPath<unknown[] | unknown>({ path: q, json, resultType: 'value' })
-    const matches = Array.isArray(res) ? res : [res]
-    return { matches, error: null }
+    const res = jsonPath<JsonPathMetaMatch[] | JsonPathMetaMatch>({ path: q, json, resultType: 'all' })
+    const detailedMatches = Array.isArray(res) ? res : [res]
+    const matches = detailedMatches.map(match => match?.value)
+    const displayMatches = dedupeValues(detailedMatches.map(buildJsonPathDisplayValue))
+    const highlightPlan = buildJsonPathHighlightPlan(detailedMatches)
+    return { matches, displayMatches, highlightPlan, error: null }
   } catch (e: unknown) {
     logWarn('evaluateJsonSearch', 'Failed to evaluate JSON search query', { error: e, query: q })
-    return { matches: [], error: errorMessage(e) || 'Invalid query.' }
+    return { matches: [], displayMatches: [], highlightPlan: createEmptyHighlightPlan(), error: errorMessage(e) || 'Invalid query.' }
   }
 }
