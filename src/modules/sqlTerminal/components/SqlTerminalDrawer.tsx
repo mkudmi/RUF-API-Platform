@@ -425,6 +425,7 @@ export function SqlTerminalDrawer(props: {
   const lineNumbersRef = useRef<HTMLPreElement | null>(null)
   const tableSuggestRef = useRef<HTMLDivElement | null>(null)
   const outputRef = useRef<HTMLDivElement | null>(null)
+  const resetTableScrollOnNextResultRef = useRef(false)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const runRef = useRef<(() => void) | null>(null)
   const sectionRef = useRef<HTMLElement | null>(null)
@@ -615,7 +616,12 @@ export function SqlTerminalDrawer(props: {
     const el = outputRef.current
     if (!el) return
     const hasTableResult = (resultColumns?.length ?? 0) > 0 || (resultRows?.length ?? 0) > 0
-    if (hasTableResult) return
+    if (hasTableResult) {
+      if (!resetTableScrollOnNextResultRef.current) return
+      el.scrollTop = 0
+      resetTableScrollOnNextResultRef.current = false
+      return
+    }
     el.scrollTop = el.scrollHeight
   }, [open, output.length, resultColumns, resultRows])
 
@@ -1158,6 +1164,7 @@ export function SqlTerminalDrawer(props: {
 
     const startedAt = new Date()
     const scopeLabel = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
+    resetTableScrollOnNextResultRef.current = true
     pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type}) [${scopeLabel}]` }])
     setResultRows(null)
     setResultColumns(null)
@@ -1167,6 +1174,7 @@ export function SqlTerminalDrawer(props: {
 
     setBusy(true)
     try {
+      let hasFreshTableResult = false
       const renderedSql = applyVariables(raw, conn.variables)
       const renderedSqlWithSchema =
         conn.type === 'postgres' && selectedSchema
@@ -1193,6 +1201,7 @@ export function SqlTerminalDrawer(props: {
       const rows = r.rows ?? null
       if (r.ok && Array.isArray(r.columns) && r.columns.length) {
         setResultColumns(r.columns)
+        hasFreshTableResult = true
       }
 
       if (r.ok && Array.isArray(rows)) {
@@ -1202,10 +1211,12 @@ export function SqlTerminalDrawer(props: {
           setResultRows(visibleRows as Array<Record<string, unknown>>)
           setResultHint(`${visibleRows.length} row(s)${hasMore ? '+' : ''}`)
           setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
+          hasFreshTableResult = true
         } else if (!rows.length && (r.columns?.length ?? 0) > 0) {
           setResultRows([])
           setResultHint('0 row(s)')
           setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
+          hasFreshTableResult = true
         } else if (!rows.length) {
           setResultHint('0 row(s)')
           setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
@@ -1213,7 +1224,9 @@ export function SqlTerminalDrawer(props: {
       } else if (r.ok && typeof r.rowsAffected === 'number') {
         setResultHint(`${r.rowsAffected} affected`)
       }
+      if (!hasFreshTableResult) resetTableScrollOnNextResultRef.current = false
     } catch (e: unknown) {
+      resetTableScrollOnNextResultRef.current = false
       pushOutput([{ kind: 'err', text: e instanceof Error ? e.message : String(e) }])
     } finally {
       setBusy(false)
