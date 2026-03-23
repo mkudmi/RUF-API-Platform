@@ -2450,7 +2450,7 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 }
 .syntheticDataOutput {
   width: 100%;
-  min-height: 480px;
+  min-height: 320px;
   resize: vertical;
 }
 
