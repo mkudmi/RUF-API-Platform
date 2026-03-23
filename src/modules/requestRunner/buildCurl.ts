@@ -57,29 +57,29 @@ function applyPathParams(url: string, values: Record<string, string>) {
   return out + query + hash
 }
 
-function getHeader(headers: Record<string, string>, name: string): string | undefined {
+function getHeaderEntry(headers: [string, string][], name: string): string | undefined {
   const needle = name.toLowerCase()
-  for (const [k, v] of Object.entries(headers)) {
+  for (const [k, v] of headers) {
     if (k.toLowerCase() === needle) return v
   }
   return undefined
 }
 
-function setHeader(headers: Record<string, string>, name: string, value: string) {
+function setHeaderEntry(headers: [string, string][], name: string, value: string) {
   const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) {
-      headers[k] = value
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i][0].toLowerCase() === needle) {
+      headers[i] = [headers[i][0], value]
       return
     }
   }
-  headers[name] = value
+  headers.push([name, value])
 }
 
-function deleteHeader(headers: Record<string, string>, name: string) {
+function deleteHeaderEntries(headers: [string, string][], name: string) {
   const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) delete headers[k]
+  for (let i = headers.length - 1; i >= 0; i--) {
+    if (headers[i][0].toLowerCase() === needle) headers.splice(i, 1)
   }
 }
 
@@ -105,6 +105,7 @@ export function buildCurlCommand(args: {
   pathParams: Record<string, string>
   queryParams: Record<string, string>
   headers: Record<string, string>
+  headerEntries?: Array<[string, string]>
   bodyText?: string
   file?: File | null
   fileFieldName?: string
@@ -146,9 +147,9 @@ export function buildCurlCommand(args: {
   const qs = usp.toString()
   if (qs) url += (url.includes('?') ? '&' : '?') + qs
 
-  const headers: Record<string, string> = Object.fromEntries(
-    Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)]),
-  )
+  const headerEntries = args.headerEntries
+    ? args.headerEntries.map(([k, v]) => [k, applyVariables(v, vars)] as [string, string])
+    : Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)] as [string, string])
 
   const methodAllowsBody = args.request.method !== 'GET' && args.request.method !== 'HEAD'
   const hasExplicitBodyInput =
@@ -171,7 +172,7 @@ export function buildCurlCommand(args: {
   parts.push(bashQuote(url))
 
   if (methodAllowsBody && wantsBody) {
-    const desiredCt = (getHeader(headers, 'Content-Type') || args.request.body?.contentType || '').trim()
+    const desiredCt = (getHeaderEntry(headerEntries, 'Content-Type') || args.request.body?.contentType || '').trim()
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
     const files = (args.files ?? []).filter(x => x?.file instanceof File)
@@ -183,7 +184,7 @@ export function buildCurlCommand(args: {
         : []
 
     if (ct.includes('multipart/form-data') && (multipartFiles.length || emptyFileFieldNames.length || (args.formFields && Object.keys(args.formFields).length))) {
-      deleteHeader(headers, 'Content-Type')
+      deleteHeaderEntries(headerEntries, 'Content-Type')
 
       for (const [k, v] of Object.entries(args.formFields ?? {})) {
         parts.push(`-F ${bashQuote(`${k}=${applyVariables(v, vars)}`)}`)
@@ -197,19 +198,17 @@ export function buildCurlCommand(args: {
         parts.push(`-F ${bashQuote(`${safeField}=@/path/to/${name}`)}`)
       }
     } else if (file && ct.includes('application/octet-stream')) {
-      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
+      if (desiredCt) setHeaderEntry(headerEntries, 'Content-Type', desiredCt)
       const name = file?.name ? file.name : 'file'
       parts.push(`--data-binary ${bashQuote(`@/path/to/${name}`)}`)
     } else {
-      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
+      if (desiredCt) setHeaderEntry(headerEntries, 'Content-Type', desiredCt)
       const body = applyVariables(args.bodyText ?? '', vars)
       parts.push(`-d ${bashQuote(body)}`)
     }
   }
 
-  for (const k of Object.keys(headers).sort(compareHeaderKeys)) {
-    const v = headers[k]
-    if (v === undefined) continue
+  for (const [k, v] of [...headerEntries].sort((a, b) => compareHeaderKeys(a[0], b[0]))) {
     parts.push(`-H ${bashQuote(`${k}: ${v}`)}`)
   }
 

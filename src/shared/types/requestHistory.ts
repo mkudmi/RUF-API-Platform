@@ -18,6 +18,7 @@ export type RequestDraft = {
    * Prefer `headerOverrides`/`disabledHeaderNames` for per-request editing state.
    */
   headers?: Record<string, string>
+  headerEntries?: Array<{ name?: string, value?: string }>
   headerOverrides?: Record<string, string>
   headerKeyOrder?: string[]
   headerDraftRows?: Array<{ id?: string, name?: string, value?: string, isActive?: boolean }>

@@ -178,6 +178,14 @@ function applyPathParams(url: string, values: Record<string,string>) {
   return out + query + hash
 }
 
+function getHeaderFromEntries(headers: [string, string][], name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const [k, v] of headers) {
+    if (k.toLowerCase() === needle) return v
+  }
+  return undefined
+}
+
 function getHeader(headers: Record<string, string>, name: string): string | undefined {
   const needle = name.toLowerCase()
   for (const [k, v] of Object.entries(headers)) {
@@ -274,21 +282,21 @@ function inferFileNameFromUrl(url: string, contentType: string): string {
   return ext ? `download${ext}` : 'download'
 }
 
-function setHeader(headers: Record<string, string>, name: string, value: string) {
+function setHeaderEntry(headers: [string, string][], name: string, value: string) {
   const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) {
-      headers[k] = value
+  for (let i = 0; i < headers.length; i++) {
+    if (headers[i][0].toLowerCase() === needle) {
+      headers[i] = [headers[i][0], value]
       return
     }
   }
-  headers[name] = value
+  headers.push([name, value])
 }
 
-function deleteHeader(headers: Record<string, string>, name: string) {
+function deleteHeaderEntries(headers: [string, string][], name: string) {
   const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) delete headers[k]
+  for (let i = headers.length - 1; i >= 0; i--) {
+    if (headers[i][0].toLowerCase() === needle) headers.splice(i, 1)
   }
 }
 
@@ -300,6 +308,7 @@ export async function runRequest(args: {
   pathParams: Record<string,string>
   queryParams: Record<string,string>
   headers: Record<string,string>
+  headerEntries?: Array<[string, string]>
   bodyText?: string
   file?: File | null
   fileFieldName?: string
@@ -343,11 +352,13 @@ export async function runRequest(args: {
   const qs = usp.toString()
   if (qs) url += (url.includes('?') ? '&' : '?') + qs
 
+  const headerEntries = args.headerEntries
+    ? args.headerEntries.map(([k, v]) => [k, applyVariables(v, vars)] as [string, string])
+    : Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)] as [string, string])
+
   const init: RequestInit = {
     method: args.request.method,
-    headers: Object.fromEntries(
-      Object.entries(args.headers).map(([k, v]) => [k, applyVariables(v, vars)]),
-    ),
+    headers: headerEntries,
     signal: args.signal,
   }
 
@@ -356,7 +367,7 @@ export async function runRequest(args: {
   const wantsBody = !!args.request.body || hasExplicitBodyInput
 
   if (methodAllowsBody && wantsBody) {
-    const desiredCt = (getHeader(init.headers as any, 'Content-Type') || args.request.body?.contentType || '').trim()
+    const desiredCt = (getHeaderFromEntries(headerEntries, 'Content-Type') || args.request.body?.contentType || '').trim()
     const ct = desiredCt.toLowerCase()
     const file = args.file ?? null
     const files = (args.files ?? []).filter(x => x?.file instanceof File)
@@ -376,21 +387,18 @@ export async function runRequest(args: {
         form.append(fieldName?.trim() || 'file', file)
       }
 
-      const headers = { ...(init.headers as any) } as Record<string, string>
-      deleteHeader(headers, 'Content-Type')
-      init.headers = headers as any
+      deleteHeaderEntries(headerEntries, 'Content-Type')
+      init.headers = headerEntries
       init.body = form
     } else if (file) {
-      const headers = { ...(init.headers as any) } as Record<string, string>
-      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
-      else if (file.type) setHeader(headers, 'Content-Type', file.type)
-      else setHeader(headers, 'Content-Type', 'application/octet-stream')
-      init.headers = headers as any
+      if (desiredCt) setHeaderEntry(headerEntries, 'Content-Type', desiredCt)
+      else if (file.type) setHeaderEntry(headerEntries, 'Content-Type', file.type)
+      else setHeaderEntry(headerEntries, 'Content-Type', 'application/octet-stream')
+      init.headers = headerEntries
       init.body = file
     } else {
-      const headers = { ...(init.headers as any) } as Record<string, string>
-      if (desiredCt) setHeader(headers, 'Content-Type', desiredCt)
-      init.headers = headers as any
+      if (desiredCt) setHeaderEntry(headerEntries, 'Content-Type', desiredCt)
+      init.headers = headerEntries
       init.body = applyVariables(args.bodyText ?? '', vars)
     }
   }

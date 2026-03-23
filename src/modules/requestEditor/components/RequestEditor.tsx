@@ -1327,7 +1327,7 @@ function HeaderDraftRow(props: {
   return (
     <div className="formRow">
       <input
-        className="mono"
+        className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
         value={props.name}
         onChange={e => props.onChangeName(e.target.value)}
         onKeyDown={e => {
@@ -1346,7 +1346,7 @@ function HeaderDraftRow(props: {
           data-commit-rowid={props.rowId}
         >
           <VariableAutocompleteField
-            className="mono valueHistoryInput"
+            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
             value={props.value}
             suggestions={props.variableSuggestions}
             onChangeValue={props.onChangeValue}
@@ -3154,6 +3154,27 @@ export function RequestEditor(props: {
       if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
       return next
     })()
+    const committedHeadersForSendWithoutDraftRows = (() => {
+      const merged = { ...envHeaders, ...requestBaseHeaders, ...headerOverrides }
+      for (const key of Object.keys(disabledHeaderNames)) delete merged[key]
+      return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
+    })()
+    const committedHeaderEntriesForSend = (() => {
+      if (!hasAnyBodyInput) return Object.entries(committedHeadersForSendWithoutDraftRows)
+      if (bodyFormat === 'auto') {
+        if (bodyFormatForDisplay !== 'json') return Object.entries(committedHeadersForSendWithoutDraftRows)
+        const next = { ...committedHeadersForSendWithoutDraftRows }
+        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = 'application/json'
+        return Object.entries(next)
+      }
+      const next = { ...committedHeadersForSendWithoutDraftRows }
+      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
+      return Object.entries(next)
+    })()
+    const activeDraftHeaderEntriesForSend = headerDraftRowsToCommit
+      .filter(row => row.isActive)
+      .map(row => [row.name.trim(), row.value] as [string, string])
+    const headerEntriesForSend = [...committedHeaderEntriesForSend, ...activeDraftHeaderEntriesForSend]
 
     const queryDraftRowsToCommit = queryDraftRows.filter(r => r.name.trim() && r.value !== '')
     const hasDraftQueryToCommit = queryDraftRowsToCommit.length > 0
@@ -3219,6 +3240,7 @@ export function RequestEditor(props: {
       nextDisabledHeaderNamesForSend,
       nextInactiveHeaderNamesForSend,
       effectiveHeadersForSend,
+      headerEntriesForSend,
       effectiveQueryParamsForCommit,
       nextInactiveQueryParamNamesForSend,
       effectiveQueryParamsForSend,
@@ -3334,6 +3356,7 @@ export function RequestEditor(props: {
           queryParamKeyOverrides,
           disabledQueryParamNames: snapshot.effectiveDisabledQueryParamNamesForSend,
           headers: snapshot.effectiveHeadersForSend,
+          headerEntries: snapshot.headerEntriesForSend.map(([name, value]) => ({ name, value })),
           headerOverrides: snapshot.nextHeaderOverridesForSend,
           disabledHeaderNames: snapshot.nextDisabledHeaderNamesForSend,
           inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
@@ -3438,6 +3461,7 @@ export function RequestEditor(props: {
         pathParams: effectivePathParamsForSend,
         queryParams: effectiveQueryParamsForSend,
         headers: snapshot.effectiveHeadersForSend,
+        headerEntries: snapshot.headerEntriesForSend,
         bodyText,
         files: snapshot.filesForMultipart,
         emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
@@ -3466,6 +3490,7 @@ export function RequestEditor(props: {
             pathParams: effectivePathParamsForSend,
             queryParams: effectiveQueryParamsForSend,
             headers: snapshot.effectiveHeadersForSend,
+            headerEntries: snapshot.headerEntriesForSend,
             bodyText,
             files: snapshot.filesForMultipart,
             emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
@@ -3996,6 +4021,7 @@ export function RequestEditor(props: {
       pathParams,
       queryParams: snapshot.effectiveQueryParamsForSend,
       headers: snapshot.effectiveHeadersForSend,
+      headerEntries: snapshot.headerEntriesForSend,
       bodyText,
       files: snapshot.filesForMultipart,
       emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,

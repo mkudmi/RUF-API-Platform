@@ -23,6 +23,7 @@ export type CollectionRunPreparedRequest = {
   pathParams: Record<string, string>
   queryParams: Record<string, string>
   headers: Record<string, string>
+  headerEntries: Array<[string, string]>
   bodyText: string
 }
 
@@ -308,6 +309,21 @@ export function prepareCollectionRunRequest(args: {
     return { ...baseHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) }
   })()
 
+  const baseCommittedHeadersForSend = (() => {
+    const merged = { ...envHeaders, ...requestBaseHeaders, ...headerOverrides }
+    for (const key of Object.keys(disabledHeaderNames)) delete merged[key]
+    return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
+  })()
+  const committedHeaderEntriesForSend = (() => {
+    if (!hasAnyBodyInput || !methodAllowsBody || bodyFormat === 'auto') return Object.entries(baseCommittedHeadersForSend)
+    if (isHeaderInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) return Object.entries(baseCommittedHeadersForSend)
+    return Object.entries({ ...baseCommittedHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) })
+  })()
+  const activeDraftHeaderEntriesForSend = headerRows
+    .filter(row => row.isActive && row.name.trim() && row.value !== '')
+    .map(row => [row.name, row.value] as [string, string])
+  const headerEntries = [...committedHeaderEntriesForSend, ...activeDraftHeaderEntriesForSend]
+
   return {
     request: args.request,
     draft,
@@ -318,6 +334,7 @@ export function prepareCollectionRunRequest(args: {
     pathParams,
     queryParams,
     headers,
+    headerEntries,
     bodyText,
   }
 }
@@ -331,6 +348,7 @@ export async function runCollectionRequest(prepared: CollectionRunPreparedReques
     pathParams: prepared.pathParams,
     queryParams: prepared.queryParams,
     headers: prepared.headers,
+    headerEntries: prepared.headerEntries,
     bodyText: prepared.bodyText,
     signal,
   })
@@ -356,6 +374,7 @@ export function buildCollectionRunHistoryDraft(prepared: CollectionRunPreparedRe
     pathParams: prepared.pathParams,
     queryParams: prepared.queryParams,
     headers: prepared.headers,
+    headerEntries: prepared.headerEntries.map(([name, value]) => ({ name, value })),
     bodyText: prepared.bodyText,
     urlTemplateOverride: prepared.urlTemplateOverride || undefined,
     baseUrlKey: prepared.draft?.baseUrlKey || undefined,
