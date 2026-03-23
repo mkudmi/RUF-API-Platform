@@ -1,11 +1,12 @@
 {
   "name": "ruf",
   "private": true,
-  "version": "0.4.85",
+  "version": "0.4.86",
   "type": "module",
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc -b",
+    "release:tag": "node scripts/release-tag.mjs",
     "tauri": "tauri",
     "tauri:ui:dev": "vite",
     "tauri:ui:build": "tsc -b && vite build",
