@@ -719,6 +719,7 @@ function HeaderRow(props: {
   enumMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
   const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
   const keyIsLocked = props.readOnlyName || !!props.required
@@ -728,9 +729,9 @@ function HeaderRow(props: {
     setDraftName(props.name)
   }, [props.name])
 
-  function commitRename() {
+  function commitRename(nextRaw?: string) {
     if (!props.onRename) return
-    const next = draftName.trim()
+    const next = (nextRaw ?? nameInputRef.current?.value ?? draftName).trim()
     if (next === props.name) {
       setDraftName(props.name)
       return
@@ -753,15 +754,17 @@ function HeaderRow(props: {
             />
           ) : (
             <input
+              ref={nameInputRef}
               className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
               style={{ width: '100%' }}
               value={draftName}
+              data-commit-on-blur="1"
               onChange={e => setDraftName(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') commitRename()
+                if (e.key === 'Enter') commitRename((e.currentTarget as HTMLInputElement).value)
                 if (e.key === 'Escape') setDraftName(props.name)
               }}
-              onBlur={commitRename}
+              onBlur={e => commitRename(e.currentTarget.value)}
               placeholder="Key"
             />
           )}
@@ -942,6 +945,7 @@ function QueryRow(props: {
   enumMenuPanelRef: RefObject<HTMLDivElement | null>
 }) {
   const [draftName, setDraftName] = useState(props.name)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
   const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
   const keyIsLocked = !!props.readOnlyName || !!props.required
@@ -951,9 +955,9 @@ function QueryRow(props: {
     setDraftName(props.name)
   }, [props.name])
 
-  function commitRename() {
+  function commitRename(nextRaw?: string) {
     if (!props.onRename) return
-    const next = draftName.trim()
+    const next = (nextRaw ?? nameInputRef.current?.value ?? draftName).trim()
     if (next === props.name) {
       setDraftName(props.name)
       return
@@ -976,15 +980,17 @@ function QueryRow(props: {
             />
           ) : (
             <input
+              ref={nameInputRef}
               className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
               style={{ width: '100%' }}
               value={draftName}
+              data-commit-on-blur="1"
               onChange={e => setDraftName(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') commitRename()
+                if (e.key === 'Enter') commitRename((e.currentTarget as HTMLInputElement).value)
                 if (e.key === 'Escape') setDraftName(props.name)
               }}
-              onBlur={commitRename}
+              onBlur={e => commitRename(e.currentTarget.value)}
               placeholder="Key"
             />
           )}
@@ -1687,6 +1693,10 @@ export function RequestEditor(props: {
   function commitFocusedValueFieldToState() {
     const active = document.activeElement as (HTMLInputElement | HTMLTextAreaElement | null)
     if (!active || !(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) return
+    if (active.dataset.commitOnBlur === '1') {
+      active.blur()
+      return
+    }
 
     const wrap = active.closest<HTMLElement>('[data-commit-kind]')
     if (!wrap) return
@@ -1737,6 +1747,12 @@ export function RequestEditor(props: {
       return
     }
   }
+
+  useLayoutEffect(() => {
+    return () => {
+      commitFocusedValueFieldToState()
+    }
+  }, [props.request.id])
 
   useEffect(() => {
     if (!valueHistoryMenuOpenId) return
@@ -2178,8 +2194,6 @@ export function RequestEditor(props: {
     top: 0,
     width: 120,
   })
-  const draftSaveTimerRef = useRef<number | null>(null)
-
   const inFlightCount = props.inFlightCount ?? 0
   const isSending = inFlightCount > 0
   const sendRef = useRef<(() => void) | null>(null)
@@ -2542,42 +2556,35 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     if (!props.request.id) return
-    if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
-    draftSaveTimerRef.current = window.setTimeout(() => {
-      saveRequestDraft(props.request.id, {
-        pathParams,
-        queryParams,
-        queryDraftRows,
-        queryKeyOrder,
-        inactiveQueryParamNames,
-        queryParamKeyOverrides,
-        disabledQueryParamNames,
-        preSqlScript,
-        postSqlScript,
-        preSqlScriptIsActive,
-        postSqlScriptIsActive,
-        sqlConnectionId: selectedSqlConnectionId ?? undefined,
-        headerOverrides,
-        headerDraftRows,
-        headerKeyOrder,
-        disabledHeaderNames,
-        inactiveHeaderNames,
-         bodyText,
-         bodyFormat,
-         fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
-         fileFieldNames: fileRows.map(r => r.fieldName),
-         fileRows: fileRows.map(r => ({ fieldName: r.fieldName, isActive: r.isActive })),
-         baseUrlKey,
-         urlTemplateOverride,
-         dataDrivenInput,
-         selectedTestFunction,
-         requestTestScript,
-       })
-     }, 200)
-     return () => {
-      if (draftSaveTimerRef.current) window.clearTimeout(draftSaveTimerRef.current)
-      draftSaveTimerRef.current = null
-    }
+    saveRequestDraft(props.request.id, {
+      pathParams,
+      queryParams,
+      queryDraftRows,
+      queryKeyOrder,
+      inactiveQueryParamNames,
+      queryParamKeyOverrides,
+      disabledQueryParamNames,
+      preSqlScript,
+      postSqlScript,
+      preSqlScriptIsActive,
+      postSqlScriptIsActive,
+      sqlConnectionId: selectedSqlConnectionId ?? undefined,
+      headerOverrides,
+      headerDraftRows,
+      headerKeyOrder,
+      disabledHeaderNames,
+      inactiveHeaderNames,
+      bodyText,
+      bodyFormat,
+      fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
+      fileFieldNames: fileRows.map(r => r.fieldName),
+      fileRows: fileRows.map(r => ({ fieldName: r.fieldName, isActive: r.isActive })),
+      baseUrlKey,
+      urlTemplateOverride,
+      dataDrivenInput,
+      selectedTestFunction,
+      requestTestScript,
+    })
   }, [
     baseUrlKey,
     bodyText,
@@ -4435,6 +4442,9 @@ export function RequestEditor(props: {
             key={tab.id}
             type="button"
             className={`tab ${activeTabId === tab.id ? 'tabActive' : ''}`}
+            onPointerDown={() => {
+              if (activeTabId !== tab.id) commitFocusedValueFieldToState()
+            }}
             onClick={() => setActiveTabId(tab.id)}
             aria-pressed={activeTabId === tab.id}
           >
