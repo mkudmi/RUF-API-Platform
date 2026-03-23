@@ -662,13 +662,31 @@ function normalizeHeaderParams(
     if (spec.some(x => x.name === k)) continue
     out.push({ name: k, in: 'header', required: false })
   }
-  // Preserve a stable, explicit order for all rows (old at top, new at bottom).
-  const decorated = out.map((p, i) => {
-    const idx = findKeyIndexCaseInsensitive(keyOrder, p.name)
-    return { p, sortKey: (idx >= 0 ? idx : (1_000_000 + i)) }
-  })
-  decorated.sort((a, b) => a.sortKey - b.sortKey)
-  return decorated.map(x => x.p)
+  const byLower = new Map<string, RequestParam>()
+  for (const p of out) {
+    const lower = (p.name ?? '').toLowerCase()
+    if (!lower || byLower.has(lower)) continue
+    byLower.set(lower, p)
+  }
+  const ordered: RequestParam[] = []
+  const seen = new Set<string>()
+
+  for (const key of keyOrder) {
+    const lower = (key ?? '').toLowerCase()
+    const param = byLower.get(lower)
+    if (!param || seen.has(lower)) continue
+    seen.add(lower)
+    ordered.push(param)
+  }
+
+  for (const p of out) {
+    const lower = (p.name ?? '').toLowerCase()
+    if (!lower || seen.has(lower)) continue
+    seen.add(lower)
+    ordered.push(p)
+  }
+
+  return ordered
 }
 
 function renameStoreKey(
@@ -1558,42 +1576,6 @@ export function RequestEditor(props: {
       props.onChangeMethod?.('GET')
     }
     setCustomMethodOptions(prev => prev.filter(m => m !== method))
-  }
-
-  function commitQueryDraftRowById(rowId: string) {
-    const row = queryDraftRows.find(r => r.id === rowId)
-    if (!row) return
-    const key = row.name.trim()
-    if (!key || row.value === '') return
-    if (querySpecNames.has(key)) return
-    if (hasOwn(queryParams, key)) return
-
-    setQueryKeyOrder(prev => (prev.includes(key) ? prev : [...prev, key]))
-    setQueryParams(prev => ({ ...prev, [key]: row.value }))
-    setInactiveQueryParamNames(prev => setFlagForKey(prev, key, row.isActive))
-    setDisabledQueryParamNames(prev => {
-      if (!hasOwn(prev, key)) return prev
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-    setQueryDraftRows(prev => prev.filter(r => r.id !== rowId))
-  }
-
-  function commitHeaderDraftRowById(rowId: string) {
-    const row = headerDraftRows.find(r => r.id === rowId)
-    if (!row) return
-    const key = row.name.trim()
-    if (!key || row.value === '') return
-
-    const lower = key.toLowerCase()
-    const hasCommitted = Object.keys(committedHeaders).some(k => k.toLowerCase() === lower)
-    if (hasCommitted) return
-
-    setHeaderKeyOrder(prev => (findKeyIndexCaseInsensitive(prev, key) >= 0 ? prev : [...prev, key]))
-    setHeaderValueForRequest(key, row.value)
-    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, key, row.isActive))
-    setHeaderDraftRows(prev => prev.filter(r => r.id !== rowId))
   }
 
   function recordValueHistory(kind: ValueHistoryKind, key: string, value: string) {
@@ -2637,15 +2619,34 @@ export function RequestEditor(props: {
       if (overriddenKeys.has(k)) continue
       out.push({ name: k, in: 'query', required: false })
     }
-    const decorated = out.map((p, i) => {
+    const byName = new Map<string, RequestParam>()
+    for (const p of out) {
       const raw = p.name
       const isSpec = querySpecNames.has(raw)
       const key = isSpec ? (queryParamKeyOverrides[raw] ?? raw) : raw
-      const idx = queryKeyOrder.indexOf(key)
-      return { p, sortKey: (idx >= 0 ? idx : (1_000_000 + i)) }
-    })
-    decorated.sort((a, b) => a.sortKey - b.sortKey)
-    return decorated.map(x => x.p)
+      if (!key || byName.has(key)) continue
+      byName.set(key, p)
+    }
+    const ordered: RequestParam[] = []
+    const seen = new Set<string>()
+
+    for (const key of queryKeyOrder) {
+      const param = byName.get(key)
+      if (!param || seen.has(key)) continue
+      seen.add(key)
+      ordered.push(param)
+    }
+
+    for (const p of out) {
+      const raw = p.name
+      const isSpec = querySpecNames.has(raw)
+      const key = isSpec ? (queryParamKeyOverrides[raw] ?? raw) : raw
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      ordered.push(p)
+    }
+
+    return ordered
   }, [disabledQuerySpecNames, grouped.query, queryKeyOrder, queryParams, queryParamKeyOverrides, querySpecNames])
 
   useEffect(() => {
@@ -4926,7 +4927,6 @@ export function RequestEditor(props: {
                 onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
                 onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-                onCommit={() => commitQueryDraftRowById(row.id)}
                 variableSuggestions={variableSuggestions}
                 historyItems={valueHistory.query[row.name.trim()] ?? []}
                 onRecordHistory={next => recordValueHistory('query', row.name, next)}
@@ -5151,7 +5151,6 @@ export function RequestEditor(props: {
                 onToggleActive={isActive => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-                onCommit={() => commitHeaderDraftRowById(row.id)}
                 variableSuggestions={variableSuggestions}
                 historyItems={valueHistory.header[row.name.trim()] ?? []}
                 onRecordHistory={next => recordValueHistory('header', row.name, next)}
