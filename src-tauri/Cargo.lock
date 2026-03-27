@@ -3236,7 +3236,7 @@ dependencies = [
 
 [[package]]
 name = "ruf"
-version = "0.4.86"
+version = "0.4.87"
 dependencies = [
  "base64 0.22.1",
  "reqwest",
