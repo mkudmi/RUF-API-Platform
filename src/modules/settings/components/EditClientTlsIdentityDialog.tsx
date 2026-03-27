@@ -1,14 +1,14 @@
-import type { RefObject } from 'react'
+import type { ChangeEvent, RefObject } from 'react'
 import { CloseIcon } from '../../../shared/icons'
 
 type EditClientTlsIdentityDialogProps = {
   dialogRef: RefObject<HTMLDialogElement | null>
-  certValue: string
-  keyValue: string
-  onCertChange: (value: string) => void
-  onKeyChange: (value: string) => void
+  fileName: string
+  password: string
   error: string | null
   busy: boolean
+  onPasswordChange: (value: string) => void
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void
   onClose: () => void
   onSubmit: () => void
 }
@@ -29,20 +29,32 @@ export function EditClientTlsIdentityDialog(props: EditClientTlsIdentityDialogPr
 
       <div style={{ display: 'grid', gap: 10 }}>
         <div className="small" style={{ opacity: 0.8 }}>
-          Paste the client certificate and private key in PEM format. This is used for mTLS access.
+          Upload a client certificate container in PFX or P12 format. This is used for mTLS access.
         </div>
+
         <div style={{ display: 'grid', gap: 6 }}>
-          <div className="small" style={{ opacity: 0.8 }}>Certificate (PEM)</div>
-          <textarea
+          <div className="small" style={{ opacity: 0.8 }}>Certificate file (.pfx / .p12)</div>
+          <input
+            type="file"
+            accept=".pfx,.p12,application/x-pkcs12"
+            onChange={props.onFileChange}
+          />
+          <div className="small mono" style={{ opacity: props.fileName ? 0.9 : 0.55 }}>
+            {props.fileName || 'No file selected'}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 6 }}>
+          <div className="small" style={{ opacity: 0.8 }}>Password</div>
+          <input
             className="mono"
-            value={props.certValue}
-            onChange={event => props.onCertChange(event.target.value)}
-            placeholder={'-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----'}
-            spellCheck={false}
+            type="password"
+            value={props.password}
+            onChange={event => props.onPasswordChange(event.target.value)}
+            placeholder="PFX password"
+            autoComplete="off"
             style={{
               width: '100%',
-              minHeight: 140,
-              resize: 'vertical',
               padding: 10,
               borderRadius: 10,
               border: '1px solid rgba(255,255,255,.12)',
@@ -51,32 +63,13 @@ export function EditClientTlsIdentityDialog(props: EditClientTlsIdentityDialogPr
             }}
           />
         </div>
-        <div style={{ display: 'grid', gap: 6 }}>
-          <div className="small" style={{ opacity: 0.8 }}>Private key (PEM)</div>
-          <textarea
-            className="mono"
-            value={props.keyValue}
-            onChange={event => props.onKeyChange(event.target.value)}
-            placeholder={'-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'}
-            spellCheck={false}
-            style={{
-              width: '100%',
-              minHeight: 160,
-              resize: 'vertical',
-              padding: 10,
-              borderRadius: 10,
-              border: '1px solid rgba(255,255,255,.12)',
-              background: 'rgba(255,255,255,.04)',
-              color: 'inherit',
-            }}
-          />
-        </div>
+
         {props.error ? <div className="small" style={{ color: '#ff9a9a' }}>{props.error}</div> : null}
       </div>
 
       <div className="modalActions">
         <button onClick={props.onClose} disabled={props.busy}>Cancel</button>
-        <button onClick={props.onSubmit} disabled={props.busy || !props.certValue.trim() || !props.keyValue.trim()}>
+        <button onClick={props.onSubmit} disabled={props.busy || !props.fileName}>
           {props.busy ? 'Saving...' : 'Save'}
         </button>
       </div>

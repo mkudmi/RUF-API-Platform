@@ -111,13 +111,13 @@ function getCaCertsPem(): string[] {
   }
 }
 
-function getClientTlsIdentity(): { clientCertPem?: string; clientKeyPem?: string } {
+function getClientTlsIdentity(): { clientPkcs12Base64?: string; clientPkcs12Password?: string } {
   try {
     const identity = loadAppSettings().clientTlsIdentity
-    if (!identity?.certPem?.trim() || !identity?.keyPem?.trim()) return {}
+    if (!identity?.pkcs12Base64?.trim()) return {}
     return {
-      clientCertPem: identity.certPem,
-      clientKeyPem: identity.keyPem,
+      clientPkcs12Base64: identity.pkcs12Base64,
+      clientPkcs12Password: identity.password,
     }
   } catch (error) {
     logWarn('getClientTlsIdentity', 'Failed to read client TLS identity from settings', { error })

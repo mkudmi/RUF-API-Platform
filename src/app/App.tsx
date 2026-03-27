@@ -397,8 +397,9 @@ export default function App() {
   const [caCertInput, setCaCertInput] = useState('')
   const [caCertError, setCaCertError] = useState<string | null>(null)
   const [caCertBusy, setCaCertBusy] = useState(false)
-  const [clientTlsCertInput, setClientTlsCertInput] = useState(() => initialAppSettings.clientTlsIdentity?.certPem ?? '')
-  const [clientTlsKeyInput, setClientTlsKeyInput] = useState(() => initialAppSettings.clientTlsIdentity?.keyPem ?? '')
+  const [clientTlsPkcs12Base64Input, setClientTlsPkcs12Base64Input] = useState(() => initialAppSettings.clientTlsIdentity?.pkcs12Base64 ?? '')
+  const [clientTlsFileNameInput, setClientTlsFileNameInput] = useState(() => initialAppSettings.clientTlsIdentity?.fileName ?? '')
+  const [clientTlsPasswordInput, setClientTlsPasswordInput] = useState(() => initialAppSettings.clientTlsIdentity?.password ?? '')
   const [clientTlsError, setClientTlsError] = useState<string | null>(null)
   const [clientTlsBusy, setClientTlsBusy] = useState(false)
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
@@ -658,14 +659,50 @@ export default function App() {
 
   function openClientTlsDialog() {
     setClientTlsError(null)
-    setClientTlsCertInput(clientTlsIdentity?.certPem ?? '')
-    setClientTlsKeyInput(clientTlsIdentity?.keyPem ?? '')
+    setClientTlsPkcs12Base64Input(clientTlsIdentity?.pkcs12Base64 ?? '')
+    setClientTlsFileNameInput(clientTlsIdentity?.fileName ?? '')
+    setClientTlsPasswordInput(clientTlsIdentity?.password ?? '')
     clientTlsDialogRef.current?.showModal()
   }
 
   function closeClientTlsDialog() {
     if (clientTlsBusy) return
     clientTlsDialogRef.current?.close()
+  }
+
+  async function onClientTlsFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      setClientTlsPkcs12Base64Input('')
+      setClientTlsFileNameInput('')
+      return
+    }
+
+    const lower = file.name.toLowerCase()
+    if (!lower.endsWith('.pfx') && !lower.endsWith('.p12')) {
+      setClientTlsError('Select a .pfx or .p12 file.')
+      setClientTlsPkcs12Base64Input('')
+      setClientTlsFileNameInput('')
+      event.target.value = ''
+      return
+    }
+
+    try {
+      const buf = await file.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      setClientTlsPkcs12Base64Input(btoa(binary))
+      setClientTlsFileNameInput(file.name)
+      setClientTlsError(null)
+    } catch (error) {
+      logError('onClientTlsFileInputChange', error)
+      setClientTlsPkcs12Base64Input('')
+      setClientTlsFileNameInput('')
+      setClientTlsError('Failed to read the selected PFX/P12 file.')
+    } finally {
+      event.target.value = ''
+    }
   }
 
   function clearAppCache() {
@@ -847,23 +884,17 @@ export default function App() {
 
   async function saveClientTlsIdentityFromInput() {
     setClientTlsError(null)
-    const certBlocks = extractPemCertificates(clientTlsCertInput)
-    if (!certBlocks.length) {
-      setClientTlsError('Paste a client certificate in PEM format (BEGIN CERTIFICATE / END CERTIFICATE).')
-      return
-    }
-
-    const keyPem = clientTlsKeyInput.trim()
-    if (!/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(keyPem) || !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(keyPem)) {
-      setClientTlsError('Paste a private key in PEM format.')
+    if (!clientTlsPkcs12Base64Input.trim()) {
+      setClientTlsError('Select a PFX/P12 file.')
       return
     }
 
     setClientTlsBusy(true)
     try {
       setClientTlsIdentity({
-        certPem: certBlocks.join('\n'),
-        keyPem,
+        pkcs12Base64: clientTlsPkcs12Base64Input,
+        password: clientTlsPasswordInput,
+        ...(clientTlsFileNameInput.trim() ? { fileName: clientTlsFileNameInput.trim() } : null),
       })
       clientTlsDialogRef.current?.close()
     } finally {
@@ -878,8 +909,9 @@ export default function App() {
   function clearClientTlsIdentity() {
     setClientTlsIdentity(null)
     setClientTlsError(null)
-    setClientTlsCertInput('')
-    setClientTlsKeyInput('')
+    setClientTlsPkcs12Base64Input('')
+    setClientTlsFileNameInput('')
+    setClientTlsPasswordInput('')
   }
 
   useEffect(() => {
@@ -1586,8 +1618,8 @@ export default function App() {
       const res = await platformFetch(u.toString(), undefined, {
         insecureTls: !validateCertificates,
         caCertsPem: caCertificates.map(c => c.pem),
-        clientCertPem: clientTlsIdentity?.certPem,
-        clientKeyPem: clientTlsIdentity?.keyPem,
+        clientPkcs12Base64: clientTlsIdentity?.pkcs12Base64,
+        clientPkcs12Password: clientTlsIdentity?.password,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
@@ -3407,8 +3439,8 @@ export default function App() {
   const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
   const caCertificatesPem = useMemo(() => caCertificates.map(c => c.pem), [caCertificates])
   const clientTlsFetchOpts = useMemo(() => ({
-    clientCertPem: clientTlsIdentity?.certPem,
-    clientKeyPem: clientTlsIdentity?.keyPem,
+    clientPkcs12Base64: clientTlsIdentity?.pkcs12Base64,
+    clientPkcs12Password: clientTlsIdentity?.password,
   }), [clientTlsIdentity])
 
   async function detectSwaggerUiBase(candidates: string[], requestTimeoutMs = 2500) {
@@ -4293,10 +4325,10 @@ export default function App() {
 
         <EditClientTlsIdentityDialog
           dialogRef={clientTlsDialogRef}
-          certValue={clientTlsCertInput}
-          keyValue={clientTlsKeyInput}
-          onCertChange={setClientTlsCertInput}
-          onKeyChange={setClientTlsKeyInput}
+          fileName={clientTlsFileNameInput}
+          password={clientTlsPasswordInput}
+          onPasswordChange={setClientTlsPasswordInput}
+          onFileChange={event => void onClientTlsFileInputChange(event)}
           error={clientTlsError}
           busy={clientTlsBusy}
           onClose={closeClientTlsDialog}

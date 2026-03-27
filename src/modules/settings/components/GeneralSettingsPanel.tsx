@@ -121,7 +121,8 @@ export function GeneralSettingsPanel(props: GeneralSettingsPanelProps) {
         <div className="settingsTableValue settingsCertsCell">
           <div className="settingsSplitRow" style={{ alignItems: 'center' }}>
             <span className="small" style={{ opacity: 0.85 }}>
-              {props.clientTlsIdentity ? 'Client certificate and private key configured.' : 'No client TLS identity configured.'}
+              {props.clientTlsIdentity ? 'Client PFX/P12 identity configured.' : 'No client TLS identity configured.'}
+              {props.clientTlsIdentity?.fileName ? ` File: ${props.clientTlsIdentity.fileName}` : ''}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {props.clientTlsIdentity ? (

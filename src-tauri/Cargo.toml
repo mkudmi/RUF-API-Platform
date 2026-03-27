@@ -15,7 +15,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "process"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "mysql"] }
 thiserror = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "system-proxy"] }
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "rustls-tls", "gzip", "brotli", "deflate", "system-proxy"] }
 base64 = "0.22"
 sha2 = "0.10"
 x509-parser = "0.16"

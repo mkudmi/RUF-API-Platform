@@ -14,8 +14,9 @@ export type CaCertificate = {
 }
 
 export type ClientTlsIdentity = {
-  certPem: string
-  keyPem: string
+  pkcs12Base64: string
+  password: string
+  fileName?: string
 }
 
 export type AppSettings = {
@@ -82,10 +83,15 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
   const clientTlsIdentity: ClientTlsIdentity | null = (() => {
     if (!rawClientTlsIdentity || typeof rawClientTlsIdentity !== 'object') return null
     const tlsRec = rawClientTlsIdentity as Record<string, unknown>
-    const certPem = typeof tlsRec.certPem === 'string' ? tlsRec.certPem.trim() : ''
-    const keyPem = typeof tlsRec.keyPem === 'string' ? tlsRec.keyPem.trim() : ''
-    if (!certPem || !keyPem) return null
-    return { certPem, keyPem }
+    const pkcs12Base64 = typeof tlsRec.pkcs12Base64 === 'string' ? tlsRec.pkcs12Base64.trim() : ''
+    const password = typeof tlsRec.password === 'string' ? tlsRec.password : ''
+    const fileName = typeof tlsRec.fileName === 'string' ? tlsRec.fileName.trim() : ''
+    if (!pkcs12Base64) return null
+    return {
+      pkcs12Base64,
+      password,
+      ...(fileName ? { fileName } : null),
+    }
   })()
 
   const rawGlobalSql = rec.globalSql

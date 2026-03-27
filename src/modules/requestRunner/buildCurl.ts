@@ -164,9 +164,9 @@ export function buildCurlCommand(args: {
     const settings = loadAppSettings()
     const validateCertificates = settings.validateCertificates
     if (!validateCertificates) curlBase.push('--insecure')
-    if (settings.clientTlsIdentity?.certPem?.trim() && settings.clientTlsIdentity?.keyPem?.trim()) {
-      curlBase.push('--cert', bashQuote('/path/to/client-cert.pem'))
-      curlBase.push('--key', bashQuote('/path/to/client-key.pem'))
+    if (settings.clientTlsIdentity?.pkcs12Base64?.trim()) {
+      curlBase.push('--cert-type', 'P12')
+      curlBase.push('--cert', bashQuote(`/path/to/${settings.clientTlsIdentity.fileName || 'client-cert.p12'}:password`))
     }
   } catch (error) {
     logWarn('buildCurlCommand', 'Failed to read certificate validation settings', { error })

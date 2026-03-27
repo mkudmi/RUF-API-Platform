@@ -111,8 +111,8 @@ export async function platformFetch(
   opts?: {
     insecureTls?: boolean
     caCertsPem?: string[]
-    clientCertPem?: string
-    clientKeyPem?: string
+    clientPkcs12Base64?: string
+    clientPkcs12Password?: string
     timeoutMs?: number
   },
 ): Promise<Response> {
@@ -171,8 +171,8 @@ export async function platformFetch(
           timeoutMs: opts?.timeoutMs,
           insecureTls: !!opts?.insecureTls,
           caCertsPem: opts?.caCertsPem,
-          clientCertPem: opts?.clientCertPem,
-          clientKeyPem: opts?.clientKeyPem,
+          clientPkcs12Base64: opts?.clientPkcs12Base64,
+          clientPkcs12Password: opts?.clientPkcs12Password,
         },
       })
 

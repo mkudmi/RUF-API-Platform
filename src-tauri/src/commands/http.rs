@@ -32,10 +32,10 @@ pub struct HttpRequestArgs {
     pub insecure_tls: Option<bool>,
     #[serde(rename = "caCertsPem")]
     pub ca_certs_pem: Option<Vec<String>>,
-    #[serde(rename = "clientCertPem")]
-    pub client_cert_pem: Option<String>,
-    #[serde(rename = "clientKeyPem")]
-    pub client_key_pem: Option<String>,
+    #[serde(rename = "clientPkcs12Base64")]
+    pub client_pkcs12_base64: Option<String>,
+    #[serde(rename = "clientPkcs12Password")]
+    pub client_pkcs12_password: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,8 +140,11 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
 
         let timeout_ms = normalize_timeout_ms(args.timeout_ms);
         let insecure_tls = args.insecure_tls.unwrap_or(false);
+        let client_pkcs12_base64 = args.client_pkcs12_base64.unwrap_or_default();
+        let client_pkcs12_password = args.client_pkcs12_password.unwrap_or_default();
 
         let mut client_builder = reqwest::Client::builder()
+            .use_native_tls()
             .danger_accept_invalid_certs(insecure_tls)
             .danger_accept_invalid_hostnames(insecure_tls)
             .user_agent("ruf/0.1.0");
@@ -165,19 +168,15 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
             }
         }
 
-        let client_cert_pem = args.client_cert_pem.unwrap_or_default();
-        let client_key_pem = args.client_key_pem.unwrap_or_default();
-        if !client_cert_pem.trim().is_empty() || !client_key_pem.trim().is_empty() {
-            if client_cert_pem.trim().is_empty() || client_key_pem.trim().is_empty() {
-                return Err(HttpError::RequestFailed(
-                    "client TLS identity requires both certificate and private key".to_string(),
-                ));
-            }
-
-            let identity_pem = format!("{}\n{}", client_cert_pem.trim(), client_key_pem.trim());
-            let identity = reqwest::Identity::from_pem(identity_pem.as_bytes()).map_err(|e| {
-                HttpError::RequestFailed(format!("invalid client TLS identity: {e}"))
-            })?;
+        if !client_pkcs12_base64.trim().is_empty() {
+            let pkcs12_der = BASE64
+                .decode(client_pkcs12_base64.trim())
+                .map_err(|_| HttpError::RequestFailed("invalid client PKCS#12 base64".to_string()))?;
+            let identity =
+                reqwest::Identity::from_pkcs12_der(&pkcs12_der, &client_pkcs12_password)
+                    .map_err(|e| {
+                        HttpError::RequestFailed(format!("invalid client PKCS#12 identity: {e}"))
+                    })?;
             client_builder = client_builder.identity(identity);
         }
 

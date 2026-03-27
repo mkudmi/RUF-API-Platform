@@ -7,8 +7,8 @@ export async function loadSpecFromUrl(rawUrl: string): Promise<{ text: string; u
   const res = await platformFetch(url.toString(), undefined, {
     insecureTls: !validateCertificates,
     caCertsPem: (caCertificates || []).map(c => c.pem),
-    clientCertPem: clientTlsIdentity?.certPem,
-    clientKeyPem: clientTlsIdentity?.keyPem,
+    clientPkcs12Base64: clientTlsIdentity?.pkcs12Base64,
+    clientPkcs12Password: clientTlsIdentity?.password,
   })
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
   const text = await res.text()
