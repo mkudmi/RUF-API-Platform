@@ -1,6 +1,6 @@
 import type { Collection } from '../../modules/collectionTree'
 import type { RunResult } from '../../modules/requestRunner/runRequest'
-import type { CaCertificate } from '../../shared/utils/appSettings'
+import type { CaCertificate, ClientTlsIdentity } from '../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../../shared/types/environment'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
 import type { Workspace } from '../../shared/types/workspace'
@@ -8,6 +8,7 @@ import type { Workspace } from '../../shared/types/workspace'
 export type AppSettingsState = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
   requestTimeoutSec: number
   disableRequestTimeout: boolean
   globalSql: GlobalSqlConnectionSettings

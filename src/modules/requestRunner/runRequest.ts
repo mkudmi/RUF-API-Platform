@@ -111,6 +111,20 @@ function getCaCertsPem(): string[] {
   }
 }
 
+function getClientTlsIdentity(): { clientCertPem?: string; clientKeyPem?: string } {
+  try {
+    const identity = loadAppSettings().clientTlsIdentity
+    if (!identity?.certPem?.trim() || !identity?.keyPem?.trim()) return {}
+    return {
+      clientCertPem: identity.certPem,
+      clientKeyPem: identity.keyPem,
+    }
+  } catch (error) {
+    logWarn('getClientTlsIdentity', 'Failed to read client TLS identity from settings', { error })
+    return {}
+  }
+}
+
 function getRequestTimeoutMs(): number {
   try {
     const settings = loadAppSettings()
@@ -406,6 +420,7 @@ export async function runRequest(args: {
   if (typeof init.body === 'string') init.body = applyVariables(init.body, vars)
 
   const caCertsPem = getCaCertsPem()
+  const clientTlsIdentity = getClientTlsIdentity()
   const timeoutMs = getRequestTimeoutMs()
   const requestHeadersObj = headersInitToObject(init.headers)
   const requestHeadersBytes = estimateHeadersBytes(init.headers)
@@ -413,7 +428,12 @@ export async function runRequest(args: {
   const requestBytes = requestHeadersBytes + requestBodyBytes
   let res: Response
   try {
-    res = await platformFetch(url, init, { insecureTls: !validateCertificates, caCertsPem, timeoutMs })
+    res = await platformFetch(url, init, {
+      insecureTls: !validateCertificates,
+      caCertsPem,
+      timeoutMs,
+      ...clientTlsIdentity,
+    })
   } catch (e: any) {
     const timeMs = Math.round(performance.now() - start)
     if (e?.name === 'AbortError') {

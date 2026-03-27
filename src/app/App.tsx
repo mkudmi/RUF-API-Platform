@@ -7,7 +7,7 @@ import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
 import { parseJsonOrYaml } from '../modules/import/openapi/openapiLoader'
 import { EnvironmentSettings } from '../modules/environment'
-import { AddCaCertificateDialog, GeneralSettingsPanel } from '../modules/settings'
+import { AddCaCertificateDialog, EditClientTlsIdentityDialog, GeneralSettingsPanel } from '../modules/settings'
 import {
   buildDbConnectionString,
   getDbConnectionStringPreview,
@@ -51,7 +51,7 @@ import type {
 import { uid } from '../shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
-import { loadAppSettings, saveAppSettings, type CaCertificate } from '../shared/utils/appSettings'
+import { loadAppSettings, saveAppSettings, type CaCertificate, type ClientTlsIdentity } from '../shared/utils/appSettings'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -375,6 +375,7 @@ export default function App() {
 
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
   const caCertDialogRef = useRef<HTMLDialogElement | null>(null)
+  const clientTlsDialogRef = useRef<HTMLDialogElement | null>(null)
   const settingsTabsRef = useRef<HTMLDivElement | null>(null)
   const importOpenRef = useRef<{
     openMenu: () => void
@@ -392,9 +393,14 @@ export default function App() {
   const [disableRequestTimeout, setDisableRequestTimeout] = useState<boolean>(() => initialAppSettings.disableRequestTimeout)
   const [validateCertificates, setValidateCertificates] = useState<boolean>(() => initialAppSettings.validateCertificates)
   const [caCertificates, setCaCertificates] = useState<CaCertificate[]>(() => initialAppSettings.caCertificates)
+  const [clientTlsIdentity, setClientTlsIdentity] = useState<ClientTlsIdentity | null>(() => initialAppSettings.clientTlsIdentity)
   const [caCertInput, setCaCertInput] = useState('')
   const [caCertError, setCaCertError] = useState<string | null>(null)
   const [caCertBusy, setCaCertBusy] = useState(false)
+  const [clientTlsCertInput, setClientTlsCertInput] = useState(() => initialAppSettings.clientTlsIdentity?.certPem ?? '')
+  const [clientTlsKeyInput, setClientTlsKeyInput] = useState(() => initialAppSettings.clientTlsIdentity?.keyPem ?? '')
+  const [clientTlsError, setClientTlsError] = useState<string | null>(null)
+  const [clientTlsBusy, setClientTlsBusy] = useState(false)
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
     createInitialGlobalSqlConnections(
       initialAppSettings.globalSqlConnections ?? [],
@@ -650,6 +656,18 @@ export default function App() {
     caCertDialogRef.current?.close()
   }
 
+  function openClientTlsDialog() {
+    setClientTlsError(null)
+    setClientTlsCertInput(clientTlsIdentity?.certPem ?? '')
+    setClientTlsKeyInput(clientTlsIdentity?.keyPem ?? '')
+    clientTlsDialogRef.current?.showModal()
+  }
+
+  function closeClientTlsDialog() {
+    if (clientTlsBusy) return
+    clientTlsDialogRef.current?.close()
+  }
+
   function clearAppCache() {
     for (const key of APP_CACHE_KEYS) {
       localStorage.removeItem(key)
@@ -827,8 +845,41 @@ export default function App() {
     }
   }
 
+  async function saveClientTlsIdentityFromInput() {
+    setClientTlsError(null)
+    const certBlocks = extractPemCertificates(clientTlsCertInput)
+    if (!certBlocks.length) {
+      setClientTlsError('Paste a client certificate in PEM format (BEGIN CERTIFICATE / END CERTIFICATE).')
+      return
+    }
+
+    const keyPem = clientTlsKeyInput.trim()
+    if (!/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(keyPem) || !/-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(keyPem)) {
+      setClientTlsError('Paste a private key in PEM format.')
+      return
+    }
+
+    setClientTlsBusy(true)
+    try {
+      setClientTlsIdentity({
+        certPem: certBlocks.join('\n'),
+        keyPem,
+      })
+      clientTlsDialogRef.current?.close()
+    } finally {
+      setClientTlsBusy(false)
+    }
+  }
+
   function deleteCaCertificate(id: string) {
     setCaCertificates(prev => (prev || []).filter(c => c.id !== id))
+  }
+
+  function clearClientTlsIdentity() {
+    setClientTlsIdentity(null)
+    setClientTlsError(null)
+    setClientTlsCertInput('')
+    setClientTlsKeyInput('')
   }
 
   useEffect(() => {
@@ -837,10 +888,11 @@ export default function App() {
       disableRequestTimeout,
       validateCertificates,
       caCertificates,
+      clientTlsIdentity,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [caCertificates, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
+  }, [caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -1531,7 +1583,12 @@ export default function App() {
 
     try {
       const u = new URL(rawUrl)
-      const res = await platformFetch(u.toString(), undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificates.map(c => c.pem) })
+      const res = await platformFetch(u.toString(), undefined, {
+        insecureTls: !validateCertificates,
+        caCertsPem: caCertificates.map(c => c.pem),
+        clientCertPem: clientTlsIdentity?.certPem,
+        clientKeyPem: clientTlsIdentity?.keyPem,
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
       if (!text.trim()) throw new Error('Response is empty.')
@@ -3349,6 +3406,10 @@ export default function App() {
   const swaggerUiBaseCacheRef = useRef<Record<string, string>>({})
   const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
   const caCertificatesPem = useMemo(() => caCertificates.map(c => c.pem), [caCertificates])
+  const clientTlsFetchOpts = useMemo(() => ({
+    clientCertPem: clientTlsIdentity?.certPem,
+    clientKeyPem: clientTlsIdentity?.keyPem,
+  }), [clientTlsIdentity])
 
   async function detectSwaggerUiBase(candidates: string[], requestTimeoutMs = 2500) {
     for (const candidate of candidates) {
@@ -3356,6 +3417,7 @@ export default function App() {
         const res = await platformFetch(candidate, undefined, {
           insecureTls: !validateCertificates,
           caCertsPem: caCertificatesPem,
+          ...clientTlsFetchOpts,
           timeoutMs: requestTimeoutMs,
         })
         if (!res.ok) continue
@@ -3372,7 +3434,11 @@ export default function App() {
 
   async function resolveOperationIdFromSource(args: { sourceUrl: string; method: string; path: string }) {
     try {
-      const res = await platformFetch(args.sourceUrl, undefined, { insecureTls: !validateCertificates, caCertsPem: caCertificatesPem })
+      const res = await platformFetch(args.sourceUrl, undefined, {
+        insecureTls: !validateCertificates,
+        caCertsPem: caCertificatesPem,
+        ...clientTlsFetchOpts,
+      })
       if (!res.ok) return null
       const text = await res.text()
       const parsed = parseJsonOrYaml(text)
@@ -4225,6 +4291,18 @@ export default function App() {
           onSubmit={addCaCertificatesFromInput}
         />
 
+        <EditClientTlsIdentityDialog
+          dialogRef={clientTlsDialogRef}
+          certValue={clientTlsCertInput}
+          keyValue={clientTlsKeyInput}
+          onCertChange={setClientTlsCertInput}
+          onKeyChange={setClientTlsKeyInput}
+          error={clientTlsError}
+          busy={clientTlsBusy}
+          onClose={closeClientTlsDialog}
+          onSubmit={saveClientTlsIdentityFromInput}
+        />
+
         <dialog
           ref={settingsDialogRef}
           className="modal modalSmall modalSettings"
@@ -4257,7 +4335,10 @@ export default function App() {
               validateCertificates={validateCertificates}
               onValidateCertificatesChange={setValidateCertificates}
               caCertificates={caCertificates}
+              clientTlsIdentity={clientTlsIdentity}
               onOpenCaCertDialog={openCaCertDialog}
+              onOpenClientTlsDialog={openClientTlsDialog}
+              onClearClientTlsIdentity={clearClientTlsIdentity}
               onDeleteCaCertificate={deleteCaCertificate}
               cacheSizeLabel={formatMegabytes(cacheSizeBytes)}
               onClearAppCache={clearAppCache}

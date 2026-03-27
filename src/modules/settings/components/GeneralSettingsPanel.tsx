@@ -1,5 +1,5 @@
 import { BroomIcon, CloseIcon } from '../../../shared/icons'
-import type { CaCertificate } from '../../../shared/utils/appSettings'
+import type { CaCertificate, ClientTlsIdentity } from '../../../shared/utils/appSettings'
 
 type GeneralSettingsPanelProps = {
   requestTimeoutSec: number | null
@@ -9,7 +9,10 @@ type GeneralSettingsPanelProps = {
   validateCertificates: boolean
   onValidateCertificatesChange: (value: boolean) => void
   caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
   onOpenCaCertDialog: () => void
+  onOpenClientTlsDialog: () => void
+  onClearClientTlsIdentity: () => void
   onDeleteCaCertificate: (id: string) => void
   cacheSizeLabel: string
   onClearAppCache: () => void
@@ -109,6 +112,39 @@ export function GeneralSettingsPanel(props: GeneralSettingsPanelProps) {
             >
               +
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="settingsTableRow settingsCertsRow">
+        <div className="settingsTableLabel">Client TLS</div>
+        <div className="settingsTableValue settingsCertsCell">
+          <div className="settingsSplitRow" style={{ alignItems: 'center' }}>
+            <span className="small" style={{ opacity: 0.85 }}>
+              {props.clientTlsIdentity ? 'Client certificate and private key configured.' : 'No client TLS identity configured.'}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {props.clientTlsIdentity ? (
+                <button
+                  type="button"
+                  className="iconBtn"
+                  onClick={props.onClearClientTlsIdentity}
+                  aria-label="Clear client TLS identity"
+                  title="Clear client TLS identity"
+                >
+                  <CloseIcon size={14} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="terminalAddBtn"
+                onClick={props.onOpenClientTlsDialog}
+                aria-label={props.clientTlsIdentity ? 'Edit client TLS identity' : 'Add client TLS identity'}
+                title={props.clientTlsIdentity ? 'Edit client TLS identity' : 'Add client TLS identity'}
+              >
+                {props.clientTlsIdentity ? 'Edit' : '+'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -161,8 +161,13 @@ export function buildCurlCommand(args: {
   const parts: string[] = []
   const curlBase: string[] = ['curl']
   try {
-    const validateCertificates = loadAppSettings().validateCertificates
+    const settings = loadAppSettings()
+    const validateCertificates = settings.validateCertificates
     if (!validateCertificates) curlBase.push('--insecure')
+    if (settings.clientTlsIdentity?.certPem?.trim() && settings.clientTlsIdentity?.keyPem?.trim()) {
+      curlBase.push('--cert', bashQuote('/path/to/client-cert.pem'))
+      curlBase.push('--key', bashQuote('/path/to/client-key.pem'))
+    }
   } catch (error) {
     logWarn('buildCurlCommand', 'Failed to read certificate validation settings', { error })
   }

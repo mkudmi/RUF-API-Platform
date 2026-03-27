@@ -32,6 +32,10 @@ pub struct HttpRequestArgs {
     pub insecure_tls: Option<bool>,
     #[serde(rename = "caCertsPem")]
     pub ca_certs_pem: Option<Vec<String>>,
+    #[serde(rename = "clientCertPem")]
+    pub client_cert_pem: Option<String>,
+    #[serde(rename = "clientKeyPem")]
+    pub client_key_pem: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -159,6 +163,22 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
                     client_builder = client_builder.add_root_certificate(cert);
                 }
             }
+        }
+
+        let client_cert_pem = args.client_cert_pem.unwrap_or_default();
+        let client_key_pem = args.client_key_pem.unwrap_or_default();
+        if !client_cert_pem.trim().is_empty() || !client_key_pem.trim().is_empty() {
+            if client_cert_pem.trim().is_empty() || client_key_pem.trim().is_empty() {
+                return Err(HttpError::RequestFailed(
+                    "client TLS identity requires both certificate and private key".to_string(),
+                ));
+            }
+
+            let identity_pem = format!("{}\n{}", client_cert_pem.trim(), client_key_pem.trim());
+            let identity = reqwest::Identity::from_pem(identity_pem.as_bytes()).map_err(|e| {
+                HttpError::RequestFailed(format!("invalid client TLS identity: {e}"))
+            })?;
+            client_builder = client_builder.identity(identity);
         }
 
         let client = client_builder

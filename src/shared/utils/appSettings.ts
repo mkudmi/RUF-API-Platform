@@ -13,9 +13,15 @@ export type CaCertificate = {
   notAfter?: string
 }
 
+export type ClientTlsIdentity = {
+  certPem: string
+  keyPem: string
+}
+
 export type AppSettings = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
   requestTimeoutSec: number
   disableRequestTimeout: boolean
   globalSql: GlobalSqlConnectionSettings
@@ -25,6 +31,7 @@ export type AppSettings = {
 const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
   caCertificates: [],
+  clientTlsIdentity: null,
   requestTimeoutSec: 300,
   disableRequestTimeout: false,
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
@@ -70,6 +77,16 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       })
       .filter((x): x is CaCertificate => !!x)
     : DEFAULT_APP_SETTINGS.caCertificates
+
+  const rawClientTlsIdentity = rec.clientTlsIdentity
+  const clientTlsIdentity: ClientTlsIdentity | null = (() => {
+    if (!rawClientTlsIdentity || typeof rawClientTlsIdentity !== 'object') return null
+    const tlsRec = rawClientTlsIdentity as Record<string, unknown>
+    const certPem = typeof tlsRec.certPem === 'string' ? tlsRec.certPem.trim() : ''
+    const keyPem = typeof tlsRec.keyPem === 'string' ? tlsRec.keyPem.trim() : ''
+    if (!certPem || !keyPem) return null
+    return { certPem, keyPem }
+  })()
 
   const rawGlobalSql = rec.globalSql
   const baseSql = DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS
@@ -125,7 +142,15 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       .filter((x): x is GlobalSqlConnectionItem => !!x)
     : []
 
-  return { validateCertificates, caCertificates, requestTimeoutSec, disableRequestTimeout, globalSql, globalSqlConnections }
+  return {
+    validateCertificates,
+    caCertificates,
+    clientTlsIdentity,
+    requestTimeoutSec,
+    disableRequestTimeout,
+    globalSql,
+    globalSqlConnections,
+  }
 }
 
 export function saveAppSettings(settings: AppSettings, storage: Storage = localStorage) {
