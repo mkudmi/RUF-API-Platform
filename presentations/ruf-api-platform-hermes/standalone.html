@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruf API Platform — Engineering Terminal</title>
+<style>
+/* html-ppt :: shared webfonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@200;300;400;500;600;700;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,800;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap');
+
+</style>
+<style>
+/* html-ppt :: base.css — reset + shared tokens + layout primitives */
+/* Default tokens. Themes in assets/themes/*.css override the :root block. */
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f7f7f8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --border: rgba(0,0,0,.08);
+  --border-strong: rgba(0,0,0,.16);
+  --text-1: #111216;
+  --text-2: #55596a;
+  --text-3: #8a8f9e;
+  --accent: #3b6cff;
+  --accent-2: #7a5cff;
+  --accent-3: #ff5c8a;
+  --good: #1aaf6c;
+  --warn: #f5a524;
+  --bad:  #e0445a;
+  --grad: linear-gradient(135deg,#3b6cff,#7a5cff 55%,#ff5c8a);
+  --grad-soft: linear-gradient(135deg,#eef2ff,#f5ecff 55%,#ffeef5);
+  --radius: 18px;
+  --radius-sm: 12px;
+  --radius-lg: 26px;
+  --shadow: 0 10px 30px rgba(18,24,40,.08), 0 2px 6px rgba(18,24,40,.04);
+  --shadow-lg: 0 24px 60px rgba(18,24,40,.14), 0 6px 16px rgba(18,24,40,.06);
+  --font-sans: 'Inter','Noto Sans SC',-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;
+  --font-serif: 'Playfair Display','Noto Serif SC',Georgia,serif;
+  --font-mono: 'JetBrains Mono','IBM Plex Mono',SFMono-Regular,Menlo,monospace;
+  --font-display: var(--font-sans);
+  --letter-tight: -.03em;
+  --letter-normal: -.01em;
+  --ease: cubic-bezier(.4,0,.2,1);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text-1);
+  font-family:var(--font-sans);font-weight:400;line-height:1.6;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  letter-spacing:var(--letter-normal)}
+img,svg,video{max-width:100%;display:block}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+code,kbd,pre,samp{font-family:var(--font-mono)}
+
+/* ================= SLIDE SYSTEM ================= */
+.deck{position:relative;width:100vw;height:100vh;overflow:hidden;background:var(--bg)}
+.slide{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:72px 96px;
+  box-sizing:border-box;
+  opacity:0;pointer-events:none;
+  transition:opacity .5s var(--ease), transform .5s var(--ease);
+  transform:translateX(30px);
+  overflow:hidden;
+}
+.slide.is-active{opacity:1;pointer-events:auto;transform:translateX(0);z-index:2}
+.slide.is-prev{transform:translateX(-30px)}
+
+/* single-page standalone (used when a layout file is opened directly) */
+body.single .slide{position:relative;width:100vw;height:100vh;opacity:1;transform:none;pointer-events:auto}
+
+/* ================= TYPOGRAPHY ================= */
+.eyebrow{font-size:13px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3)}
+.kicker{font-size:14px;font-weight:600;color:var(--accent);letter-spacing:.08em;text-transform:uppercase}
+h1.title,.h1{font-family:var(--font-display);font-size:72px;line-height:1.05;font-weight:800;letter-spacing:var(--letter-tight);margin:0 0 18px;color:var(--text-1)}
+h2.title,.h2{font-family:var(--font-display);font-size:54px;line-height:1.1;font-weight:700;letter-spacing:var(--letter-tight);margin:0 0 14px}
+h3,.h3{font-size:32px;line-height:1.2;font-weight:600;letter-spacing:var(--letter-normal);margin:0 0 10px}
+h4,.h4{font-size:22px;line-height:1.3;font-weight:600;margin:0 0 8px}
+.lede{font-size:22px;line-height:1.55;color:var(--text-2);font-weight:300;max-width:62ch}
+.dim{color:var(--text-2)}
+.dim2{color:var(--text-3)}
+.mono{font-family:var(--font-mono)}
+.serif{font-family:var(--font-serif)}
+.gradient-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+
+/* ================= LAYOUT PRIMITIVES ================= */
+.stack>*+*{margin-top:14px}
+.row{display:flex;gap:24px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+.grid{display:grid;gap:24px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.center{display:flex;align-items:center;justify-content:center;text-align:center}
+.fill{flex:1}
+.sp-t{padding-top:24px}.sp-b{padding-bottom:24px}
+.mt-s{margin-top:8px}.mt-m{margin-top:18px}.mt-l{margin-top:32px}
+.mb-s{margin-bottom:8px}.mb-m{margin-bottom:18px}.mb-l{margin-bottom:32px}
+
+/* ================= CARDS ================= */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  padding:26px 28px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.card-soft{background:var(--surface-2);border:1px solid var(--border)}
+.card-outline{background:transparent;border:1.5px solid var(--border-strong);box-shadow:none}
+.card-accent{background:var(--surface);border-top:3px solid var(--accent)}
+.card-hover{transition:transform .3s var(--ease),box-shadow .3s var(--ease)}
+.card-hover:hover{transform:translateY(-4px);box-shadow:var(--shadow-lg)}
+
+.pill{display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:500;
+  background:var(--surface-2);color:var(--text-2);border:1px solid var(--border)}
+.pill-accent{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);border-color:color-mix(in srgb,var(--accent) 28%,transparent)}
+
+/* ================= BARS / DIVIDERS ================= */
+.divider{height:1px;background:var(--border);width:100%}
+.divider-accent{height:3px;width:72px;background:var(--accent);border-radius:2px}
+
+/* ================= CHROME (header/footer/progress) ================= */
+.deck-header{position:absolute;top:24px;left:40px;right:40px;display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;color:var(--text-3);letter-spacing:.12em;text-transform:uppercase;z-index:10;pointer-events:none}
+.deck-footer{position:absolute;bottom:24px;left:40px;right:40px;display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;color:var(--text-3);z-index:10;pointer-events:none}
+.slide-number::before{content:attr(data-current)}
+.slide-number::after{content:" / " attr(data-total)}
+.progress-bar{position:fixed;left:0;right:0;bottom:0;height:3px;background:transparent;z-index:20}
+.progress-bar > span{display:block;height:100%;width:0;background:var(--accent);transition:width .3s var(--ease)}
+
+/* ================= PRESENTER / OVERVIEW ================= */
+.notes{display:none!important}
+.notes-overlay{position:fixed;inset:auto 0 0 0;max-height:42vh;background:rgba(20,22,30,.95);color:#e8ebf4;
+  padding:20px 32px;font-size:16px;line-height:1.6;border-top:1px solid rgba(255,255,255,.1);transform:translateY(100%);
+  transition:transform .3s var(--ease);z-index:40;overflow:auto;font-family:var(--font-sans)}
+.notes-overlay.open{transform:translateY(0)}
+.overview{position:fixed;inset:0;background:rgba(10,12,18,.92);backdrop-filter:blur(12px);z-index:50;
+  display:none;padding:40px;overflow:auto}
+.overview.open{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;align-content:start}
+.overview .thumb{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  aspect-ratio:16/9;overflow:hidden;cursor:pointer;position:relative;color:var(--text-1);padding:16px;
+  font-size:11px;transition:transform .2s var(--ease)}
+.overview .thumb:hover{transform:scale(1.04)}
+.overview .thumb .n{position:absolute;top:8px;left:10px;font-weight:700;font-size:14px;color:var(--text-3)}
+.overview .thumb .t{position:absolute;bottom:10px;left:14px;right:14px;font-weight:600;color:var(--text-1)}
+
+/* ================= PRESENTER VIEW ================= */
+/* Presenter view opens in a separate popup window (S key).
+ * All presenter styles are self-contained in the popup HTML generated by runtime.js.
+ * The audience window (this file) is NOT affected — it stays as normal deck view.
+ * Only the .notes class below is needed to hide speaker notes from audience. */
+
+/* ================= UTILITY ================= */
+.hidden{display:none!important}
+.nowrap{white-space:nowrap}
+.tr{text-align:right}.tc{text-align:center}.tl{text-align:left}
+.uppercase{text-transform:uppercase;letter-spacing:.12em}
+
+/* ================= PRINT ================= */
+@media print{
+  .slide{position:relative;opacity:1!important;transform:none!important;page-break-after:always;height:100vh}
+  .deck-header,.deck-footer,.progress-bar,.notes-overlay,.overview{display:none!important}
+}
+
+</style>
+<style>
+/* hermes-cyber-terminal — 暗终端 + 霓虹绿青 + 扫描线 */
+.tpl-hermes-cyber-terminal{
+  --hc-bg:#0a0c10;
+  --hc-bg2:#15151b;
+  --hc-surface:#12141a;
+  --hc-border:rgba(126,211,164,.18);
+  --hc-ink:#e4e2d8;
+  --hc-ink2:#8a8892;
+  --hc-green:#7ed3a4;
+  --hc-cyan:#64dfdf;
+  --hc-amber:#e9c58a;
+  --hc-rose:#d4a0b9;
+  --hc-red:#ff6b6b;
+  background:var(--hc-bg);
+  color:var(--hc-ink);
+  font-family:'JetBrains Mono','SF Mono','Inter','Noto Sans SC',monospace;
+}
+.tpl-hermes-cyber-terminal .slide{background:var(--hc-bg);color:var(--hc-ink);padding:60px 84px;overflow:hidden}
+.tpl-hermes-cyber-terminal .hc-scanlines{position:absolute;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(180deg,transparent 0,transparent 3px,rgba(126,211,164,.025) 3px,rgba(126,211,164,.025) 4px);mix-blend-mode:screen}
+.tpl-hermes-cyber-terminal .hc-grid{position:absolute;inset:0;pointer-events:none;opacity:.35;background-image:linear-gradient(rgba(126,211,164,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(126,211,164,.08) 1px,transparent 1px);background-size:56px 56px;mask-image:radial-gradient(ellipse at 50% 50%,black 30%,transparent 80%)}
+.tpl-hermes-cyber-terminal .hc-vignette{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 50%,rgba(0,0,0,.6) 100%)}
+.tpl-hermes-cyber-terminal .slide > *{position:relative;z-index:2}
+.tpl-hermes-cyber-terminal .hc-chrome{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;font-size:11px;color:var(--hc-ink2);letter-spacing:.18em;text-transform:uppercase}
+.tpl-hermes-cyber-terminal .hc-chrome .dots{display:flex;gap:8px}
+.tpl-hermes-cyber-terminal .hc-chrome .dots span{width:11px;height:11px;border-radius:50%;background:#2a2d33}
+.tpl-hermes-cyber-terminal .hc-chrome .dots span:nth-child(1){background:#ff5f57}
+.tpl-hermes-cyber-terminal .hc-chrome .dots span:nth-child(2){background:#febc2e}
+.tpl-hermes-cyber-terminal .hc-chrome .dots span:nth-child(3){background:var(--hc-green)}
+.tpl-hermes-cyber-terminal .hc-prompt{color:var(--hc-green);font-weight:500}
+.tpl-hermes-cyber-terminal .hc-prompt::before{content:'$ ';color:var(--hc-cyan)}
+.tpl-hermes-cyber-terminal .hc-h1{font-family:'JetBrains Mono',monospace;font-size:72px;font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--hc-green);text-shadow:0 0 30px rgba(126,211,164,.35),0 0 60px rgba(126,211,164,.1);margin:14px 0 12px}
+.tpl-hermes-cyber-terminal .hc-h2{font-size:46px;font-weight:600;color:var(--hc-ink);margin:0 0 10px;letter-spacing:-.015em}
+.tpl-hermes-cyber-terminal .hc-h3{font-size:22px;font-weight:600;color:var(--hc-amber);margin:0 0 10px}
+.tpl-hermes-cyber-terminal .hc-lede{font-size:18px;line-height:1.7;color:var(--hc-ink2);max-width:780px;font-family:'Inter','Noto Sans SC',sans-serif}
+.tpl-hermes-cyber-terminal .hc-cursor{display:inline-block;width:12px;height:1em;background:var(--hc-green);vertical-align:middle;margin-left:6px;animation:hcBlink 1s steps(2) infinite}
+@keyframes hcBlink{50%{opacity:0}}
+.tpl-hermes-cyber-terminal .hc-card{background:var(--hc-surface);border:1px solid var(--hc-border);border-radius:10px;padding:20px 24px;position:relative}
+.tpl-hermes-cyber-terminal .hc-card::before{content:'';position:absolute;top:-1px;left:12px;right:12px;height:2px;background:linear-gradient(90deg,transparent,var(--hc-green),transparent)}
+.tpl-hermes-cyber-terminal .hc-card .lbl{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--hc-ink2);margin-bottom:8px}
+.tpl-hermes-cyber-terminal .hc-card .val{font-size:22px;font-weight:700;color:var(--hc-green);font-family:'JetBrains Mono',monospace}
+.tpl-hermes-cyber-terminal .hc-card .desc{font-size:13px;color:var(--hc-ink2);margin-top:10px;line-height:1.55;font-family:'Inter',sans-serif}
+.tpl-hermes-cyber-terminal .hc-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:24px}
+.tpl-hermes-cyber-terminal .hc-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:24px}
+.tpl-hermes-cyber-terminal .hc-codebox{background:#0c0d12;border:1px solid var(--hc-border);border-radius:10px;padding:22px 26px;font-family:'JetBrains Mono',monospace;font-size:14px;line-height:1.85;color:#d8d4c8;box-shadow:inset 0 0 60px rgba(126,211,164,.04)}
+.tpl-hermes-cyber-terminal .hc-codebox .cm{color:#5a6068}
+.tpl-hermes-cyber-terminal .hc-codebox .kw{color:var(--hc-amber)}
+.tpl-hermes-cyber-terminal .hc-codebox .st{color:var(--hc-green)}
+.tpl-hermes-cyber-terminal .hc-codebox .fn{color:var(--hc-cyan)}
+.tpl-hermes-cyber-terminal .hc-codebox .var{color:var(--hc-rose)}
+.tpl-hermes-cyber-terminal .hc-codebox .hl{color:#fff;background:rgba(126,211,164,.15);padding:0 4px;border-radius:3px}
+.tpl-hermes-cyber-terminal .hc-tag{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 10px;border:1px solid var(--hc-border);border-radius:4px;color:var(--hc-green);background:rgba(126,211,164,.04);margin:2px 6px 2px 0;text-transform:uppercase;letter-spacing:.1em}
+.tpl-hermes-cyber-terminal .hc-tag.amber{color:var(--hc-amber);border-color:rgba(233,197,138,.2);background:rgba(233,197,138,.04)}
+.tpl-hermes-cyber-terminal .hc-tag.red{color:var(--hc-red);border-color:rgba(255,107,107,.25);background:rgba(255,107,107,.05)}
+.tpl-hermes-cyber-terminal .hc-big{font-family:'JetBrains Mono',monospace;font-size:140px;font-weight:700;line-height:1;color:var(--hc-green);text-shadow:0 0 40px rgba(126,211,164,.4),0 0 80px rgba(126,211,164,.15);letter-spacing:-.04em}
+.tpl-hermes-cyber-terminal .hc-footer{position:absolute;left:84px;right:84px;bottom:32px;display:flex;justify-content:space-between;font-size:10px;color:var(--hc-ink2);letter-spacing:.2em;text-transform:uppercase;border-top:1px solid rgba(126,211,164,.1);padding-top:14px}
+
+</style>
+<style>
+  .tpl-hermes-cyber-terminal .slide {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-stack {
+    display: grid;
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 10px;
+    font-family: "Inter", "Noto Sans SC", sans-serif;
+    color: var(--hc-ink2);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-list li::before {
+    content: "> ";
+    color: var(--hc-green);
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-split {
+    display: grid;
+    grid-template-columns: 1.15fr .85fr;
+    gap: 20px;
+    margin-top: 24px;
+    align-items: start;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 24px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-mini {
+    font-size: 12px;
+    color: var(--hc-ink2);
+    line-height: 1.6;
+    font-family: "Inter", sans-serif;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-quote {
+    border-left: 2px solid var(--hc-green);
+    padding-left: 18px;
+    margin-top: 20px;
+    max-width: 900px;
+    color: var(--hc-ink);
+    font-size: 24px;
+    line-height: 1.5;
+    font-family: "Inter", sans-serif;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-kpi-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 22px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-kpi {
+    background: rgba(126, 211, 164, .04);
+    border: 1px solid var(--hc-border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-kpi b {
+    display: block;
+    color: var(--hc-green);
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-kpi span {
+    font-size: 13px;
+    color: var(--hc-ink2);
+    font-family: "Inter", sans-serif;
+    line-height: 1.5;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-steps {
+    display: grid;
+    gap: 12px;
+    margin-top: 20px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-step {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 14px;
+    align-items: start;
+    border: 1px solid var(--hc-border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    background: rgba(18, 20, 26, .92);
+  }
+
+  .tpl-hermes-cyber-terminal .hc-step .key {
+    color: var(--hc-amber);
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-step .text {
+    color: var(--hc-ink);
+    font-size: 15px;
+    line-height: 1.55;
+    font-family: "Inter", sans-serif;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-2col-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px 24px;
+    margin-top: 22px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-2col-list .hc-card {
+    min-height: 168px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-small-code {
+    font-size: 13px;
+    line-height: 1.75;
+    margin-top: 16px;
+  }
+
+  .tpl-hermes-cyber-terminal .hc-footnote {
+    margin-top: 16px;
+    color: var(--hc-ink2);
+    font-size: 12px;
+    line-height: 1.6;
+    font-family: "Inter", sans-serif;
+  }
+</style>
+</head>
+<body class="tpl-hermes-cyber-terminal">
+<div class="deck">
+
+  <section class="slide is-active">
+    <div class="hc-grid"></div>
+    <div class="hc-vignette"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>~/ruf-api-platform · desktop · 11 slides</div></div>
+    <div style="margin:auto 0">
+      <p class="hc-prompt">whoami --ruf</p>
+      <h1 class="hc-h1">RUF API PLATFORM<br>IS NOT JUST AN API CLIENT<span class="hc-cursor"></span></h1>
+      <p class="hc-lede">Это внутренний инженерный терминал для API, SQL, тестов, моков и сопутствующих действий. Один desktop workspace вместо набора разрозненных инструментов.</p>
+      <div style="margin-top:26px">
+        <span class="hc-tag">desktop</span>
+        <span class="hc-tag">local-first</span>
+        <span class="hc-tag amber">qa-workflow</span>
+        <span class="hc-tag amber">sql-terminal</span>
+        <span class="hc-tag red">vibe-coded-fast</span>
+      </div>
+    </div>
+    <div class="notes">Открывающий тезис простой: мы показываем не еще один клиент для отправки HTTP-запросов. Мы показываем платформу, которая собирает типичный рабочий цикл инженера и QA в одном интерфейсе. Важно сразу обозначить и происхождение проекта: он был быстро навайбкожен, но это не минус, а подтверждение того, что боль реальна и решение можно быстро довести до полезного продукта.</div>
+    <div class="hc-footer"><span>ruf vision</span><span>01 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>problem · fragmented workflow</div></div>
+    <p class="hc-prompt">cat current-pain.md</p>
+    <h2 class="hc-h2">Почему вообще нужен такой продукт</h2>
+    <p class="hc-lede">Сегодня тестирование и отладка интеграций редко живут в одном окне. Обычный сценарий распадается на 4–6 инструментов и постоянное переключение контекста.</p>
+    <div class="hc-grid-4">
+      <div class="hc-card"><div class="lbl">api client</div><div class="val">Postman / Insomnia</div><div class="desc">Отправили запрос, посмотрели ответ, но дальше уже нужен другой стек.</div></div>
+      <div class="hc-card"><div class="lbl">db check</div><div class="val">DBeaver / DataGrip</div><div class="desc">Проверка данных, SQL post-check, ручная валидация состояния системы.</div></div>
+      <div class="hc-card"><div class="lbl">shell work</div><div class="val">Terminal</div><div class="desc">curl, git, proxy, сертификаты, локальные скрипты, системные проверки.</div></div>
+      <div class="hc-card"><div class="lbl">qa evidence</div><div class="val">Zephyr / Test Culture</div><div class="desc">Ручное оформление кейсов, прогонов, результатов и release-артефактов.</div></div>
+    </div>
+    <div class="hc-quote">Ruf закрывает не только отправку запроса, а весь короткий инженерный цикл вокруг него.</div>
+    <div class="notes">Здесь стоит заземлить разговор в реальной боли команды. Не спорим с тем, что Postman и Insomnia умеют отправлять запросы. Проблема в другом: наш рабочий процесс шире одного запроса. После ответа почти всегда идут SQL-проверка, терминальная команда, моки, тестовые данные и ручная фиксация результата. Именно на этом проект и строится.</div>
+    <div class="hc-footer"><span>problem statement</span><span>02 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>state · already shipped</div></div>
+    <h2 class="hc-h2">Что уже есть в проекте</h2>
+    <p class="hc-lede">Даже в текущем виде это уже цельный workspace: импорт, запуск, анализ, SQL, terminal, моки и data-driven сценарии.</p>
+    <div class="hc-grid-3">
+      <div class="hc-card"><div class="lbl">import</div><div class="val">OpenAPI / Postman / Insomnia / WSDL</div><div class="desc">Импорт из файла, текста, URL и drag-and-drop. Есть свой формат `.rufcollection`.</div></div>
+      <div class="hc-card"><div class="lbl">request editor</div><div class="val">HTTP + auth + files</div><div class="desc">Метод, URL, headers, body, auth, multipart, переменные окружения и cURL generation.</div></div>
+      <div class="hc-card"><div class="lbl">response analysis</div><div class="val">history + search + schema</div><div class="desc">Просмотр body/headers/history, поиск, JSON Schema generation и работа с JSON-path подобным поиском.</div></div>
+    </div>
+    <div class="hc-grid-3">
+      <div class="hc-card"><div class="lbl">sql workflow</div><div class="val">SQL pre/post + terminal</div><div class="desc">Скрипты на уровне запроса и отдельный SQL Terminal для PostgreSQL/MySQL.</div></div>
+      <div class="hc-card"><div class="lbl">engineering tools</div><div class="val">built-in terminal + mock server</div><div class="desc">Командный терминал внутри app и локальный mock server для controlled scenarios.</div></div>
+      <div class="hc-card"><div class="lbl">test flow</div><div class="val">data-driven + collection runner</div><div class="desc">Прогон коллекций, история запусков, JSON/CSV datasets, runtime для тестовых assertions.</div></div>
+    </div>
+    <div class="notes">На этом слайде лучше опираться на реальные фичи из README и кода, чтобы презентация звучала честно. Важно показать, что это уже не концепт на бумаге. В проекте реально есть импорт из популярных форматов, SQL terminal, встроенный shell, mock server, collection runner и data-driven отчеты. То есть фундамент платформы уже собран.</div>
+    <div class="hc-footer"><span>existing scope</span><span>03 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>positioning · client vs terminal</div></div>
+    <p class="hc-prompt">diff api-client terminal-platform</p>
+    <h2 class="hc-h2">Это больше, чем API client для тестирования</h2>
+    <div class="hc-vs">
+      <div class="hc-card">
+        <div class="lbl">classic api client</div>
+        <div class="val" style="font-size:20px">отправить запрос</div>
+        <ul class="hc-list" style="margin-top:14px">
+          <li>Коллекции и ручной запуск endpoint-ов</li>
+          <li>Базовая работа с auth, headers и body</li>
+          <li>Ответ как конечная точка сценария</li>
+          <li>Остальные шаги живут во внешних инструментах</li>
+        </ul>
+      </div>
+      <div class="hc-card">
+        <div class="lbl">// ruf engineering terminal</div>
+        <div class="val" style="font-size:20px;color:var(--hc-green)">полный инженерный цикл</div>
+        <ul class="hc-list" style="margin-top:14px">
+          <li>Запрос как вход в workflow, а не финальная цель</li>
+          <li>SQL-проверки, shell-команды, моки и тесты рядом</li>
+          <li>Локальные данные и desktop execution без лишней SaaS-логистики</li>
+          <li>Платформа, куда можно встраивать AI и automation поверх реальных задач</li>
+        </ul>
+      </div>
+    </div>
+    <div class="hc-kpi-row">
+      <div class="hc-kpi"><b>1 окно</b><span>Меньше переключений между API client, SQL client и shell.</span></div>
+      <div class="hc-kpi"><b>1 контекст</b><span>Окружения, запросы, проверка данных и история запусков рядом.</span></div>
+      <div class="hc-kpi"><b>1 платформа</b><span>Поверх этого уже можно строить AI-помощников и QA-автоматизацию.</span></div>
+    </div>
+    <div class="notes">Это ключевой позиционирующий слайд. Хорошая формулировка для устной подачи: Postman и Insomnia решают задачу “как отправить запрос”, а Ruf решает задачу “как пройти инженерный сценарий вокруг запроса”. Именно это делает проект платформой, а не просто очередным клиентом.</div>
+    <div class="hc-footer"><span>positioning</span><span>04 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>comparison · postman / insomnia</div></div>
+    <h2 class="hc-h2">Почему нам это может быть выгоднее Postman и Insomnia</h2>
+    <div class="hc-2col-list">
+      <div class="hc-card"><div class="lbl">workflow fit</div><div class="val">заточено под наш сценарий</div><div class="desc">Фокус не на универсальном marketplace, а на ежедневной связке API + SQL + shell + QA-проверка.</div></div>
+      <div class="hc-card"><div class="lbl">desktop local-first</div><div class="val">данные ближе к инженеру</div><div class="desc">Меньше завязки на облачные артефакты, проще контролировать локальные окружения и чувствительные данные.</div></div>
+      <div class="hc-card"><div class="lbl">built-in sql terminal</div><div class="val">меньше tool switching</div><div class="desc">Проверка БД встроена в рабочий поток, а не вынесена в соседнее приложение.</div></div>
+      <div class="hc-card"><div class="lbl">built-in command terminal</div><div class="val">операции рядом с API</div><div class="desc">curl, git, cert, proxy и локальные скрипты доступны там же, где запускается запрос.</div></div>
+      <div class="hc-card"><div class="lbl">qa-specific growth</div><div class="val">есть куда эволюционировать</div><div class="desc">Можно растить продукт в сторону тест-кейсов, release cycles, evidence capture и AI-помощников.</div></div>
+      <div class="hc-card"><div class="lbl">speed of change</div><div class="val">мы сами задаем roadmap</div><div class="desc">Не ждем чужой product strategy. Если команде нужна функция, мы можем быстро довести ее до продакшн-пользы.</div></div>
+    </div>
+    <div class="hc-footnote">Важно: это не означает “заменить Postman/Insomnia для всех и сразу”. Это означает “дать нашей команде инструмент, лучше попадающий в наши реальные процессы”.</div>
+    <div class="notes">Здесь полезно не скатываться в лозунг “мы лучше всех вообще”. Лучше говорить точнее: для нашей внутренней инженерной работы Ruf потенциально выгоднее, потому что он лучше попадает в наш рабочий контекст. Это взрослая и убедительная позиция, особенно для команды.</div>
+    <div class="hc-footer"><span>advantages</span><span>05 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>workflow trace · demo path</div></div>
+    <p class="hc-prompt">ruf run integration-check --trace</p>
+    <h2 class="hc-h2">Как выглядит сценарий в одном workspace</h2>
+    <pre class="hc-codebox hc-small-code"><span class="cm"># пример типового инженерного потока</span>
+[<span class="fn">import</span>]    OpenAPI / Postman / WSDL  <span class="cm"># занесли API в workspace</span>
+[<span class="fn">edit</span>]      request + env + auth      <span class="cm"># настроили контекст</span>
+[<span class="fn">run</span>]       endpoint                   <span class="st">200 OK</span>
+[<span class="fn">inspect</span>]   response body / headers    <span class="cm"># быстрый разбор ответа</span>
+[<span class="fn">verify</span>]    SQL post-check             <span class="cm"># подтверждаем состояние БД</span>
+[<span class="fn">exec</span>]      terminal command            <span class="cm"># curl / git / local script</span>
+[<span class="fn">mock</span>]      local route override        <span class="cm"># воспроизводим edge-case</span>
+[<span class="fn">rerun</span>]     collection / dataset         <span class="cm"># прогон по JSON/CSV</span>
+[<span class="fn">review</span>]    history + test output        <span class="cm"># собираем evidence</span></pre>
+    <div class="hc-quote">Главная ценность не в отдельной фиче, а в том, что эти шаги живут рядом и проходят быстрее.</div>
+    <div class="notes">Этот слайд хорошо работает как “живой walkthrough без живого демо”. Он переводит набор фич в последовательность действий. Слушателю становится понятнее, зачем в одном продукте и terminal, и SQL, и mock server, и data-driven runs. Все это части одного процесса, а не лишние модули.</div>
+    <div class="hc-footer"><span>workflow</span><span>06 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>why now · product thesis</div></div>
+    <h2 class="hc-h2">Почему проект имеет место быть уже сейчас</h2>
+    <div class="hc-split">
+      <div>
+        <div class="hc-stack">
+          <div class="hc-card"><div class="lbl">pain is real</div><div class="desc">Проект закрывает реальный внутренний разрыв между API-клиентом, SQL-проверкой, shell-задачами и ручной QA-фиксацией.</div></div>
+          <div class="hc-card"><div class="lbl">speed validates demand</div><div class="desc">То, что он был быстро навайбкожен, не обесценивает его. Наоборот: за короткий срок удалось собрать работающий слой поверх живой боли команды.</div></div>
+          <div class="hc-card"><div class="lbl">platform potential</div><div class="desc">Основа уже достаточно широкая, чтобы развиваться в сторону AI-помощников и автоматизации ручных процессов, а не только в “еще один таб с запросом”.</div></div>
+        </div>
+      </div>
+      <div>
+        <div class="hc-big" style="font-size:96px">FAST</div>
+        <p class="hc-lede" style="margin-top:10px">Быстро сделан не значит “временный”. В данном случае это скорее признак высокой скорости проверки гипотезы и хорошей инженерной пластичности.</p>
+        <div style="margin-top:20px">
+          <span class="hc-tag">useful-now</span>
+          <span class="hc-tag amber">cheap-to-iterate</span>
+          <span class="hc-tag">team-owned</span>
+        </div>
+      </div>
+    </div>
+    <div class="notes">Это важный политический слайд. Здесь мы заранее снимаем возможный скепсис вокруг “навайбкоженности”. Подача должна быть такой: да, проект вырос быстро, но именно это и показывает, что мы нашли правильный объект автоматизации. Теперь задача не оправдываться, а осмысленно превратить быстрый прототип в внутреннюю платформу.</div>
+    <div class="hc-footer"><span>why it matters</span><span>07 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>roadmap · ai layer</div></div>
+    <p class="hc-prompt">cat roadmap/ai.txt</p>
+    <h2 class="hc-h2">Планы по внедрению AI</h2>
+    <div class="hc-grid-3">
+      <div class="hc-card"><div class="lbl">01</div><div class="val">SQL assistant</div><div class="desc">Помощник в составлении SQL-запросов, проверок и post-check сценариев по описанию кейса.</div></div>
+      <div class="hc-card"><div class="lbl">02</div><div class="val">Test case assistant</div><div class="desc">Генерация тест-кейсов, чек-листов и негативных сценариев по endpoint-у, OpenAPI или истории запусков.</div></div>
+      <div class="hc-card"><div class="lbl">03</div><div class="val">Confluence MCP</div><div class="desc">Интеграция с Confluence через MCP server: подтягивать требования, договоренности, схемы и контекст прямо в рабочий процесс.</div></div>
+    </div>
+    <div class="hc-grid-2">
+      <div class="hc-card"><div class="lbl">04</div><div class="val">Failure analysis assistant</div><div class="desc">Разбор неуспешных прогонов: что сломалось, что проверить в БД, какие гипотезы и следующие шаги предложить инженеру/QA.</div></div>
+      <div class="hc-card"><div class="lbl">05</div><div class="val">Assertions & test-data copilot</div><div class="desc">Подсказки по assertions, synthetic test data, связям между запросами и построению сценариев на базе реального ответа.</div></div>
+    </div>
+    <div class="notes">AI здесь логично строить не как отдельный чат ради чата, а как слой помощи внутри уже существующих действий. Это делает roadmap убедительнее. Мы не говорим “добавим AI потому что надо”. Мы говорим: AI уменьшит ручную рутину в SQL, тест-дизайне, анализе падений и работе с требованиями из Confluence.</div>
+    <div class="hc-footer"><span>ai roadmap</span><span>08 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>roadmap · manual automation</div></div>
+    <h2 class="hc-h2">Планы по автоматизации ручного процесса</h2>
+    <div class="hc-steps">
+      <div class="hc-step"><div class="key">01 capture</div><div class="text">Сессия записи кейсов в Zephyr / Test Culture: фиксировать шаги, запросы, ответы и ожидаемые проверки прямо по ходу ручного прогона.</div></div>
+      <div class="hc-step"><div class="key">02 release</div><div class="text">Интеграция с Zephyr / Test Culture для прогона release cycles: запускать наборы сценариев и автоматически публиковать результаты.</div></div>
+      <div class="hc-step"><div class="key">03 evidence</div><div class="text">Автосбор evidence pack: response snapshots, SQL verification, terminal output и статус-карточка по каждому кейсу без ручного копипаста.</div></div>
+      <div class="hc-step"><div class="key">04 reporting</div><div class="text">Автогенерация release readiness summary: что пройдено, что упало, какие есть риски и какие сценарии еще не покрыты.</div></div>
+      <div class="hc-step"><div class="key">05 traceability</div><div class="text">Связка требований, коллекций, тест-кейсов и прогонов в одну цепочку, чтобы меньше терять контекст между аналитикой, QA и релизом.</div></div>
+    </div>
+    <div class="notes">На этом слайде хорошо показать, что автоматизация ручного процесса для нас не абстракция. Есть очень конкретные точки боли: запись кейсов, оформление результатов, release cycles, сбор evidence и прослеживаемость. Если Ruf уже контролирует запрос, ответ, SQL и shell-контекст, то он естественно становится центром такой автоматизации.</div>
+    <div class="hc-footer"><span>manual automation</span><span>09 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>rollout · next 2-3 stages</div></div>
+    <h2 class="hc-h2">Как это можно развивать по этапам</h2>
+    <div class="hc-grid-2">
+      <div class="hc-card">
+        <div class="lbl">stage 1</div>
+        <div class="val">stabilize core</div>
+        <div class="desc">Довести UX базового workspace: коллекции, окружения, SQL/terminal flow, runner, импорт/экспорт, надежность локального хранения.</div>
+      </div>
+      <div class="hc-card">
+        <div class="lbl">stage 2</div>
+        <div class="val">team adoption</div>
+        <div class="desc">Выделить 2–3 реальных сценария команды: интеграционный smoke, DB verification flow, release checklist execution.</div>
+      </div>
+      <div class="hc-card">
+        <div class="lbl">stage 3</div>
+        <div class="val">add ai</div>
+        <div class="desc">Подключать AI там, где уже есть данные и понятный контекст: SQL, test cases, failure analysis, Confluence knowledge.</div>
+      </div>
+      <div class="hc-card">
+        <div class="lbl">stage 4</div>
+        <div class="val">automate release work</div>
+        <div class="desc">Интегрировать test management и сделать полуавтоматический / автоматический прогон релизных циклов и артефактов.</div>
+      </div>
+    </div>
+    <div class="hc-kpi-row">
+      <div class="hc-kpi"><b>-30%</b><span>целевой выигрыш по времени на ручной интеграционный сценарий</span></div>
+      <div class="hc-kpi"><b>fewer hops</b><span>снижение переключений между приложениями и вкладками</span></div>
+      <div class="hc-kpi"><b>more reuse</b><span>повторное использование сценариев, данных и evidence между командами</span></div>
+    </div>
+    <div class="notes">Здесь мы переводим идею в управляемый roadmap. Сначала стабилизируем ядро, потом закрепляемся на реальных сценариях команды, затем усиливаем AI и автоматизацией релизного процесса. Такой порядок важен: сначала полезный workflow, потом интеллектуальные надстройки, а не наоборот.</div>
+    <div class="hc-footer"><span>rollout plan</span><span>10 / 11</span></div>
+  </section>
+
+  <section class="slide">
+    <div class="hc-grid"></div>
+    <div class="hc-scanlines"></div>
+    <div class="hc-chrome"><div class="dots"><span></span><span></span><span></span></div><div>EOF · final thesis</div></div>
+    <div style="margin:auto 0">
+      <p class="hc-prompt">echo $THESIS</p>
+      <h1 class="hc-h1" style="font-size:92px">RUF CAN BECOME<br>OUR QA / API TERMINAL<span class="hc-cursor"></span></h1>
+      <p class="hc-lede">У проекта уже есть практическая основа. Его ценность в том, что он собирает инженерный workflow в одном месте, а дальше может стать площадкой для AI и автоматизации релизных процессов.</p>
+      <div style="margin-top:26px">
+        <span class="hc-tag">usable-now</span>
+        <span class="hc-tag amber">worth-investing</span>
+        <span class="hc-tag">team-platform</span>
+      </div>
+      <div class="hc-quote">Не просто “отправить запрос”, а сократить путь от гипотезы до проверенного результата.</div>
+    </div>
+    <div class="notes">Финал лучше завершить на одной четкой мысли. Ruf ценен не как попытка догнать крупные API-клиенты по всем функциям, а как внутренний терминал под наш реальный workflow. За счет этого он уже имеет смысл, а с AI и automation слоями может стать заметно сильнее.</div>
+    <div class="hc-footer"><span>session closed</span><span>11 / 11</span></div>
+  </section>
+
+</div>
+<script>
+/* html-ppt :: runtime.js
+ * Keyboard-driven deck runtime. Zero dependencies.
+ *
+ * Features:
+ *   ← → / space / PgUp PgDn / Home End  navigation
+ *   F  fullscreen
+ *   S  presenter mode (opens a NEW WINDOW with current/next slide preview + notes + timer)
+ *       The original window stays as audience view, synced via BroadcastChannel.
+ *       Slide previews use CSS transform:scale() at design resolution for pixel-perfect layout.
+ *   N  quick notes overlay (bottom drawer)
+ *   O  slide overview grid
+ *   T  cycle themes (reads data-themes on <html> or <body>)
+ *   A  cycle demo animation on current slide
+ *   URL hash #/N  deep-link to slide N (1-based)
+ *   Progress bar auto-managed
+ */
+(function () {
+  'use strict';
+
+  const ANIMS = ['fade-up','fade-down','fade-left','fade-right','rise-in','drop-in',
+    'zoom-pop','blur-in','glitch-in','typewriter','neon-glow','shimmer-sweep',
+    'gradient-flow','stagger-list','counter-up','path-draw','parallax-tilt',
+    'card-flip-3d','cube-rotate-3d','page-turn-3d','perspective-zoom',
+    'marquee-scroll','kenburns','confetti-burst','spotlight','morph-shape','ripple-reveal'];
+
+  function ready(fn){ if(document.readyState!='loading')fn(); else document.addEventListener('DOMContentLoaded',fn);}
+
+  /* ========== Parse URL for preview-only mode ==========
+   * When loaded as iframe.src = "index.html?preview=3", runtime enters a
+   * locked single-slide mode: only slide N is visible, no chrome, no keys,
+   * no hash updates. This is how the presenter window shows pixel-perfect
+   * previews — by loading the actual deck file in an iframe and telling it
+   * to display only a specific slide.
+   */
+  function getPreviewIdx() {
+    const m = /[?&]preview=(\d+)/.exec(location.search || '');
+    return m ? parseInt(m[1], 10) - 1 : -1;
+  }
+
+  ready(function () {
+    const deck = document.querySelector('.deck');
+    if (!deck) return;
+    const slides = Array.from(deck.querySelectorAll('.slide'));
+    if (!slides.length) return;
+
+    const previewOnlyIdx = getPreviewIdx();
+    const isPreviewMode = previewOnlyIdx >= 0 && previewOnlyIdx < slides.length;
+
+    /* ===== Preview-only mode: show one slide, hide everything else ===== */
+    if (isPreviewMode) {
+      function showSlide(i) {
+        slides.forEach((s, j) => {
+          const active = (j === i);
+          s.classList.toggle('is-active', active);
+          s.style.display = active ? '' : 'none';
+          if (active) {
+            s.style.opacity = '1';
+            s.style.transform = 'none';
+            s.style.pointerEvents = 'auto';
+          }
+        });
+      }
+      showSlide(previewOnlyIdx);
+      /* Hide chrome that the presenter shouldn't see in preview */
+      const hideSel = '.progress-bar, .notes-overlay, .overview, .notes, aside.notes, .speaker-notes';
+      document.querySelectorAll(hideSel).forEach(el => { el.style.display = 'none'; });
+      document.documentElement.setAttribute('data-preview', '1');
+      document.body.setAttribute('data-preview', '1');
+      /* Auto-detect theme base path for theme switching in preview mode */
+      function getPreviewThemeBase() {
+        const base = document.documentElement.getAttribute('data-theme-base');
+        if (base) return base;
+        const tl = document.getElementById('theme-link');
+        if (tl) {
+          const raw = tl.getAttribute('href') || '';
+          const ls = raw.lastIndexOf('/');
+          if (ls >= 0) return raw.substring(0, ls + 1);
+        }
+        return 'assets/themes/';
+      }
+      const previewThemeBase = getPreviewThemeBase();
+
+      /* Listen for postMessage from parent presenter window:
+       *  - preview-goto: switch visible slide WITHOUT reloading
+       *  - preview-theme: switch theme CSS link to match audience window */
+      window.addEventListener('message', function(e) {
+        if (!e.data) return;
+        if (e.data.type === 'preview-goto') {
+          const n = parseInt(e.data.idx, 10);
+          if (n >= 0 && n < slides.length) showSlide(n);
+        } else if (e.data.type === 'preview-theme' && e.data.name) {
+          let link = document.getElementById('theme-link');
+          if (!link) {
+            link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.id = 'theme-link';
+            document.head.appendChild(link);
+          }
+          link.href = previewThemeBase + e.data.name + '.css';
+          document.documentElement.setAttribute('data-theme', e.data.name);
+        }
+      });
+      /* Signal to parent that preview iframe is ready */
+      try { window.parent && window.parent.postMessage({ type: 'preview-ready' }, '*'); } catch(e) {}
+      return;
+    }
+
+    let idx = 0;
+    const total = slides.length;
+
+    /* ===== BroadcastChannel for presenter sync ===== */
+    const CHANNEL_NAME = 'html-ppt-presenter-' + location.pathname;
+    let bc;
+    try { bc = new BroadcastChannel(CHANNEL_NAME); } catch(e) { bc = null; }
+
+    // Are we running inside the presenter popup? (legacy flag, now unused)
+    const isPresenterWindow = false;
+
+    /* ===== progress bar ===== */
+    let bar = document.querySelector('.progress-bar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'progress-bar';
+      bar.innerHTML = '<span></span>';
+      document.body.appendChild(bar);
+    }
+    const barFill = bar.querySelector('span');
+
+    /* ===== notes overlay (N key) ===== */
+    let notes = document.querySelector('.notes-overlay');
+    if (!notes) {
+      notes = document.createElement('div');
+      notes.className = 'notes-overlay';
+      document.body.appendChild(notes);
+    }
+
+    /* ===== overview grid (O key) ===== */
+    let overview = document.querySelector('.overview');
+    if (!overview) {
+      overview = document.createElement('div');
+      overview.className = 'overview';
+      slides.forEach((s, i) => {
+        const t = document.createElement('div');
+        t.className = 'thumb';
+        // Force 16:9 aspect ratio robustly
+        t.style.padding = '0 0 56.25% 0';
+        t.style.height = '0';
+        t.style.position = 'relative';
+        t.style.overflow = 'hidden';
+
+        const title = s.getAttribute('data-title') ||
+          (s.querySelector('h1,h2,h3')||{}).textContent || ('Slide '+(i+1));
+        
+        // Create a container for the mini-slide
+        const mini = document.createElement('div');
+        mini.className = 'mini-slide';
+        mini.style.position = 'absolute';
+        mini.style.top = '0';
+        mini.style.left = '0';
+        mini.style.width = '1920px';
+        mini.style.height = '1080px';
+        mini.style.transformOrigin = 'top left';
+        mini.style.pointerEvents = 'none';
+        mini.style.background = 'var(--bg)';
+        
+        // Clone the slide content
+        const clone = s.cloneNode(true);
+        clone.className = 'slide is-active'; // force active styles
+        clone.style.position = 'absolute';
+        clone.style.inset = '0';
+        clone.style.transform = 'none';
+        clone.style.opacity = '1';
+        clone.style.padding = '72px 96px'; // ensure padding is kept
+        
+        mini.appendChild(clone);
+        t.appendChild(mini);
+
+        // Add the number and title overlay
+        const overlay = document.createElement('div');
+        overlay.style.position = 'absolute';
+        overlay.style.inset = '0';
+        overlay.style.background = 'linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, transparent 40%, transparent 60%, rgba(0,0,0,0.8) 100%)';
+        overlay.style.color = '#fff';
+        overlay.style.zIndex = '10';
+        overlay.style.pointerEvents = 'none';
+        
+        const n = document.createElement('div');
+        n.className = 'n';
+        n.textContent = i + 1;
+        n.style.position = 'absolute';
+        n.style.top = '12px';
+        n.style.left = '16px';
+        n.style.fontWeight = '700';
+        n.style.fontSize = '16px';
+        n.style.color = '#fff';
+        n.style.textShadow = '0 1px 4px rgba(0,0,0,0.8)';
+        
+        const text = document.createElement('div');
+        text.className = 't';
+        text.textContent = title.trim().slice(0,80);
+        text.style.position = 'absolute';
+        text.style.bottom = '12px';
+        text.style.left = '16px';
+        text.style.right = '16px';
+        text.style.fontWeight = '600';
+        text.style.fontSize = '14px';
+        text.style.color = '#fff';
+        text.style.textShadow = '0 1px 4px rgba(0,0,0,0.8)';
+        
+        overlay.appendChild(n);
+        overlay.appendChild(text);
+        t.appendChild(overlay);
+
+        t.addEventListener('click', () => { go(i); toggleOverview(false); });
+        overview.appendChild(t);
+      });
+      document.body.appendChild(overview);
+    }
+
+    /* ===== navigation ===== */
+    function go(n, fromRemote){
+      n = Math.max(0, Math.min(total-1, n));
+      slides.forEach((s,i) => {
+        s.classList.toggle('is-active', i===n);
+        s.classList.toggle('is-prev', i<n);
+      });
+      idx = n;
+      barFill.style.width = ((n+1)/total*100)+'%';
+      const numEl = document.querySelector('.slide-number');
+      if (numEl) { numEl.setAttribute('data-current', n+1); numEl.setAttribute('data-total', total); }
+
+      // notes (bottom overlay)
+      const note = slides[n].querySelector('.notes, aside.notes, .speaker-notes');
+      notes.innerHTML = note ? note.innerHTML : '';
+
+      // hash
+      const hashTarget = '#/'+(n+1);
+      if (location.hash !== hashTarget && !isPresenterWindow) {
+        history.replaceState(null,'', hashTarget);
+      }
+
+      // re-trigger entry animations
+      slides[n].querySelectorAll('[data-anim]').forEach(el => {
+        const a = el.getAttribute('data-anim');
+        el.classList.remove('anim-'+a);
+        void el.offsetWidth;
+        el.classList.add('anim-'+a);
+      });
+
+      // counter-up
+      slides[n].querySelectorAll('.counter').forEach(el => {
+        const target = parseFloat(el.getAttribute('data-to')||el.textContent);
+        const dur = parseInt(el.getAttribute('data-dur')||'1200',10);
+        const start = performance.now();
+        const from = 0;
+        function tick(now){
+          const t = Math.min(1,(now-start)/dur);
+          const v = from + (target-from)*(1-Math.pow(1-t,3));
+          el.textContent = (target % 1 === 0) ? Math.round(v) : v.toFixed(1);
+          if (t<1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      });
+
+      // Broadcast to other window (audience ↔ presenter)
+      if (!fromRemote && bc) {
+        bc.postMessage({ type: 'go', idx: n });
+      }
+    }
+
+    /* ===== listen for remote navigation / theme changes ===== */
+    if (bc) {
+      bc.onmessage = function(e) {
+        if (!e.data) return;
+        if (e.data.type === 'go' && typeof e.data.idx === 'number') {
+          go(e.data.idx, true);
+        } else if (e.data.type === 'theme' && e.data.name) {
+          /* Sync theme across windows */
+          const i = themes.indexOf(e.data.name);
+          if (i >= 0) themeIdx = i;
+          applyTheme(e.data.name);
+        }
+      };
+    }
+
+    function toggleNotes(force){ notes.classList.toggle('open', force!==undefined?force:!notes.classList.contains('open')); }
+    function toggleOverview(force){
+      const isOpen = force!==undefined ? force : !overview.classList.contains('open');
+      overview.classList.toggle('open', isOpen);
+      if (isOpen) {
+        requestAnimationFrame(() => {
+          const thumbs = overview.querySelectorAll('.thumb');
+          if (thumbs.length) {
+            const scale = thumbs[0].clientWidth / 1920;
+            overview.querySelectorAll('.mini-slide').forEach(m => {
+              m.style.transform = 'scale(' + scale + ')';
+            });
+          }
+        });
+      }
+    }
+
+    /* ========== PRESENTER MODE — Magnetic-card popup window ========== */
+    /* Opens a new window with 4 draggable, resizable cards:
+     *   CURRENT  — iframe(?preview=N)   pixel-perfect preview of current slide
+     *   NEXT     — iframe(?preview=N+1) pixel-perfect preview of next slide
+     *   SCRIPT   — large speaker notes (逐字稿)
+     *   TIMER    — elapsed timer + page counter + controls
+     * Cards remember position/size in localStorage.
+     * Two windows sync via BroadcastChannel.
+     */
+    let presenterWin = null;
+
+    function openPresenterWindow() {
+      if (presenterWin && !presenterWin.closed) {
+        presenterWin.focus();
+        return;
+      }
+
+      // Build absolute URL of THIS deck file (without hash/query)
+      const deckUrl = location.protocol + '//' + location.host + location.pathname;
+
+      // Collect slide titles + notes (HTML strings)
+      const slideMeta = slides.map((s, i) => {
+        const note = s.querySelector('.notes, aside.notes, .speaker-notes');
+        return {
+          title: s.getAttribute('data-title') ||
+            (s.querySelector('h1,h2,h3')||{}).textContent || ('Slide '+(i+1)),
+          notes: note ? note.innerHTML : ''
+        };
+      });
+
+      /* Capture current theme so presenter previews match the audience */
+      const currentTheme = root.getAttribute('data-theme') || (themes[themeIdx] || '');
+      const presenterHTML = buildPresenterHTML(deckUrl, slideMeta, total, idx, CHANNEL_NAME, currentTheme);
+
+      presenterWin = window.open('', 'html-ppt-presenter', 'width=1280,height=820,menubar=no,toolbar=no');
+      if (!presenterWin) {
+        alert('请允许弹出窗口以使用演讲者视图');
+        return;
+      }
+      presenterWin.document.open();
+      presenterWin.document.write(presenterHTML);
+      presenterWin.document.close();
+    }
+
+    function buildPresenterHTML(deckUrl, slideMeta, total, startIdx, channelName, currentTheme) {
+      const metaJSON = JSON.stringify(slideMeta);
+      const deckUrlJSON = JSON.stringify(deckUrl);
+      const channelJSON = JSON.stringify(channelName);
+      const themeJSON = JSON.stringify(currentTheme || '');
+      const storageKey = 'html-ppt-presenter:' + location.pathname;
+
+      // Build the document as a single template string for clarity
+      return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Presenter View</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #1a1d24;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(88,166,255,.04), transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(188,140,255,.04), transparent 50%);
+    color: #e6edf3;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  }
+  /* Stage: positioned area where cards live */
+  #stage { position: absolute; inset: 0; overflow: hidden; }
+
+  /* Magnetic card */
+  .pcard {
+    position: absolute;
+    background: #0d1117;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.02);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    min-width: 180px; min-height: 100px;
+    transition: box-shadow .2s, border-color .2s;
+  }
+  .pcard.dragging { box-shadow: 0 16px 48px rgba(0,0,0,.6), 0 0 0 2px rgba(88,166,255,.5); border-color: #58a6ff; transition: none; z-index: 9999; }
+  .pcard.resizing { box-shadow: 0 16px 48px rgba(0,0,0,.6), 0 0 0 2px rgba(63,185,80,.5); border-color: #3fb950; transition: none; z-index: 9999; }
+  .pcard:hover { border-color: rgba(88,166,255,.3); }
+
+  /* Card header (drag handle) */
+  .pcard-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    background: rgba(255,255,255,.04);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    cursor: move;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .pcard-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot-color, #58a6ff); flex-shrink: 0; }
+  .pcard-title {
+    font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+    font-weight: 700; color: #8b949e; flex: 1;
+  }
+  .pcard-meta { font-size: 11px; color: #6e7681; }
+
+  /* Card body */
+  .pcard-body { flex: 1; position: relative; overflow: hidden; min-height: 0; }
+
+  /* Preview cards (CURRENT/NEXT) — iframe-based pixel-perfect render */
+  .pcard-preview .pcard-body { background: #000; }
+  .pcard-preview iframe {
+    position: absolute; top: 0; left: 0;
+    width: 1920px; height: 1080px;
+    border: none;
+    transform-origin: top left;
+    pointer-events: none;
+    background: transparent;
+  }
+  .pcard-preview .preview-end {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #484f58; font-size: 14px; letter-spacing: .12em;
+  }
+
+  /* Notes card */
+  .pcard-notes .pcard-body {
+    padding: 14px 18px;
+    overflow-y: auto;
+    font-size: 18px; line-height: 1.75;
+    color: #d0d7de;
+    font-family: "Noto Sans SC", -apple-system, sans-serif;
+  }
+  .pcard-notes .pcard-body p { margin: 0 0 .7em 0; }
+  .pcard-notes .pcard-body strong { color: #f0883e; }
+  .pcard-notes .pcard-body em { color: #58a6ff; font-style: normal; }
+  .pcard-notes .pcard-body code {
+    font-family: "SF Mono", monospace; font-size: .9em;
+    background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 4px;
+  }
+  .pcard-notes .empty { color: #484f58; font-style: italic; }
+
+  /* Timer card */
+  .pcard-timer .pcard-body {
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 18px 20px; justify-content: center;
+  }
+  .timer-display {
+    font-family: "SF Mono", "JetBrains Mono", monospace;
+    font-size: 42px; font-weight: 700;
+    color: #3fb950;
+    letter-spacing: .04em;
+    line-height: 1;
+  }
+  .timer-row {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 14px; color: #8b949e;
+  }
+  .timer-row .label { font-size: 10px; letter-spacing: .15em; text-transform: uppercase; color: #6e7681; }
+  .timer-row .val { color: #e6edf3; font-weight: 600; font-family: "SF Mono", monospace; }
+  .timer-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .timer-btn {
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1);
+    color: #e6edf3;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .timer-btn:hover { background: rgba(88,166,255,.15); border-color: #58a6ff; }
+  .timer-btn:active { transform: translateY(1px); }
+
+  /* Resize handle */
+  .pcard-resize {
+    position: absolute; right: 0; bottom: 0;
+    width: 18px; height: 18px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.25) 60%, transparent 60%, transparent 70%, rgba(255,255,255,.25) 70%, rgba(255,255,255,.25) 80%, transparent 80%);
+    z-index: 5;
+  }
+  .pcard-resize:hover { background: linear-gradient(135deg, transparent 50%, #58a6ff 50%, #58a6ff 60%, transparent 60%, transparent 70%, #58a6ff 70%, #58a6ff 80%, transparent 80%); }
+
+  /* Bottom hint bar */
+  .hint-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255,255,255,.08);
+    padding: 6px 16px;
+    font-size: 11px; color: #8b949e;
+    display: flex; gap: 18px; align-items: center;
+    z-index: 1000;
+  }
+  .hint-bar kbd {
+    background: rgba(255,255,255,.08);
+    padding: 1px 6px; border-radius: 3px;
+    font-family: "SF Mono", monospace;
+    font-size: 10px;
+    border: 1px solid rgba(255,255,255,.1);
+    color: #e6edf3;
+  }
+  .hint-bar .reset-layout {
+    margin-left: auto;
+    background: transparent; border: 1px solid rgba(255,255,255,.15);
+    color: #8b949e; padding: 3px 10px; border-radius: 4px;
+    font-size: 11px; cursor: pointer; font-family: inherit;
+  }
+  .hint-bar .reset-layout:hover { background: rgba(248,81,73,.15); border-color: #f85149; color: #f85149; }
+
+  body.is-dragging-card * { user-select: none !important; }
+  body.is-dragging-card iframe { pointer-events: none !important; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div class="pcard pcard-preview" id="card-cur" style="--dot-color:#58a6ff">
+    <div class="pcard-head" data-drag>
+      <span class="pcard-dot"></span>
+      <span class="pcard-title">CURRENT</span>
+      <span class="pcard-meta" id="cur-meta">—</span>
+    </div>
+    <div class="pcard-body"><iframe id="iframe-cur"></iframe></div>
+    <div class="pcard-resize" data-resize></div>
+  </div>
+
+  <div class="pcard pcard-preview" id="card-nxt" style="--dot-color:#bc8cff">
+    <div class="pcard-head" data-drag>
+      <span class="pcard-dot"></span>
+      <span class="pcard-title">NEXT</span>
+      <span class="pcard-meta" id="nxt-meta">—</span>
+    </div>
+    <div class="pcard-body"><iframe id="iframe-nxt"></iframe></div>
+    <div class="pcard-resize" data-resize></div>
+  </div>
+
+  <div class="pcard pcard-notes" id="card-notes" style="--dot-color:#f0883e">
+    <div class="pcard-head" data-drag>
+      <span class="pcard-dot"></span>
+      <span class="pcard-title">SPEAKER SCRIPT · 逐字稿</span>
+    </div>
+    <div class="pcard-body" id="notes-body"></div>
+    <div class="pcard-resize" data-resize></div>
+  </div>
+
+  <div class="pcard pcard-timer" id="card-timer" style="--dot-color:#3fb950">
+    <div class="pcard-head" data-drag>
+      <span class="pcard-dot"></span>
+      <span class="pcard-title">TIMER</span>
+    </div>
+    <div class="pcard-body">
+      <div class="timer-display" id="timer-display">00:00</div>
+      <div class="timer-row">
+        <span class="label">Slide</span>
+        <span class="val" id="timer-count">1 / ${total}</span>
+      </div>
+      <div class="timer-controls">
+        <button class="timer-btn" id="btn-prev">← Prev</button>
+        <button class="timer-btn" id="btn-next">Next →</button>
+        <button class="timer-btn" id="btn-reset">⏱ Reset</button>
+      </div>
+    </div>
+    <div class="pcard-resize" data-resize></div>
+  </div>
+</div>
+
+<div class="hint-bar">
+  <span><kbd>← →</kbd> 翻页</span>
+  <span><kbd>R</kbd> 重置计时</span>
+  <span><kbd>Esc</kbd> 关闭</span>
+  <span style="color:#6e7681">拖动卡片头部移动 · 拖动右下角调整大小</span>
+  <button class="reset-layout" id="reset-layout">重置布局</button>
+</div>
+
+<script>
+(function(){
+  var slideMeta = ${metaJSON};
+  var total = ${total};
+  var idx = ${startIdx};
+  var deckUrl = ${deckUrlJSON};
+  var STORAGE_KEY = ${JSON.stringify(storageKey)};
+  var bc;
+  try { bc = new BroadcastChannel(${channelJSON}); } catch(e) {}
+
+  var iframeCur = document.getElementById('iframe-cur');
+  var iframeNxt = document.getElementById('iframe-nxt');
+  var notesBody = document.getElementById('notes-body');
+  var curMeta = document.getElementById('cur-meta');
+  var nxtMeta = document.getElementById('nxt-meta');
+  var timerDisplay = document.getElementById('timer-display');
+  var timerCount = document.getElementById('timer-count');
+
+  /* ===== Default card layout ===== */
+  function defaultLayout() {
+    var w = window.innerWidth;
+    var h = window.innerHeight - 36; /* leave room for hint bar */
+    return {
+      'card-cur':   { x: 16,        y: 16,            w: Math.round(w*0.55) - 24, h: Math.round(h*0.62) - 16 },
+      'card-nxt':   { x: Math.round(w*0.55) + 8, y: 16, w: w - Math.round(w*0.55) - 24, h: Math.round(h*0.42) - 16 },
+      'card-notes': { x: Math.round(w*0.55) + 8, y: Math.round(h*0.42) + 8, w: w - Math.round(w*0.55) - 24, h: h - Math.round(h*0.42) - 16 },
+      'card-timer': { x: 16,        y: Math.round(h*0.62) + 8, w: Math.round(w*0.55) - 24, h: h - Math.round(h*0.62) - 16 }
+    };
+  }
+
+  /* ===== Apply / save / restore layout ===== */
+  function applyLayout(layout) {
+    Object.keys(layout).forEach(function(id){
+      var el = document.getElementById(id);
+      var l = layout[id];
+      if (el && l) {
+        el.style.left = l.x + 'px';
+        el.style.top = l.y + 'px';
+        el.style.width = l.w + 'px';
+        el.style.height = l.h + 'px';
+      }
+    });
+    rescaleAll();
+  }
+  function readLayout() {
+    try {
+      var saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch(e) {}
+    return defaultLayout();
+  }
+  function saveLayout() {
+    var layout = {};
+    ['card-cur','card-nxt','card-notes','card-timer'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) {
+        layout[id] = {
+          x: parseInt(el.style.left,10) || 0,
+          y: parseInt(el.style.top,10) || 0,
+          w: parseInt(el.style.width,10) || 300,
+          h: parseInt(el.style.height,10) || 200
+        };
+      }
+    });
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(layout)); } catch(e) {}
+  }
+
+  /* ===== iframe rescale to fit card body ===== */
+  function rescaleIframe(iframe) {
+    if (!iframe || iframe.style.display === 'none') return;
+    var body = iframe.parentElement;
+    var cw = body.clientWidth, ch = body.clientHeight;
+    if (!cw || !ch) return;
+    var s = Math.min(cw / 1920, ch / 1080);
+    iframe.style.transform = 'scale(' + s + ')';
+    /* Center the scaled iframe in the body */
+    var sw = 1920 * s, sh = 1080 * s;
+    iframe.style.left = Math.max(0, (cw - sw) / 2) + 'px';
+    iframe.style.top = Math.max(0, (ch - sh) / 2) + 'px';
+  }
+  function rescaleAll() {
+    rescaleIframe(iframeCur);
+    rescaleIframe(iframeNxt);
+  }
+  window.addEventListener('resize', rescaleAll);
+
+  /* ===== Drag (move card by header) ===== */
+  document.querySelectorAll('[data-drag]').forEach(function(handle){
+    handle.addEventListener('mousedown', function(e){
+      if (e.button !== 0) return;
+      var card = handle.closest('.pcard');
+      if (!card) return;
+      e.preventDefault();
+      card.classList.add('dragging');
+      document.body.classList.add('is-dragging-card');
+      var startX = e.clientX, startY = e.clientY;
+      var startL = parseInt(card.style.left,10) || 0;
+      var startT = parseInt(card.style.top,10)  || 0;
+      function onMove(ev){
+        var nx = Math.max(0, Math.min(window.innerWidth - 100, startL + ev.clientX - startX));
+        var ny = Math.max(0, Math.min(window.innerHeight - 50, startT + ev.clientY - startY));
+        card.style.left = nx + 'px';
+        card.style.top = ny + 'px';
+      }
+      function onUp(){
+        card.classList.remove('dragging');
+        document.body.classList.remove('is-dragging-card');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        saveLayout();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+
+  /* ===== Resize (drag bottom-right corner) ===== */
+  document.querySelectorAll('[data-resize]').forEach(function(handle){
+    handle.addEventListener('mousedown', function(e){
+      if (e.button !== 0) return;
+      var card = handle.closest('.pcard');
+      if (!card) return;
+      e.preventDefault(); e.stopPropagation();
+      card.classList.add('resizing');
+      document.body.classList.add('is-dragging-card');
+      var startX = e.clientX, startY = e.clientY;
+      var startW = parseInt(card.style.width,10)  || card.offsetWidth;
+      var startH = parseInt(card.style.height,10) || card.offsetHeight;
+      function onMove(ev){
+        var nw = Math.max(180, startW + ev.clientX - startX);
+        var nh = Math.max(100, startH + ev.clientY - startY);
+        card.style.width = nw + 'px';
+        card.style.height = nh + 'px';
+        if (card.querySelector('iframe')) rescaleIframe(card.querySelector('iframe'));
+      }
+      function onUp(){
+        card.classList.remove('resizing');
+        document.body.classList.remove('is-dragging-card');
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        rescaleAll();
+        saveLayout();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+
+  /* ===== Preview iframe ready tracking =====
+   * Each iframe loads the deck ONCE with ?preview=1 on init. Subsequent
+   * slide changes are sent via postMessage('preview-goto') so the iframe
+   * just toggles visibility of a different .slide — no reload, no flicker.
+   */
+  var iframeReady = { cur: false, nxt: false };
+  var currentTheme = ${themeJSON};
+  window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'preview-ready') return;
+    var iframe = null;
+    if (e.source === iframeCur.contentWindow) {
+      iframeReady.cur = true;
+      iframe = iframeCur;
+      postPreviewGoto(iframeCur, idx);
+    } else if (e.source === iframeNxt.contentWindow) {
+      iframeReady.nxt = true;
+      iframe = iframeNxt;
+      postPreviewGoto(iframeNxt, idx + 1 < total ? idx + 1 : idx);
+    }
+    /* Sync current theme to the iframe */
+    if (iframe && currentTheme) {
+      try { iframe.contentWindow.postMessage({ type: 'preview-theme', name: currentTheme }, '*'); } catch(err) {}
+    }
+    if (iframe) rescaleIframe(iframe);
+  });
+
+  function postPreviewGoto(iframe, n) {
+    try {
+      iframe.contentWindow.postMessage({ type: 'preview-goto', idx: n }, '*');
+    } catch(e) {}
+  }
+
+  /* ===== Update content =====
+   * Smooth (no-reload) navigation: send postMessage to iframes instead of
+   * resetting src. Iframes stay loaded, just switch visible .slide.
+   */
+  function update(n) {
+    n = Math.max(0, Math.min(total - 1, n));
+    idx = n;
+
+    /* Current preview — postMessage (smooth) */
+    if (iframeReady.cur) postPreviewGoto(iframeCur, n);
+    curMeta.textContent = (n + 1) + '/' + total;
+
+    /* Next preview */
+    if (n + 1 < total) {
+      iframeNxt.style.display = '';
+      var endEl = document.querySelector('#card-nxt .preview-end');
+      if (endEl) endEl.remove();
+      if (iframeReady.nxt) postPreviewGoto(iframeNxt, n + 1);
+      nxtMeta.textContent = (n + 2) + '/' + total;
+    } else {
+      iframeNxt.style.display = 'none';
+      var body = document.querySelector('#card-nxt .pcard-body');
+      if (body && !body.querySelector('.preview-end')) {
+        var end = document.createElement('div');
+        end.className = 'preview-end';
+        end.textContent = '— END OF DECK —';
+        body.appendChild(end);
+      }
+      nxtMeta.textContent = 'END';
+    }
+
+    /* Notes */
+    var note = slideMeta[n].notes;
+    notesBody.innerHTML = note || '<span class="empty">（这一页还没有逐字稿）</span>';
+
+    /* Timer count */
+    timerCount.textContent = (n + 1) + ' / ' + total;
+  }
+
+  /* ===== Timer ===== */
+  var tStart = Date.now();
+  setInterval(function(){
+    var s = Math.floor((Date.now() - tStart) / 1000);
+    var mm = String(Math.floor(s/60)).padStart(2,'0');
+    var ss = String(s%60).padStart(2,'0');
+    timerDisplay.textContent = mm + ':' + ss;
+  }, 1000);
+  function resetTimer(){ tStart = Date.now(); timerDisplay.textContent = '00:00'; }
+
+  /* ===== BroadcastChannel sync ===== */
+  if (bc) {
+    bc.onmessage = function(e){
+      if (!e.data) return;
+      if (e.data.type === 'go') update(e.data.idx);
+      else if (e.data.type === 'theme' && e.data.name) {
+        currentTheme = e.data.name;
+        /* Forward theme change to preview iframes */
+        [iframeCur, iframeNxt].forEach(function(iframe){
+          try {
+            iframe.contentWindow.postMessage({ type: 'preview-theme', name: e.data.name }, '*');
+          } catch(err) {}
+        });
+      }
+    };
+  }
+  function go(n) {
+    update(n);
+    if (bc) bc.postMessage({ type: 'go', idx: idx });
+  }
+
+  /* ===== Buttons ===== */
+  document.getElementById('btn-prev').addEventListener('click', function(){ go(idx - 1); });
+  document.getElementById('btn-next').addEventListener('click', function(){ go(idx + 1); });
+  document.getElementById('btn-reset').addEventListener('click', resetTimer);
+  document.getElementById('reset-layout').addEventListener('click', function(){
+    if (confirm('恢复默认卡片布局？')) {
+      try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
+      applyLayout(defaultLayout());
+    }
+  });
+
+  /* ===== Keyboard ===== */
+  document.addEventListener('keydown', function(e){
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch(e.key) {
+      case 'ArrowRight': case ' ': case 'PageDown': go(idx + 1); e.preventDefault(); break;
+      case 'ArrowLeft':  case 'PageUp':   go(idx - 1); e.preventDefault(); break;
+      case 'Home': go(0); break;
+      case 'End':  go(total - 1); break;
+      case 'r': case 'R': resetTimer(); break;
+      case 'Escape': window.close(); break;
+    }
+  });
+
+  /* ===== Iframe load → rescale (catches initial size) ===== */
+  iframeCur.addEventListener('load', function(){ rescaleIframe(iframeCur); });
+  iframeNxt.addEventListener('load', function(){ rescaleIframe(iframeNxt); });
+
+  /* ===== Init =====
+   * Load each iframe ONCE with the deck file. After they post
+   * 'preview-ready', all subsequent navigation is via postMessage
+   * (smooth, no reload, no flicker).
+   */
+  applyLayout(readLayout());
+  iframeCur.src = deckUrl + '?preview=' + (idx + 1);
+  if (idx + 1 < total) iframeNxt.src = deckUrl + '?preview=' + (idx + 2);
+  /* Initialize notes/timer/count without touching iframes */
+  notesBody.innerHTML = slideMeta[idx].notes || '<span class="empty">（这一页还没有逐字稿）</span>';
+  curMeta.textContent = (idx + 1) + '/' + total;
+  nxtMeta.textContent = (idx + 2) + '/' + total;
+  timerCount.textContent = (idx + 1) + ' / ' + total;
+})();
+</` + `script>
+</body></html>`;
+    }
+
+    function fullscreen(){ const el=document.documentElement;
+      if (!document.fullscreenElement) el.requestFullscreen&&el.requestFullscreen();
+      else document.exitFullscreen&&document.exitFullscreen();
+    }
+
+    // theme cycling
+    const root = document.documentElement;
+    const themesAttr = root.getAttribute('data-themes') || document.body.getAttribute('data-themes');
+    const themes = themesAttr ? themesAttr.split(',').map(s=>s.trim()).filter(Boolean) : [];
+    let themeIdx = 0;
+
+    // Auto-detect theme base path from existing <link id="theme-link">
+    let themeBase = root.getAttribute('data-theme-base');
+    if (!themeBase) {
+      const existingLink = document.getElementById('theme-link');
+      if (existingLink) {
+        // el.getAttribute('href') gives the raw relative path written in HTML
+        const rawHref = existingLink.getAttribute('href') || '';
+        const lastSlash = rawHref.lastIndexOf('/');
+        themeBase = lastSlash >= 0 ? rawHref.substring(0, lastSlash + 1) : 'assets/themes/';
+      } else {
+        themeBase = 'assets/themes/';
+      }
+    }
+
+    function applyTheme(name) {
+      let link = document.getElementById('theme-link');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.id = 'theme-link';
+        document.head.appendChild(link);
+      }
+      link.href = themeBase + name + '.css';
+      root.setAttribute('data-theme', name);
+      const ind = document.querySelector('.theme-indicator');
+      if (ind) ind.textContent = name;
+    }
+    function cycleTheme(fromRemote){
+      if (!themes.length) return;
+      themeIdx = (themeIdx+1) % themes.length;
+      const name = themes[themeIdx];
+      applyTheme(name);
+      /* Broadcast to other window (audience ↔ presenter) */
+      if (!fromRemote && bc) bc.postMessage({ type: 'theme', name: name });
+    }
+
+    // animation cycling on current slide
+    let animIdx = 0;
+    function cycleAnim(){
+      animIdx = (animIdx+1) % ANIMS.length;
+      const a = ANIMS[animIdx];
+      const target = slides[idx].querySelector('[data-anim-target]') || slides[idx];
+      ANIMS.forEach(x => target.classList.remove('anim-'+x));
+      void target.offsetWidth;
+      target.classList.add('anim-'+a);
+      target.setAttribute('data-anim', a);
+      const ind = document.querySelector('.anim-indicator');
+      if (ind) ind.textContent = a;
+    }
+
+    document.addEventListener('keydown', function (e) {
+      if (e.metaKey||e.ctrlKey||e.altKey) return;
+      switch (e.key) {
+        case 'ArrowRight': case ' ': case 'PageDown': case 'Enter': go(idx+1); e.preventDefault(); break;
+        case 'ArrowLeft': case 'PageUp': case 'Backspace': go(idx-1); e.preventDefault(); break;
+        case 'Home': go(0); break;
+        case 'End': go(total-1); break;
+        case 'f': case 'F': fullscreen(); break;
+        case 's': case 'S': openPresenterWindow(); break;
+        case 'n': case 'N': toggleNotes(); break;
+        case 'o': case 'O': toggleOverview(); break;
+        case 't': case 'T': cycleTheme(); break;
+        case 'a': case 'A': cycleAnim(); break;
+        case 'Escape': toggleOverview(false); toggleNotes(false); break;
+      }
+    });
+
+    // hash deep-link
+    function fromHash(){
+      const m = /^#\/(\d+)/.exec(location.hash||'');
+      if (m) go(Math.max(0, parseInt(m[1],10)-1));
+    }
+    window.addEventListener('hashchange', fromHash);
+    fromHash();
+    go(idx);
+  });
+})();
+
+</script>
+</body>
+</html>
