@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../../shared/utils/http'
 import { generateJsonSchema } from '../../../shared/utils/jsonSchema'
+import { loadAppSettings } from '../../../shared/utils/appSettings'
 import type { RequestHistoryItem } from '../../../shared/types/requestHistory'
 import type { RequestItem } from '../../collectionTree'
 import { runRequest, type RunResult } from '../../requestRunner/runRequest'
@@ -13,6 +14,7 @@ import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseS
 import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logWarn } from '../../../shared/utils/logger'
+import { generateResponseSearchQueryWithYandex } from '../../ai/provider'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -181,9 +183,29 @@ type SearchBodyView = {
   highlightPlan: { keyTerms: string[], valuesByKey: Record<string, string[]>, standaloneTerms: string[] }
 }
 
+type PaginationSearchProgress = {
+  currentPage: number
+  totalPages: number
+}
+
 type PaginationPlan =
-  | { kind: 'page', pageParam: string, currentPage: number, totalPages: number, pageSize: number | null }
-  | { kind: 'offset', offsetParam: string, currentOffset: number, limitParam: string, limit: number, totalItems: number }
+  | {
+    kind: 'page'
+    source: 'query' | 'body'
+    pageParam: string
+    currentPage: number
+    totalPages: number
+    pageSize: number | null
+  }
+  | {
+    kind: 'offset'
+    source: 'query' | 'body'
+    offsetParam: string
+    currentOffset: number
+    limitParam: string
+    limit: number
+    totalItems: number
+  }
 
 const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
 const MAX_PAGINATION_SEARCH_DEPTH = 8
@@ -232,27 +254,77 @@ function inferItemsLength(node: unknown, depth = 0): number | null {
   return null
 }
 
-function buildPaginationPlan(args: { url: string | undefined, parsed: JsonValue | null }): PaginationPlan | null {
-  const rawUrl = (args.url || '').trim()
-  if (!rawUrl || !args.parsed) return null
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  const parsed = safeJsonParse(text ?? '')
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+}
 
-  let url: URL
-  try {
-    url = new URL(rawUrl)
-  } catch {
+function findNumericFieldPathByNames(node: unknown, names: string[], depth = 0, parentPath = ''): { path: string, value: number } | null {
+  if (depth > MAX_PAGINATION_SEARCH_DEPTH || !node || typeof node !== 'object') return null
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) {
+      const found = findNumericFieldPathByNames(node[i], names, depth + 1, `${parentPath}[${i}]`)
+      if (found) return found
+    }
     return null
   }
 
-  const pageParamCandidates = ['page', 'pageNumber', 'page_number', 'pageNum', 'page_num', 'pageno', 'pageNo']
-  for (const name of pageParamCandidates) {
-    const raw = url.searchParams.get(name)
-    if (!raw) continue
-    const currentPage = Number(raw)
-    if (!Number.isFinite(currentPage) || currentPage < 1) continue
+  const record = node as Record<string, unknown>
+  for (const [key, rawValue] of Object.entries(record)) {
+    if (!names.includes(key)) continue
+    const value = typeof rawValue === 'number' ? rawValue : Number(rawValue)
+    if (Number.isFinite(value)) {
+      const path = parentPath ? `${parentPath}.${key}` : key
+      return { path, value }
+    }
+  }
 
-    const totalPages = deepFindNumericByNames(args.parsed, ['totalPages', 'total_pages', 'pageCount', 'page_count', 'pages'])
-    const pageSize = deepFindNumericByNames(args.parsed, ['pageSize', 'page_size', 'perPage', 'per_page', 'limit'])
-    const totalItems = deepFindNumericByNames(args.parsed, ['total', 'totalCount', 'total_count', 'total_size', 'count'])
+  for (const [key, value] of Object.entries(record)) {
+    const path = parentPath ? `${parentPath}.${key}` : key
+    const found = findNumericFieldPathByNames(value, names, depth + 1, path)
+    if (found) return found
+  }
+
+  return null
+}
+
+function setValueAtObjectPath(node: unknown, path: string, value: number): unknown {
+  if (!path.trim() || !node || typeof node !== 'object') return node
+  const root = structuredClone(node)
+  const parts = path.split('.').filter(Boolean)
+  let cur: unknown = root
+
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return root
+    cur = (cur as Record<string, unknown>)[parts[i]]
+  }
+
+  if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return root
+  ;(cur as Record<string, unknown>)[parts[parts.length - 1]] = value
+  return root
+}
+
+function buildPaginationPlan(args: { url: string | undefined, requestBodyText?: string, parsed: JsonValue | null }): PaginationPlan | null {
+  const rawUrl = (args.url || '').trim()
+  if (!args.parsed) return null
+
+  let url: URL | null = null
+  if (rawUrl) {
+    try {
+      url = new URL(rawUrl)
+    } catch {
+      url = null
+    }
+  }
+
+  const requestBody = parseJsonObject(args.requestBodyText)
+
+  const pageParamCandidates = ['page', 'pageNumber', 'page_number', 'pageNum', 'page_num', 'pageno', 'pageNo', 'pageIndex', 'page_index', 'currentPage']
+  const totalPages = deepFindNumericByNames(args.parsed, ['totalPages', 'total_pages', 'pageCount', 'page_count', 'pages'])
+  const pageSize = deepFindNumericByNames(args.parsed, ['pageSize', 'page_size', 'perPage', 'per_page', 'limit'])
+  const totalItems = deepFindNumericByNames(args.parsed, ['total', 'totalCount', 'total_count', 'total_size', 'count'])
+
+  const buildPagePlan = (source: 'query' | 'body', name: string, currentPage: number): PaginationPlan | null => {
     const derivedTotalPages =
       totalPages && totalPages >= currentPage
         ? Math.floor(totalPages)
@@ -261,44 +333,81 @@ function buildPaginationPlan(args: { url: string | undefined, parsed: JsonValue 
     if (derivedTotalPages && derivedTotalPages > 1) {
       return {
         kind: 'page',
+        source,
         pageParam: name,
         currentPage,
         totalPages: derivedTotalPages,
         pageSize: pageSize && pageSize > 0 ? Math.floor(pageSize) : null,
       }
     }
+    return null
+  }
+
+  if (url) {
+    for (const name of pageParamCandidates) {
+      const raw = url.searchParams.get(name)
+      if (!raw) continue
+      const currentPage = Number(raw)
+      if (!Number.isFinite(currentPage) || currentPage < 1) continue
+      const plan = buildPagePlan('query', name, currentPage)
+      if (plan) return plan
+    }
+  }
+
+  if (requestBody) {
+    const pageField = findNumericFieldPathByNames(requestBody, pageParamCandidates)
+    if (pageField && pageField.value >= 1) {
+      const plan = buildPagePlan('body', pageField.path, pageField.value)
+      if (plan) return plan
+    }
   }
 
   const offsetParamCandidates = ['offset', 'skip', 'start']
   const limitParamCandidates = ['limit', 'pageSize', 'page_size', 'per_page', 'perPage']
-  for (const offsetName of offsetParamCandidates) {
-    const rawOffset = url.searchParams.get(offsetName)
-    if (!rawOffset) continue
-    const currentOffset = Number(rawOffset)
-    if (!Number.isFinite(currentOffset) || currentOffset < 0) continue
+  const itemsLength = inferItemsLength(args.parsed)
+  const buildOffsetPlan = (source: 'query' | 'body', offsetName: string, currentOffset: number, limitName: string, limit: number): PaginationPlan | null => {
+    const derivedTotal = totalItems && totalItems > limit
+      ? Math.floor(totalItems)
+      : (itemsLength !== null && itemsLength < limit ? currentOffset + itemsLength : null)
 
-    for (const limitName of limitParamCandidates) {
-      const rawLimit = url.searchParams.get(limitName)
-      if (!rawLimit) continue
-      const limit = Number(rawLimit)
-      if (!Number.isFinite(limit) || limit <= 0) continue
-
-      const totalItems = deepFindNumericByNames(args.parsed, ['total', 'totalCount', 'total_count', 'total_size', 'count'])
-      const itemsLength = inferItemsLength(args.parsed)
-      const derivedTotal = totalItems && totalItems > limit
-        ? Math.floor(totalItems)
-        : (itemsLength !== null && itemsLength < limit ? currentOffset + itemsLength : null)
-
-      if (derivedTotal && derivedTotal > limit) {
-        return {
-          kind: 'offset',
-          offsetParam: offsetName,
-          currentOffset,
-          limitParam: limitName,
-          limit: Math.floor(limit),
-          totalItems: derivedTotal,
-        }
+    if (derivedTotal && derivedTotal > limit) {
+      return {
+        kind: 'offset',
+        source,
+        offsetParam: offsetName,
+        currentOffset,
+        limitParam: limitName,
+        limit: Math.floor(limit),
+        totalItems: derivedTotal,
       }
+    }
+    return null
+  }
+
+  if (url) {
+    for (const offsetName of offsetParamCandidates) {
+      const rawOffset = url.searchParams.get(offsetName)
+      if (!rawOffset) continue
+      const currentOffset = Number(rawOffset)
+      if (!Number.isFinite(currentOffset) || currentOffset < 0) continue
+
+      for (const limitName of limitParamCandidates) {
+        const rawLimit = url.searchParams.get(limitName)
+        if (!rawLimit) continue
+        const limit = Number(rawLimit)
+        if (!Number.isFinite(limit) || limit <= 0) continue
+        const plan = buildOffsetPlan('query', offsetName, currentOffset, limitName, limit)
+        if (plan) return plan
+      }
+    }
+  }
+
+  if (requestBody) {
+    const offsetField = findNumericFieldPathByNames(requestBody, offsetParamCandidates)
+    const limitField = findNumericFieldPathByNames(requestBody, limitParamCandidates)
+    if (offsetField && limitField && offsetField.value >= 0 && limitField.value > 0) {
+      const plan = buildOffsetPlan('body', offsetField.path, offsetField.value, limitField.path, limitField.value)
+      if (plan) return plan
     }
   }
 
@@ -370,6 +479,48 @@ function buildSearchBodyView(args: {
   return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null, highlightPlan }
 }
 
+function mergeSearchViews(views: SearchBodyView[]): SearchBodyView {
+  if (!views.length) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+
+  const validViews = views.filter(view => !view.error)
+  if (!validViews.length) return views[0]
+
+  const allDisplayMatches: unknown[][] = []
+  const allHighlightPlans: Array<SearchBodyView['highlightPlan']> = []
+  let totalMatchesCount = 0
+
+  for (const view of validViews) {
+    if (!view.text.trim()) continue
+    const parsedView = safeJsonParse(view.text)
+    if (parsedView !== null) {
+      if (Array.isArray(parsedView)) allDisplayMatches.push(parsedView)
+      else allDisplayMatches.push([parsedView])
+    }
+    totalMatchesCount += view.matchesCount ?? 0
+    allHighlightPlans.push(view.highlightPlan)
+  }
+
+  if (!totalMatchesCount) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+
+  const combined = uniqueConcat(allDisplayMatches)
+  const output = combined.length === 1 ? combined[0] : combined
+  return {
+    text: JSON.stringify(output, null, 2),
+    matchesCount: totalMatchesCount,
+    error: null,
+    highlightPlan: mergeHighlightPlans(allHighlightPlans),
+  }
+}
+
+function buildBodyTextForPagination(plan: PaginationPlan, bodyText: string | undefined, nextValue: number): string | undefined {
+  if (plan.source !== 'body') return bodyText
+  const parsedBody = parseJsonObject(bodyText)
+  if (!parsedBody) return bodyText
+  const path = plan.kind === 'page' ? plan.pageParam : plan.offsetParam
+  const updated = setValueAtObjectPath(parsedBody, path, nextValue)
+  return JSON.stringify(updated)
+}
+
 export function ResponseViewer(props: {
   result: RunResult | null
   request?: RequestItem | null
@@ -392,6 +543,11 @@ export function ResponseViewer(props: {
   const schemaCloseTimerRef = useRef<number | null>(null)
   const [responseSearchOpen, setResponseSearchOpen] = useState(false)
   const [responseSearchCopied, setResponseSearchCopied] = useState(false)
+  const [responseSearchUseAi, setResponseSearchUseAi] = useState(false)
+  const [aiSearchBusy, setAiSearchBusy] = useState(false)
+  const [aiGeneratedQuery, setAiGeneratedQuery] = useState<string | null>(null)
+  const [aiSearchBodyView, setAiSearchBodyView] = useState<SearchBodyView | null>(null)
+  const [aiSearchSubmittedQuery, setAiSearchSubmittedQuery] = useState('')
   const [syntheticDataOpen, setSyntheticDataOpen] = useState(false)
   const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -409,6 +565,7 @@ export function ResponseViewer(props: {
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
   const [sizePopoverPos, setSizePopoverPos] = useState<{ left: number, top: number } | null>(null)
   const [paginatedBodyView, setPaginatedBodyView] = useState<SearchBodyView | null>(null)
+  const [paginationSearchProgress, setPaginationSearchProgress] = useState<PaginationSearchProgress | null>(null)
 
   const parsed = useMemo(() => {
     if (!props.result) return null
@@ -416,6 +573,8 @@ export function ResponseViewer(props: {
   }, [props.result])
 
   const isJson = props.result ? parsed !== null : false
+  const aiSettings = useMemo(() => loadAppSettings().ai, [])
+  const aiSearchAvailable = aiSettings.enabled
   const isXmlBody = useMemo(() => {
     if (!props.result || isJson) return false
     const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
@@ -443,21 +602,41 @@ export function ResponseViewer(props: {
     return buildSearchBodyView({ source: parsed as JsonValue, rootWasArray: Array.isArray(parsed), bodyQuery })
   }, [bodyQuery, isJson, parsed, props.result])
 
+  const effectiveSearchQuery = responseSearchUseAi ? aiGeneratedQuery : bodyQuery.trim()
+  const localResolvedBodyView = useMemo(() => {
+    if (!responseSearchOpen || !isJson || !parsed || !effectiveSearchQuery) return null
+    return buildSearchBodyView({ source: parsed as JsonValue, rootWasArray: Array.isArray(parsed), bodyQuery: effectiveSearchQuery })
+  }, [effectiveSearchQuery, isJson, parsed, responseSearchOpen])
+
   const paginationPlan = useMemo(
-    () => (isJson ? buildPaginationPlan({ url: props.latestHistoryItem?.url, parsed: parsed as JsonValue | null }) : null),
-    [isJson, parsed, props.latestHistoryItem?.url],
+    () => (
+      isJson && effectiveSearchQuery
+        ? buildPaginationPlan({
+          url: props.latestHistoryItem?.url,
+          requestBodyText: props.latestHistoryItem?.draft?.bodyText,
+          parsed: parsed as JsonValue | null,
+        })
+        : null
+    ),
+    [effectiveSearchQuery, isJson, parsed, props.latestHistoryItem?.draft?.bodyText, props.latestHistoryItem?.url],
   )
 
   useEffect(() => {
-    if (!props.result || !props.request || !isJson || !responseSearchOpen || !bodyQuery.trim() || bodyView.error || !paginationPlan) {
+    if (!props.result || !props.request || !isJson || !responseSearchOpen || !effectiveSearchQuery || !localResolvedBodyView || localResolvedBodyView.error || !paginationPlan) {
       setPaginatedBodyView(null)
+      setPaginationSearchProgress(null)
       return
     }
 
     const latestUrl = (props.latestHistoryItem?.url || '').trim()
-    const requestHeaders = props.latestHistoryItem?.draft?.headers ?? {}
+    const requestHeaders = props.latestHistoryItem?.draft?.headers ?? props.result.requestHeaders ?? {}
+    const requestHeaderEntries = (props.latestHistoryItem?.draft?.headerEntries ?? [])
+      .map(entry => [typeof entry?.name === 'string' ? entry.name : '', typeof entry?.value === 'string' ? entry.value : ''] as [string, string])
+      .filter(([name]) => !!name.trim())
+    const requestBodyText = props.latestHistoryItem?.draft?.bodyText
     if (!latestUrl) {
       setPaginatedBodyView(null)
+      setPaginationSearchProgress(null)
       return
     }
     const requestForPagination = props.request
@@ -475,17 +654,7 @@ export function ResponseViewer(props: {
 
       const baseUrl = `${parsedUrl.origin}/`
       const urlTemplateOverride = `${parsedUrl.origin}${parsedUrl.pathname}`
-      const allDisplayMatches: unknown[][] = []
-      const allHighlightPlans: Array<SearchBodyView['highlightPlan']> = []
-      let totalMatchesCount = 0
-
-      const currentEval = evaluateJsonSearch(parsed as JsonValue, bodyQuery.trim())
-      if (currentEval.error) return
-      if (currentEval.matches.length) {
-        totalMatchesCount += currentEval.matches.length
-        allDisplayMatches.push(currentEval.displayMatches.length ? currentEval.displayMatches : currentEval.matches)
-        allHighlightPlans.push(currentEval.highlightPlan)
-      }
+      const collectedViews: SearchBodyView[] = [localResolvedBodyView]
 
       const pageValues: number[] = []
       if (paginationPlan.kind === 'page') {
@@ -498,11 +667,19 @@ export function ResponseViewer(props: {
         }
       }
 
-      for (const value of pageValues) {
+      const totalPages = pageValues.length + 1
+      setPaginationSearchProgress(totalPages > 1 ? { currentPage: 1, totalPages } : null)
+
+      for (let index = 0; index < pageValues.length; index += 1) {
+        const value = pageValues[index]
         if (canceled) return
+        setPaginationSearchProgress(totalPages > 1 ? { currentPage: index + 2, totalPages } : null)
         const nextQueryParams = Object.fromEntries(parsedUrl.searchParams.entries())
-        if (paginationPlan.kind === 'page') nextQueryParams[paginationPlan.pageParam] = String(value)
-        else nextQueryParams[paginationPlan.offsetParam] = String(value)
+        if (paginationPlan.source === 'query') {
+          if (paginationPlan.kind === 'page') nextQueryParams[paginationPlan.pageParam] = String(value)
+          else nextQueryParams[paginationPlan.offsetParam] = String(value)
+        }
+        const nextBodyText = buildBodyTextForPagination(paginationPlan, requestBodyText, value)
 
         const nextResult = await runRequest({
           request: requestForPagination,
@@ -512,7 +689,8 @@ export function ResponseViewer(props: {
           pathParams: {},
           queryParams: nextQueryParams,
           headers: requestHeaders,
-          bodyText: props.latestHistoryItem?.draft?.bodyText,
+          headerEntries: requestHeaderEntries.length ? requestHeaderEntries : undefined,
+          bodyText: nextBodyText,
           signal: abortController.signal,
         })
         if (canceled || !nextResult.ok) continue
@@ -520,27 +698,18 @@ export function ResponseViewer(props: {
         const nextParsed = safeJsonParse(nextResult.bodyText)
         if (nextParsed === null) continue
 
-        const nextEval = evaluateJsonSearch(nextParsed as JsonValue, bodyQuery.trim())
-        if (nextEval.error || !nextEval.matches.length) continue
-        totalMatchesCount += nextEval.matches.length
-        allDisplayMatches.push(nextEval.displayMatches.length ? nextEval.displayMatches : nextEval.matches)
-        allHighlightPlans.push(nextEval.highlightPlan)
+        const nextView = buildSearchBodyView({
+          source: nextParsed as JsonValue,
+          rootWasArray: Array.isArray(nextParsed),
+          bodyQuery: effectiveSearchQuery,
+        })
+        if (nextView.error || !nextView.matchesCount) continue
+        collectedViews.push(nextView)
       }
 
       if (canceled) return
-      if (!totalMatchesCount) {
-        setPaginatedBodyView({ text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
-        return
-      }
-
-      const combined = uniqueConcat(allDisplayMatches)
-      const output = combined.length === 1 ? combined[0] : combined
-      setPaginatedBodyView({
-        text: JSON.stringify(output, null, 2),
-        matchesCount: totalMatchesCount,
-        error: null,
-        highlightPlan: mergeHighlightPlans(allHighlightPlans),
-      })
+      setPaginationSearchProgress(null)
+      setPaginatedBodyView(mergeSearchViews(collectedViews))
     }
 
     void run()
@@ -548,14 +717,14 @@ export function ResponseViewer(props: {
     return () => {
       canceled = true
       abortController.abort()
+      setPaginationSearchProgress(null)
     }
   }, [
-    bodyQuery,
-    bodyView.error,
+    effectiveSearchQuery,
     isJson,
+    localResolvedBodyView,
     paginationPlan,
-    parsed,
-    props.latestHistoryItem?.draft?.bodyText,
+    props.latestHistoryItem?.draft?.headerEntries,
     props.latestHistoryItem?.draft?.headers,
     props.latestHistoryItem?.url,
     props.request,
@@ -563,7 +732,102 @@ export function ResponseViewer(props: {
     responseSearchOpen,
   ])
 
-  const effectiveBodyView = paginatedBodyView ?? bodyView
+  useEffect(() => {
+    if (!responseSearchUseAi || !responseSearchOpen || props.tab !== 'body' || !props.result || !aiSearchSubmittedQuery.trim()) {
+      setAiSearchBusy(false)
+      setAiGeneratedQuery(null)
+      setAiSearchBodyView(null)
+      return
+    }
+
+    if (!aiSearchAvailable) {
+      setAiSearchBusy(false)
+      setAiGeneratedQuery(null)
+      setAiSearchBodyView({
+        text: '',
+        matchesCount: null,
+        error: 'AI search is disabled in Settings.',
+        highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+      })
+      return
+    }
+
+    let canceled = false
+    const result = props.result
+    setAiSearchBusy(true)
+    setAiGeneratedQuery(null)
+    setAiSearchBodyView(null)
+
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const latestUrl = (props.latestHistoryItem?.url || '').trim()
+          const generated = await generateResponseSearchQueryWithYandex(aiSettings, {
+            request: {
+              method: props.request?.method || props.latestHistoryItem?.method || 'GET',
+              url: latestUrl,
+              headers: props.latestHistoryItem?.draft?.headers ?? result.requestHeaders ?? {},
+              bodyText: props.latestHistoryItem?.draft?.bodyText ?? '',
+            },
+            response: {
+              status: result.status,
+              statusText: result.statusText,
+              headers: result.responseHeaders,
+              bodyText: result.bodyText,
+              timeMs: result.timeMs,
+            },
+          }, aiSearchSubmittedQuery)
+
+          if (canceled) return
+          setAiGeneratedQuery(generated.query)
+          setAiSearchBodyView(buildSearchBodyView({
+            source: parsed as JsonValue,
+            rootWasArray: Array.isArray(parsed),
+            bodyQuery: generated.query,
+          }))
+        } catch (error) {
+          if (canceled) return
+          setAiGeneratedQuery(null)
+          setAiSearchBodyView({
+            text: '',
+            matchesCount: null,
+            error: error instanceof Error ? error.message : String(error),
+            highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+          })
+        } finally {
+          if (!canceled) setAiSearchBusy(false)
+        }
+      })()
+    }, 450)
+
+    return () => {
+      canceled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    aiSearchAvailable,
+    aiSettings,
+    aiSearchSubmittedQuery,
+    parsed,
+    props.latestHistoryItem?.draft?.bodyText,
+    props.latestHistoryItem?.draft?.headers,
+    props.latestHistoryItem?.method,
+    props.latestHistoryItem?.url,
+    props.request,
+    props.result,
+    responseSearchOpen,
+    responseSearchUseAi,
+    props.tab,
+  ])
+
+  const effectiveBodyView = responseSearchOpen && effectiveSearchQuery
+    ? (paginatedBodyView ?? aiSearchBodyView ?? {
+      text: aiSearchBusy ? 'AI is searching the response…' : '',
+      matchesCount: null,
+      error: null,
+      highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+    })
+    : bodyView
 
   const result = props.result
   const tab = props.tab
@@ -607,9 +871,11 @@ export function ResponseViewer(props: {
   const copyPayload = tab === 'body' ? effectiveBodyView.text : tab === 'headers' ? headersCopyPayload : tab === 'tests' ? testsText : ''
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
-  const responseSearchErrorText = tab === 'body' && responseSearchOpen && isJson && !!bodyQuery.trim() ? effectiveBodyView.error : null
-  const responseSearchMatchesCount = !effectiveBodyView.error && bodyQuery.trim() && typeof effectiveBodyView.matchesCount === 'number' ? effectiveBodyView.matchesCount : null
-  const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && isJson && typeof responseSearchMatchesCount === 'number'
+  const hasActiveSearchQuery = !!(responseSearchUseAi ? aiSearchSubmittedQuery.trim() : bodyQuery.trim())
+  const responseSearchErrorText = tab === 'body' && responseSearchOpen && hasActiveSearchQuery ? effectiveBodyView.error : null
+  const responseSearchMatchesCount = !effectiveBodyView.error && hasActiveSearchQuery && typeof effectiveBodyView.matchesCount === 'number' ? effectiveBodyView.matchesCount : null
+  const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && typeof responseSearchMatchesCount === 'number'
+  const isPaginationSearching = !!paginationSearchProgress && !aiSearchBusy
   const bodyHighlightPlan = tab === 'body' && responseSearchOpen && isJson && !effectiveBodyView.error
     ? effectiveBodyView.highlightPlan
     : EMPTY_HIGHLIGHT_PLAN
@@ -671,6 +937,12 @@ export function ResponseViewer(props: {
     setTimeout(() => setResponseSearchCopied(false), 800)
   }
 
+  function submitAiSearch() {
+    const q = bodyQuery.trim()
+    if (!q) return
+    setAiSearchSubmittedQuery(q)
+  }
+
   function recordResponseSearchHistory(query: string) {
     setResponseSearchHistory(prev => {
       const next = addResponseSearchHistoryEntry(prev, query, 10)
@@ -730,13 +1002,16 @@ export function ResponseViewer(props: {
   }
 
   function toggleResponseSearch() {
-    setResponseSearchOpen(prev => {
-      if (prev) {
-        recordResponseSearchHistory(bodyQuery)
-        closeResponseSearchHistoryMenu()
-      }
-      return !prev
-    })
+      setResponseSearchOpen(prev => {
+        if (prev) {
+          recordResponseSearchHistory(bodyQuery)
+          closeResponseSearchHistoryMenu()
+          setAiSearchSubmittedQuery('')
+          setAiGeneratedQuery(null)
+          setAiSearchBodyView(null)
+        }
+        return !prev
+      })
   }
 
   function toggleResponseSearchHistoryMenu(anchorEl: HTMLElement) {
@@ -1367,12 +1642,20 @@ export function ResponseViewer(props: {
                   onChange={e => setBodyQuery(e.target.value)}
                   onBlur={() => recordResponseSearchHistory(bodyQuery)}
                   onKeyDown={e => {
-                    if (e.key === 'Enter') recordResponseSearchHistory(bodyQuery)
+                    if (e.key === 'Enter') {
+                      recordResponseSearchHistory(bodyQuery)
+                      if (responseSearchUseAi) {
+                        e.preventDefault()
+                        submitAiSearch()
+                      }
+                    }
                     if (e.key === 'Escape') closeResponseSearchHistoryMenu()
                   }}
                   disabled={!isJson}
                   style={{ width: '100%' }}
-                  placeholder="Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id"
+                  placeholder={responseSearchUseAi
+                    ? 'Examples: найди все failed заказы | покажи user с id 42 | есть ли traceId | сколько items со status=done'
+                    : 'Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id'}
                 />
 
                 <button
@@ -1465,6 +1748,35 @@ export function ResponseViewer(props: {
                   </div>
                 ) : null}
               </div>
+              {responseSearchUseAi ? (
+                <button
+                  type="button"
+                  className="responseSearchActionBtn"
+                  onClick={submitAiSearch}
+                  disabled={!bodyQuery.trim() || aiSearchBusy || !aiSearchAvailable}
+                  title="Send AI search"
+                  aria-label="Send AI search"
+                >
+                  {aiSearchBusy ? 'Searching...' : 'Send'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={`responseSearchModeBtn ${responseSearchUseAi ? 'responseSearchModeBtnActive' : ''}`.trim()}
+                aria-pressed={responseSearchUseAi}
+                disabled={!aiSearchAvailable}
+                onClick={() => {
+                  setResponseSearchUseAi(prev => !prev)
+                  setAiSearchSubmittedQuery('')
+                  setAiGeneratedQuery(null)
+                  setAiSearchBodyView(null)
+                  closeResponseSearchHistoryMenu()
+                }}
+                title="Toggle AI search"
+                aria-label="Toggle AI search"
+              >
+                AI
+              </button>
               <button
                 type="button"
                 className="iconBtn"
@@ -1514,12 +1826,25 @@ export function ResponseViewer(props: {
               </button>
 
               <div className="responseFooterMeta small">
-                {responseSearchErrorText ? (
+                {responseSearchUseAi && responseSearchOpen && aiSearchSubmittedQuery.trim() && aiSearchBusy ? (
+                  <span>AI is searching…</span>
+                ) : isPaginationSearching ? (
+                  <span>
+                    Searching pages: <span className="mono">{paginationSearchProgress.currentPage}/{paginationSearchProgress.totalPages}</span>
+                  </span>
+                ) : responseSearchUseAi && responseSearchOpen && aiSearchSubmittedQuery.trim() && aiGeneratedQuery ? (
+                  <>
+                    AI query: <span className="mono">{aiGeneratedQuery}</span>
+                    {typeof responseSearchMatchesCount === 'number' ? <> · Matches: <span className="mono">{responseSearchMatchesCount}</span></> : null}
+                  </>
+                ) : responseSearchErrorText ? (
                   <span className="responseFooterError">{responseSearchErrorText}</span>
                 ) : responseSearchHasMatchesMeta ? (
                   <>
                     Matches: <span className="mono">{responseSearchMatchesCount}</span>
                   </>
+                ) : responseSearchUseAi && responseSearchOpen && !aiSearchAvailable ? (
+                  <span className="responseFooterError">Enable AI in Settings to use AI search.</span>
                 ) : null}
               </div>
             </div>
@@ -1650,7 +1975,22 @@ export function ResponseViewer(props: {
             <div className="small" style={{ display: 'grid', gap: 12 }}>
               <div className="treeMenuDivider" role="separator" style={{ margin: '2px 0 6px' }} />
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: 14, alignItems: 'start' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr 1px 1fr', gap: 14, alignItems: 'start' }}>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div><b>AI mode</b></div>
+                  <div>
+                    Turn on <span className="mono">AI</span> to translate natural language into a valid local search query.
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Examples: <span className="mono">найди все ошибки валидации</span>, <span className="mono">покажи пользователя с id 42</span>, <span className="mono">есть ли traceId</span>, <span className="mono">сколько заказов со status = failed</span>
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    AI does not answer the question directly. It generates JSONPath or filter syntax, then Ruf runs the usual local search engine.
+                  </div>
+                </div>
+
+                <div className="treeMenuDivider" role="separator" style={{ width: 1, height: '100%', margin: 0, alignSelf: 'stretch' }} />
+
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div><b>JSONPath</b></div>
                   <div>
@@ -1671,8 +2011,6 @@ export function ResponseViewer(props: {
                     </a>
                   </div>
                 </div>
-
-                <div className="treeMenuDivider" role="separator" style={{ width: 1, height: '100%', margin: 0, alignSelf: 'stretch' }} />
 
                 <div style={{ display: 'grid', gap: 12 }}>
                   <div><b>Filter</b></div>

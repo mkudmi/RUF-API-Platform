@@ -19,6 +19,18 @@ export type ClientTlsIdentity = {
   fileName?: string
 }
 
+export type AiProviderSettings = {
+  enabled: boolean
+  provider: 'yandex'
+  baseUrl: string
+  apiKey: string
+  folderId: string
+  model: string
+  temperature: number
+  maxCompletionTokens: number
+  timeoutMs: number
+}
+
 export type AppSettings = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
@@ -27,6 +39,19 @@ export type AppSettings = {
   disableRequestTimeout: boolean
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
+  ai: AiProviderSettings
+}
+
+export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
+  enabled: false,
+  provider: 'yandex',
+  baseUrl: 'https://ai.api.cloud.yandex.net/v1',
+  apiKey: '',
+  folderId: '',
+  model: 'qwen3.6-35b-a3b',
+  temperature: 0.2,
+  maxCompletionTokens: 900,
+  timeoutMs: 30_000,
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -37,6 +62,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   disableRequestTimeout: false,
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
   globalSqlConnections: [],
+  ai: { ...DEFAULT_AI_PROVIDER_SETTINGS },
 }
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
@@ -148,6 +174,42 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       .filter((x): x is GlobalSqlConnectionItem => !!x)
     : []
 
+  const rawAi = rec.ai
+  const ai: AiProviderSettings = (() => {
+    if (!rawAi || typeof rawAi !== 'object') return { ...DEFAULT_AI_PROVIDER_SETTINGS }
+    const aiRec = rawAi as Record<string, unknown>
+    const provider = aiRec.provider === 'yandex' ? 'yandex' : DEFAULT_AI_PROVIDER_SETTINGS.provider
+    const baseUrl = typeof aiRec.baseUrl === 'string' && aiRec.baseUrl.trim()
+      ? aiRec.baseUrl.trim()
+      : DEFAULT_AI_PROVIDER_SETTINGS.baseUrl
+    const apiKey = typeof aiRec.apiKey === 'string' ? aiRec.apiKey : ''
+    const folderId = typeof aiRec.folderId === 'string' ? aiRec.folderId.trim() : ''
+    const model = typeof aiRec.model === 'string' && aiRec.model.trim()
+      ? aiRec.model.trim()
+      : DEFAULT_AI_PROVIDER_SETTINGS.model
+    const temperature = typeof aiRec.temperature === 'number' && Number.isFinite(aiRec.temperature)
+      ? Math.max(0, Math.min(2, aiRec.temperature))
+      : DEFAULT_AI_PROVIDER_SETTINGS.temperature
+    const maxCompletionTokens = typeof aiRec.maxCompletionTokens === 'number' && Number.isFinite(aiRec.maxCompletionTokens)
+      ? Math.max(64, Math.min(16_384, Math.round(aiRec.maxCompletionTokens)))
+      : DEFAULT_AI_PROVIDER_SETTINGS.maxCompletionTokens
+    const timeoutMs = typeof aiRec.timeoutMs === 'number' && Number.isFinite(aiRec.timeoutMs)
+      ? Math.max(1_000, Math.min(300_000, Math.round(aiRec.timeoutMs)))
+      : DEFAULT_AI_PROVIDER_SETTINGS.timeoutMs
+
+    return {
+      enabled: typeof aiRec.enabled === 'boolean' ? aiRec.enabled : DEFAULT_AI_PROVIDER_SETTINGS.enabled,
+      provider,
+      baseUrl,
+      apiKey,
+      folderId,
+      model,
+      temperature,
+      maxCompletionTokens,
+      timeoutMs,
+    }
+  })()
+
   return {
     validateCertificates,
     caCertificates,
@@ -156,6 +218,7 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     disableRequestTimeout,
     globalSql,
     globalSqlConnections,
+    ai,
   }
 }
 

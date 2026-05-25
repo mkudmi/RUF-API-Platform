@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react'
 import type { Collection, RequestItem } from '../../collectionTree'
+import type { RunResult } from '../../requestRunner/runRequest'
 import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import type { VariableSuggestion } from '../../../shared/utils/variables'
 
 export type RequestEditorTabContext = {
   collection: Collection
   request: RequestItem
+  latestResult?: RunResult | null
   mockRouteMethodDefault: string
   mockRoutePathDefault: string
   mockTargetOriginDefault: string

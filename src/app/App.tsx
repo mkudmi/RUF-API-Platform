@@ -51,7 +51,14 @@ import type {
 import { uid } from '../shared/utils/id'
 import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHistory'
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
-import { loadAppSettings, saveAppSettings, type CaCertificate, type ClientTlsIdentity } from '../shared/utils/appSettings'
+import {
+  DEFAULT_AI_PROVIDER_SETTINGS,
+  loadAppSettings,
+  saveAppSettings,
+  type AiProviderSettings,
+  type CaCertificate,
+  type ClientTlsIdentity,
+} from '../shared/utils/appSettings'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -402,6 +409,7 @@ export default function App() {
   const [clientTlsPasswordInput, setClientTlsPasswordInput] = useState(() => initialAppSettings.clientTlsIdentity?.password ?? '')
   const [clientTlsError, setClientTlsError] = useState<string | null>(null)
   const [clientTlsBusy, setClientTlsBusy] = useState(false)
+  const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => initialAppSettings.ai ?? { ...DEFAULT_AI_PROVIDER_SETTINGS })
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
     createInitialGlobalSqlConnections(
       initialAppSettings.globalSqlConnections ?? [],
@@ -921,10 +929,11 @@ export default function App() {
       validateCertificates,
       caCertificates,
       clientTlsIdentity,
+      ai: aiSettings,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
+  }, [aiSettings, caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -3865,6 +3874,7 @@ export default function App() {
                     globalTestFunctions={buildAvailableTestFunctions(globalTestClasses)}
                     collection={active.col}
                     request={active.req}
+                    latestResult={resultByRequestId[active.req.id] ?? null}
                     inFlightCount={inFlightCountByRequestId[active.req.id] ?? 0}
                     onBeforeSend={(requestId, item) => onRequestBeforeSend(requestId, item)}
                     onSendStart={requestId => onRequestSendStart(requestId)}
@@ -4356,7 +4366,12 @@ export default function App() {
             ))}
           </div>
 
-          {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({ closeSettings, appVersion }) : null}
+          {activeSettingsTabExtension?.render ? activeSettingsTabExtension.render({
+            closeSettings,
+            appVersion,
+            aiSettings,
+            setAiSettings,
+          }) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
             <GeneralSettingsPanel

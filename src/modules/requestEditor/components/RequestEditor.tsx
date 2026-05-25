@@ -1484,6 +1484,7 @@ export function RequestEditor(props: {
   tabExtensions?: RequestEditorTabExtension[]
   collection: Collection
   request: RequestItem
+  latestResult?: RunResult | null
   inFlightCount?: number
   onBeforeSend?: (requestId: string, item: RequestHistoryItem) => void
   onSendStart?: (requestId: string, runId: string) => void
@@ -2859,91 +2860,6 @@ export function RequestEditor(props: {
     return ''
   }, [baseUrl, isEditingUrl, urlDraftText, urlEditorText])
 
-  const tabExtensionContext = useMemo<RequestEditorTabContext>(() => ({
-    collection: props.collection,
-    request: props.request,
-    mockRouteMethodDefault: props.request.method,
-    mockRoutePathDefault,
-    mockTargetOriginDefault,
-    environment: props.environment,
-    globalSqlConnections: props.globalSqlConnections,
-    variableSuggestions,
-    committedHeaders,
-    setHeaderValue: setHeaderValueForRequest,
-    sqlConnections,
-    selectedSqlConnectionId,
-    setSelectedSqlConnectionId,
-    preSqlScript,
-    postSqlScript,
-    preSqlScriptIsActive,
-    postSqlScriptIsActive,
-    setPreSqlScript,
-    setPostSqlScript,
-    setPreSqlScriptIsActive,
-    setPostSqlScriptIsActive,
-  }), [
-    committedHeaders,
-    mockTargetOriginDefault,
-    mockRoutePathDefault,
-    postSqlScript,
-    postSqlScriptIsActive,
-    preSqlScript,
-    preSqlScriptIsActive,
-    props.collection,
-    props.environment,
-    props.globalSqlConnections,
-    props.request,
-    selectedSqlConnectionId,
-    sqlConnections,
-    variableSuggestions,
-  ])
-
-  const requestEditorTabExtensions = useMemo(
-    () => buildRequestEditorTabExtensions(props.tabExtensions),
-    [props.tabExtensions],
-  )
-
-  const tabs = useMemo(() => {
-    const coreTabs = [
-      { id: 'params', label: 'Params', hasData: hasParamsTabData },
-      { id: 'headers', label: 'Headers', hasData: hasHeadersTabData },
-      { id: 'data', label: 'Data', hasData: hasDataTabData },
-    ]
-
-    const extTabs = requestEditorTabExtensions.map(tab => ({
-      id: tab.id,
-      label: tab.label,
-      hasData: !!tab.hasData?.(tabExtensionContext),
-    }))
-
-    const allTabs = [...coreTabs, ...extTabs]
-    const dataIndex = allTabs.findIndex(tab => tab.id === 'data')
-    const authIndex = allTabs.findIndex(tab => tab.id === 'authorization')
-    const next = [...allTabs]
-    if (dataIndex >= 0 && authIndex >= 0) {
-      ;[next[dataIndex], next[authIndex]] = [next[authIndex], next[dataIndex]]
-    }
-
-    const withoutTests = next.filter(tab => tab.id !== 'tests')
-    const sqlIndex = withoutTests.findIndex(tab => tab.id === 'sql')
-    const dataIndexAfter = withoutTests.findIndex(tab => tab.id === 'data')
-    const testsTab = { id: 'tests', label: 'Tests', hasData: hasTestsTabData }
-    const insertAt = sqlIndex >= 0
-      ? sqlIndex
-      : (dataIndexAfter >= 0 ? dataIndexAfter + 1 : withoutTests.length)
-    return [
-      ...withoutTests.slice(0, insertAt),
-      testsTab,
-      ...withoutTests.slice(insertAt),
-    ]
-  }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, hasTestsTabData, requestEditorTabExtensions, tabExtensionContext])
-
-  useEffect(() => {
-    if (!tabs.some(tab => tab.id === activeTabId)) {
-      setActiveTabId(tabs[0]?.id ?? 'headers')
-    }
-  }, [activeTabId, tabs])
-
   const effectiveContentType = useMemo(() => {
     const activeHeaders = removeInactiveHeaders(effectiveHeaders, inactiveHeaderNames)
     const fromHeadersOrSpec = (activeHeaders['Content-Type'] || activeHeaders['content-type'] || props.request.body?.contentType || '').trim()
@@ -2993,6 +2909,92 @@ export function RequestEditor(props: {
     if (bodyFormat !== 'auto') return bodyFormat
     return autoDetectedBodyFormat ?? 'auto'
   }, [autoDetectedBodyFormat, bodyFormat])
+  const tabExtensionContext = useMemo<RequestEditorTabContext>(() => ({
+    collection: props.collection,
+    request: props.request,
+    latestResult: props.latestResult,
+    mockRouteMethodDefault: props.request.method,
+    mockRoutePathDefault,
+    mockTargetOriginDefault,
+    environment: props.environment,
+    globalSqlConnections: props.globalSqlConnections,
+    variableSuggestions,
+    committedHeaders,
+    setHeaderValue: setHeaderValueForRequest,
+    sqlConnections,
+    selectedSqlConnectionId,
+    setSelectedSqlConnectionId,
+    preSqlScript,
+    postSqlScript,
+    preSqlScriptIsActive,
+    postSqlScriptIsActive,
+    setPreSqlScript,
+    setPostSqlScript,
+    setPreSqlScriptIsActive,
+    setPostSqlScriptIsActive,
+  }), [
+    committedHeaders,
+    props.collection,
+    props.environment,
+    props.globalSqlConnections,
+    props.latestResult,
+    props.request,
+    variableSuggestions,
+    mockRoutePathDefault,
+    mockTargetOriginDefault,
+    sqlConnections,
+    selectedSqlConnectionId,
+    preSqlScript,
+    postSqlScript,
+    preSqlScriptIsActive,
+    postSqlScriptIsActive,
+  ])
+
+  const requestEditorTabExtensions = useMemo(
+    () => buildRequestEditorTabExtensions(props.tabExtensions),
+    [props.tabExtensions],
+  )
+
+  const tabs = useMemo(() => {
+    const coreTabs = [
+      { id: 'params', label: 'Params', hasData: hasParamsTabData },
+      { id: 'headers', label: 'Headers', hasData: hasHeadersTabData },
+      { id: 'data', label: 'Data', hasData: hasDataTabData },
+    ]
+
+    const extTabs = requestEditorTabExtensions.map(tab => ({
+      id: tab.id,
+      label: tab.label,
+      hasData: !!tab.hasData?.(tabExtensionContext),
+    }))
+
+    const allTabs = [...coreTabs, ...extTabs]
+    const dataIndex = allTabs.findIndex(tab => tab.id === 'data')
+    const authIndex = allTabs.findIndex(tab => tab.id === 'authorization')
+    const next = [...allTabs]
+    if (dataIndex >= 0 && authIndex >= 0) {
+      ;[next[dataIndex], next[authIndex]] = [next[authIndex], next[dataIndex]]
+    }
+
+    const withoutTests = next.filter(tab => tab.id !== 'tests')
+    const sqlIndex = withoutTests.findIndex(tab => tab.id === 'sql')
+    const dataIndexAfter = withoutTests.findIndex(tab => tab.id === 'data')
+    const testsTab = { id: 'tests', label: 'Tests', hasData: hasTestsTabData }
+    const insertAt = sqlIndex >= 0
+      ? sqlIndex
+      : (dataIndexAfter >= 0 ? dataIndexAfter + 1 : withoutTests.length)
+    return [
+      ...withoutTests.slice(0, insertAt),
+      testsTab,
+      ...withoutTests.slice(insertAt),
+    ]
+  }, [hasDataTabData, hasHeadersTabData, hasParamsTabData, hasTestsTabData, requestEditorTabExtensions, tabExtensionContext])
+
+  useEffect(() => {
+    if (!tabs.some(tab => tab.id === activeTabId)) {
+      setActiveTabId(tabs[0]?.id ?? 'headers')
+    }
+  }, [activeTabId, tabs])
   const useJsonBodyEditor = bodyFormatForDisplay === 'json'
 
   function templateForBodyFormat(format: BodyFormat): string {

@@ -1,6 +1,6 @@
 import type { Collection } from '../../modules/collectionTree'
 import type { RunResult } from '../../modules/requestRunner/runRequest'
-import type { CaCertificate, ClientTlsIdentity } from '../../shared/utils/appSettings'
+import type { AiProviderSettings, CaCertificate, ClientTlsIdentity } from '../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../../shared/types/environment'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
 import type { Workspace } from '../../shared/types/workspace'
@@ -13,6 +13,7 @@ export type AppSettingsState = {
   disableRequestTimeout: boolean
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
+  ai: AiProviderSettings
 }
 
 export type HistoryRepository = {
