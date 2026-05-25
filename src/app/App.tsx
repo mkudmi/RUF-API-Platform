@@ -3902,6 +3902,7 @@ export default function App() {
               <div className="responseCardBody">
                 <ResponseViewer
                   result={activeRequestId ? (resultByRequestId[activeRequestId] ?? null) : null}
+                  aiSettings={aiSettings}
                   request={active?.req ?? null}
                   latestHistoryItem={activeHistory[0] ?? null}
                   inFlightCount={activeRequestId ? (inFlightCountByRequestId[activeRequestId] ?? 0) : 0}
