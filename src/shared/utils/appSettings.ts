@@ -38,6 +38,7 @@ export type JiraIntegrationSettings = {
   apiToken: string
   projectKey: string
   issueType: string
+  useTlsCertificates: boolean
 }
 
 export type AppSettings = {
@@ -71,6 +72,7 @@ export const DEFAULT_JIRA_INTEGRATION_SETTINGS: JiraIntegrationSettings = {
   apiToken: '',
   projectKey: '',
   issueType: 'Bug',
+  useTlsCertificates: false,
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -245,6 +247,9 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       apiToken: typeof jiraRec.apiToken === 'string' ? jiraRec.apiToken : '',
       projectKey: typeof jiraRec.projectKey === 'string' ? jiraRec.projectKey.trim().toUpperCase() : '',
       issueType,
+      useTlsCertificates: typeof jiraRec.useTlsCertificates === 'boolean'
+        ? jiraRec.useTlsCertificates
+        : DEFAULT_JIRA_INTEGRATION_SETTINGS.useTlsCertificates,
     }
   })()
 

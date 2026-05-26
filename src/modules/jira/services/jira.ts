@@ -1,6 +1,6 @@
 import { safeJsonParse } from '../../../shared/utils/http'
 import { platformFetch } from '../../../shared/utils/platformFetch'
-import type { JiraIntegrationSettings } from '../../../shared/utils/appSettings'
+import type { CaCertificate, ClientTlsIdentity, JiraIntegrationSettings } from '../../../shared/utils/appSettings'
 
 export type JiraBugDraft = {
   summary: string
@@ -15,6 +15,16 @@ export type JiraCreatedIssue = {
 type JiraCreateIssueResponse = {
   key?: unknown
   self?: unknown
+}
+
+export type JiraTransportOptions = {
+  validateCertificates: boolean
+  caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
+}
+
+export type JiraConnectionTestResult = {
+  message: string
 }
 
 function normalizeBaseUrl(baseUrl: string) {
@@ -81,6 +91,30 @@ function formatJiraError(payload: unknown) {
   return combined.length ? combined.join('\n') : null
 }
 
+function getJiraFetchOptions(settings: JiraIntegrationSettings, transport: JiraTransportOptions) {
+  const hasClientTlsIdentity = !!transport.clientTlsIdentity?.pkcs12Base64.trim()
+  return {
+    insecureTls: !transport.validateCertificates,
+    caCertsPem: settings.useTlsCertificates ? transport.caCertificates.map(cert => cert.pem) : [],
+    clientPkcs12Base64: settings.useTlsCertificates && hasClientTlsIdentity
+      ? transport.clientTlsIdentity?.pkcs12Base64
+      : undefined,
+    clientPkcs12Password: settings.useTlsCertificates && hasClientTlsIdentity
+      ? transport.clientTlsIdentity?.password
+      : undefined,
+  }
+}
+
+function getAuthorizationHeader(settings: JiraIntegrationSettings) {
+  const email = settings.email.trim()
+  const apiToken = settings.apiToken.trim()
+
+  if (!email) throw new Error('Missing Jira email.')
+  if (!apiToken) throw new Error('Missing Jira API token.')
+
+  return `Basic ${encodeBase64(`${email}:${apiToken}`)}`
+}
+
 export function isJiraConfigured(settings: JiraIntegrationSettings) {
   return Boolean(settings.enabled
     && !!settings.baseUrl.trim()
@@ -91,19 +125,16 @@ export function isJiraConfigured(settings: JiraIntegrationSettings) {
 
 export async function createJiraIssue(
   settings: JiraIntegrationSettings,
+  transport: JiraTransportOptions,
   draft: JiraBugDraft,
 ): Promise<JiraCreatedIssue> {
   if (!settings.enabled) throw new Error('Jira integration is disabled in Settings.')
   const baseUrl = normalizeBaseUrl(settings.baseUrl)
-  const email = settings.email.trim()
-  const apiToken = settings.apiToken.trim()
   const projectKey = settings.projectKey.trim().toUpperCase()
   const issueType = settings.issueType.trim() || 'Bug'
   const summary = draft.summary.trim()
   const description = draft.description.trim()
 
-  if (!email) throw new Error('Missing Jira email.')
-  if (!apiToken) throw new Error('Missing Jira API token.')
   if (!projectKey) throw new Error('Missing Jira project key.')
   if (!summary) throw new Error('Bug summary is required.')
   if (!description) throw new Error('Bug description is required.')
@@ -113,7 +144,7 @@ export async function createJiraIssue(
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Basic ${encodeBase64(`${email}:${apiToken}`)}`,
+      Authorization: getAuthorizationHeader(settings),
     },
     body: JSON.stringify({
       fields: {
@@ -123,7 +154,7 @@ export async function createJiraIssue(
         description: buildJiraDescriptionDocument(description),
       },
     }),
-  })
+  }, getJiraFetchOptions(settings, transport))
 
   const text = await response.text()
   const parsed = safeJsonParse(text)
@@ -142,5 +173,38 @@ export async function createJiraIssue(
   return {
     key,
     url: issueUrl.includes('/browse/') ? issueUrl : `${baseUrl}/browse/${key}`,
+  }
+}
+
+export async function testJiraConnection(
+  settings: JiraIntegrationSettings,
+  transport: JiraTransportOptions,
+): Promise<JiraConnectionTestResult> {
+  if (!settings.enabled) throw new Error('Jira integration is disabled in Settings.')
+  const baseUrl = normalizeBaseUrl(settings.baseUrl)
+  const projectKey = settings.projectKey.trim().toUpperCase()
+
+  if (!projectKey) throw new Error('Missing Jira project key.')
+
+  const response = await platformFetch(`${baseUrl}/rest/api/3/project/${encodeURIComponent(projectKey)}`, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: getAuthorizationHeader(settings),
+    },
+  }, getJiraFetchOptions(settings, transport))
+
+  const text = await response.text()
+  const parsed = safeJsonParse(text)
+  if (!response.ok) {
+    throw new Error(formatJiraError(parsed) ?? `Jira request failed (${response.status} ${response.statusText}).`)
+  }
+
+  const projectName = parsed && typeof parsed === 'object' && typeof (parsed as Record<string, unknown>).name === 'string'
+    ? (parsed as Record<string, string>).name
+    : projectKey
+
+  return {
+    message: `Connection successful. Project ${projectKey}${projectName && projectName !== projectKey ? ` (${projectName})` : ''} is accessible.`,
   }
 }

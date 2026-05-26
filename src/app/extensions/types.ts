@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { Collection } from '../../modules/collectionTree'
-import type { AiProviderSettings, JiraIntegrationSettings } from '../../shared/utils/appSettings'
+import type { AiProviderSettings, CaCertificate, ClientTlsIdentity, JiraIntegrationSettings } from '../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem } from '../../shared/types/environment'
 
 export type AppDrawerRenderContext = {
@@ -12,6 +12,9 @@ export type AppDrawerRenderContext = {
   globalSqlConnections: GlobalSqlConnectionItem[]
   aiSettings: AiProviderSettings
   jiraSettings: JiraIntegrationSettings
+  validateCertificates: boolean
+  caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
   appVersion: string | null
 }
 

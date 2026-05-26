@@ -23,6 +23,8 @@ export const customSettingsTabExtensions: AppSettingsTabExtension[] = [
     render: ctx => createElement(JiraSettingsTab, {
       value: ctx.jiraSettings,
       onChange: ctx.setJiraSettings,
+      testMessage: ctx.jiraTestMessage,
+      testError: ctx.jiraTestError,
     }),
   },
 ]

@@ -62,6 +62,7 @@ import {
   type JiraIntegrationSettings,
 } from '../shared/utils/appSettings'
 import { testYandexAiStudioConnection } from '../modules/ai/provider'
+import { testJiraConnection } from '../modules/jira'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -432,6 +433,9 @@ export default function App() {
   const [aiTestBusy, setAiTestBusy] = useState(false)
   const [aiTestMessage, setAiTestMessage] = useState<string | null>(null)
   const [aiTestError, setAiTestError] = useState<string | null>(null)
+  const [jiraTestBusy, setJiraTestBusy] = useState(false)
+  const [jiraTestMessage, setJiraTestMessage] = useState<string | null>(null)
+  const [jiraTestError, setJiraTestError] = useState<string | null>(null)
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
     createInitialGlobalSqlConnections(
       initialAppSettings.globalSqlConnections ?? [],
@@ -671,6 +675,9 @@ export default function App() {
     setAiTestBusy(false)
     setAiTestMessage(null)
     setAiTestError(null)
+    setJiraTestBusy(false)
+    setJiraTestMessage(null)
+    setJiraTestError(null)
     if (defaultTabId === 'general') refreshCacheSize()
     settingsDialogRef.current?.showModal()
     requestAnimationFrame(() => {
@@ -694,6 +701,24 @@ export default function App() {
       setAiTestError(error instanceof Error ? error.message : String(error))
     } finally {
       setAiTestBusy(false)
+    }
+  }
+
+  async function runJiraSettingsConnectionTest() {
+    setJiraTestBusy(true)
+    setJiraTestMessage(null)
+    setJiraTestError(null)
+    try {
+      const result = await testJiraConnection(jiraSettings, {
+        validateCertificates,
+        caCertificates,
+        clientTlsIdentity,
+      })
+      setJiraTestMessage(result.message)
+    } catch (error) {
+      setJiraTestError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setJiraTestBusy(false)
     }
   }
 
@@ -4418,8 +4443,15 @@ export default function App() {
             setAiSettings,
             jiraSettings,
             setJiraSettings,
+            validateCertificates,
+            caCertificates,
+            clientTlsIdentity,
             aiTestMessage,
             aiTestError,
+            jiraTestBusy,
+            jiraTestMessage,
+            jiraTestError,
+            runJiraSettingsConnectionTest,
           }) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
@@ -4896,6 +4928,11 @@ export default function App() {
                 {aiTestBusy ? 'Testing...' : 'Test'}
               </button>
             ) : null}
+            {settingsTab === 'jira' ? (
+              <button type="button" onClick={() => void runJiraSettingsConnectionTest()} disabled={jiraTestBusy}>
+                {jiraTestBusy ? 'Testing...' : 'Test'}
+              </button>
+            ) : null}
             <button onClick={closeSettings}>Save</button>
           </div>
         </dialog>
@@ -4911,6 +4948,9 @@ export default function App() {
               globalSqlConnections,
               aiSettings,
               jiraSettings,
+              validateCertificates,
+              caCertificates,
+              clientTlsIdentity,
               appVersion,
             })}
           </div>

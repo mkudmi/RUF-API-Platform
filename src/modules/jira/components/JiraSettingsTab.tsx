@@ -3,6 +3,8 @@ import type { JiraIntegrationSettings } from '../../../shared/utils/appSettings'
 type Props = {
   value: JiraIntegrationSettings
   onChange: (next: JiraIntegrationSettings | ((prev: JiraIntegrationSettings) => JiraIntegrationSettings)) => void
+  testMessage: string | null
+  testError: string | null
 }
 
 export function JiraSettingsTab(props: Props) {
@@ -85,11 +87,30 @@ export function JiraSettingsTab(props: Props) {
             />
           </div>
         </div>
+
+        <div className="settingsTableRow">
+          <div className="settingsTableLabel">Certificates</div>
+          <div className="settingsTableValue">
+            <label className="checkRow">
+              <input
+                type="checkbox"
+                className="checkInput"
+                checked={props.value.useTlsCertificates}
+                onChange={e => props.onChange(prev => ({ ...prev, useTlsCertificates: e.target.checked }))}
+              />
+              <span className="checkBox" aria-hidden="true" />
+              <span>Use app TLS certificates for Jira</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div className="small" style={{ opacity: 0.8 }}>
-        Use Jira Cloud credentials for the target project where bug reports should be created.
+        When enabled, Jira uses the app-level CA certificates and personal P12/PFX identity from General settings. When disabled, Jira connects without them.
       </div>
+
+      {props.testMessage ? <div className="small" style={{ color: '#7ee0a1' }}>{props.testMessage}</div> : null}
+      {props.testError ? <div className="small" style={{ color: '#ff9a9a', whiteSpace: 'pre-wrap' }}>{props.testError}</div> : null}
     </div>
   )
 }

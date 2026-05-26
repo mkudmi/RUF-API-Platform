@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon, StarIcon } from '../../../shared/icons'
-import type { AiProviderSettings, JiraIntegrationSettings } from '../../../shared/utils/appSettings'
+import type { AiProviderSettings, CaCertificate, ClientTlsIdentity, JiraIntegrationSettings } from '../../../shared/utils/appSettings'
 import { enhanceBugReportWithYandex } from '../../ai/provider'
 import { createJiraIssue, isJiraConfigured } from '../services/jira'
 
@@ -9,6 +9,9 @@ type Props = {
   onClose: () => void
   aiSettings: AiProviderSettings
   jiraSettings: JiraIntegrationSettings
+  validateCertificates: boolean
+  caCertificates: CaCertificate[]
+  clientTlsIdentity: ClientTlsIdentity | null
   openSettings: (tabId?: string) => void
 }
 
@@ -81,7 +84,11 @@ export function BugReportDialog(props: Props) {
     setError(null)
     setSuccess(null)
     try {
-      const issue = await createJiraIssue(props.jiraSettings, { summary, description })
+      const issue = await createJiraIssue(props.jiraSettings, {
+        validateCertificates: props.validateCertificates,
+        caCertificates: props.caCertificates,
+        clientTlsIdentity: props.clientTlsIdentity,
+      }, { summary, description })
       setSuccess(issue)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
