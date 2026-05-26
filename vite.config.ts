@@ -128,18 +128,6 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
   },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined
-          if (id.includes('/react/') || id.includes('/react-dom/')) return 'react-vendor'
-          if (id.includes('/pg/') || id.includes('/mysql2/')) return 'sql-vendor'
-          return 'vendor'
-        },
-      },
-    },
-  },
   plugins: [
     react(),
     {
