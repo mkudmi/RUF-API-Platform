@@ -1237,6 +1237,7 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 
 .sqlTerminalPaneTitleLeft { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sqlTerminalPaneActions { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .sqlTerminalPaneTitleRight {
   margin-left: auto;
   display: inline-flex;
@@ -1251,6 +1252,8 @@ button:hover { background: rgba(255,255,255,.10); }
   opacity: 0.75;
 }
 .sqlTerminalSchemaMenu { width: min(220px, 36vw); min-width: 140px; }
+.sqlTerminalAiMenu { width: auto; min-width: 0; }
+.sqlTerminalAiMenuPanel { width: min(230px, 42vw); }
 .sqlTerminalSchemaPanel { overscroll-behavior: contain; }
 .sqlTerminalSchemaPanelAbove { top: auto; bottom: calc(100% + 6px); }
 
@@ -1425,6 +1428,19 @@ button:hover { background: rgba(255,255,255,.10); }
 }
 .sqlTerminalPlayBtn:hover { background: rgba(255,255,255,.06); }
 .sqlTerminalPlayBtn:disabled { opacity: 0.55; cursor: default; }
+.sqlTerminalAiBtn {
+  min-width: 68px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+}
+.sqlTerminalAiMenuPanel .selectMenuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
 
 
 .fab:hover { background: rgba(255,255,255,.16); }

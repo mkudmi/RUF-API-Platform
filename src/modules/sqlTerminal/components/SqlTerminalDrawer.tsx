@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Collection } from '../../collectionTree'
+import type { AiProviderSettings } from '../../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
+import { enhanceSqlWithYandex } from '../../ai/provider'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
-import { CloseIcon, SqlTerminalPositionIcon } from '../../../shared/icons'
+import { CloseIcon, SqlTerminalPositionIcon, StarIcon } from '../../../shared/icons'
 
 type DbConnOption = {
   id: string
@@ -383,12 +385,15 @@ export function SqlTerminalDrawer(props: {
   collections: Collection[]
   environmentsByCollection: Record<string, Environment>
   extraConnections?: GlobalSqlConnectionItem[]
+  aiSettings: AiProviderSettings
 }) {
   const { open, onClose } = props
 
   const [busy, setBusy] = useState(false)
+  const [aiBusy, setAiBusy] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
+  const [aiMenuOpen, setAiMenuOpen] = useState(false)
   const [schemaMenuPlacement, setSchemaMenuPlacement] = useState<'below' | 'above'>('below')
   const [schemaMenuMaxHeight, setSchemaMenuMaxHeight] = useState<number>(220)
   const [heightPx, setHeightPx] = useState<number | null>(() => safeLoadNumber(SQL_TERMINAL_HEIGHT_KEY))
@@ -420,6 +425,7 @@ export function SqlTerminalDrawer(props: {
 
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const schemaMenuWrapRef = useRef<HTMLDivElement | null>(null)
+  const aiMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const editorWrapRef = useRef<HTMLDivElement | null>(null)
   const sqlRef = useRef<HTMLTextAreaElement | null>(null)
   const lineNumbersRef = useRef<HTMLPreElement | null>(null)
@@ -559,6 +565,15 @@ export function SqlTerminalDrawer(props: {
     },
   })
 
+  useDismissibleLayer({
+    open: aiMenuOpen,
+    onDismiss: () => setAiMenuOpen(false),
+    isInsideTarget: target => {
+      const wrap = aiMenuWrapRef.current
+      return !!(target && wrap && wrap.contains(target))
+    },
+  })
+
   useEffect(() => {
     if (heightPx == null) return
     safeSave(SQL_TERMINAL_HEIGHT_KEY, String(heightPx))
@@ -598,6 +613,22 @@ export function SqlTerminalDrawer(props: {
     if (!selectedConnId) safeRemove(SQL_TERMINAL_SELECTED_CONN_KEY)
     else safeSave(SQL_TERMINAL_SELECTED_CONN_KEY, selectedConnId)
   }, [selectedConnId])
+
+  const editorBusy = busy || aiBusy
+
+  const applySqlText = useCallback((nextText: string, nextCaret = nextText.length) => {
+    const hist = editHistoryRef.current
+    const current = hist.stack[hist.index]?.text ?? ''
+    if (current !== nextText) {
+      const nextEntry = { text: nextText, caret: nextCaret }
+      const base = hist.stack.slice(0, hist.index + 1)
+      const nextStack = clampHistory([...base, nextEntry], 20)
+      editHistoryRef.current = { stack: nextStack, index: nextStack.length - 1, applying: false }
+    }
+
+    pendingCaretRef.current = nextCaret
+    setSql(nextText)
+  }, [])
 
   useEffect(() => {
     safeSave(SQL_TERMINAL_SQL_KEY, sql)
@@ -1143,7 +1174,7 @@ export function SqlTerminalDrawer(props: {
   }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
 
   async function run() {
-    if (busy) return
+    if (editorBusy) return
     const conn = selectedConn
     if (!conn) {
       pushOutput([{ kind: 'err', text: 'No database connection selected. Configure connection in App Settings or Collection Environment.' }])
@@ -1235,7 +1266,7 @@ export function SqlTerminalDrawer(props: {
   }
 
   async function loadMoreRows(loadAll: boolean) {
-    if (busy) return
+    if (editorBusy) return
     if (!paging.enabled || !paging.hasMore || paging.loading) return
     const conn = selectedConn
     if (!conn || conn.type !== 'postgres') return
@@ -1309,10 +1340,51 @@ export function SqlTerminalDrawer(props: {
   function onOutputScroll() {
     const el = outputRef.current
     if (!el) return
-    if (busy || paging.loading || !paging.enabled || !paging.hasMore || paging.loadAll) return
+    if (editorBusy || paging.loading || !paging.enabled || !paging.hasMore || paging.loadAll) return
     const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
     if (remaining > 120) return
     void loadMoreRows(false)
+  }
+
+  async function handleEnhanceSqlWithAi() {
+    const rawSql = sql.trim()
+    setAiMenuOpen(false)
+
+    if (aiBusy || busy) return
+    if (!rawSql) {
+      pushOutput([{ kind: 'sys', text: 'Nothing to enhance.' }])
+      return
+    }
+
+    if (!props.aiSettings.enabled) {
+      pushOutput([{ kind: 'err', text: 'AI is disabled in Settings.' }])
+      return
+    }
+
+    const conn = selectedConn
+    const dialect = conn?.type ?? 'postgres'
+    setAiBusy(true)
+    pushOutput([{ kind: 'sys', text: 'AI is checking the SQL script…' }])
+
+    try {
+      const result = await enhanceSqlWithYandex(props.aiSettings, {
+        sql,
+        dialect,
+        schema: conn?.type === 'postgres' ? selectedSchema : undefined,
+      })
+
+      applySqlText(result.sql)
+      pushOutput([{ kind: 'out', text: result.summary || 'AI enhancement completed.' }])
+    } catch (error) {
+      pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
+    } finally {
+      setAiBusy(false)
+      requestAnimationFrame(() => sqlRef.current?.focus())
+    }
+  }
+
+  function handleCreateSqlWithAi() {
+    setAiMenuOpen(false)
   }
 
   const selectedLabel = selectedConn ? `${selectedConn.label}: ${selectedConn.connectionPreview}` : (connOptions.length ? 'Select DB…' : 'No DB connections')
@@ -1428,7 +1500,7 @@ export function SqlTerminalDrawer(props: {
               onClick={() => setDrawerPosition(prev => (prev === 'left' ? 'bottom' : 'left'))}
               aria-label={isLeftPosition ? 'Move terminal to bottom' : 'Move terminal to left'}
               title={isLeftPosition ? 'Move to bottom' : 'Move to left'}
-              disabled={busy || !open}
+              disabled={editorBusy || !open}
             >
               <SqlTerminalPositionIcon left={isLeftPosition} />
             </button>
@@ -1443,12 +1515,12 @@ export function SqlTerminalDrawer(props: {
                 setLastRunSchemaTableLabel(null)
                 setPaging({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
                 setLastRunSchemaTableLabel(null)
-                setSql('')
+                applySqlText('', 0)
                 requestAnimationFrame(() => sqlRef.current?.focus())
               }}
               aria-label="Clear output"
               title="Clear"
-              disabled={busy || !open}
+              disabled={editorBusy || !open}
             >
               <span className="terminalClearGlyph">⟲</span>
             </button>
@@ -1523,16 +1595,74 @@ export function SqlTerminalDrawer(props: {
                   ) : null}
                 </div>
               </div>
-              <button
-                type="button"
-                className="iconBtn sqlTerminalPlayBtn"
-                onClick={() => void run()}
-                disabled={busy || !open || !selectedConn || !sql.trim()}
-                aria-label="Run SQL"
-                title={busy ? 'Running…' : 'Run (Ctrl+Enter). Selection/current statement. Trailing ; is optional.'}
-              >
-                ▶
-              </button>
+              <div className="sqlTerminalPaneActions">
+                <div ref={aiMenuOpen ? aiMenuWrapRef : null} className="selectMenuWrap sqlTerminalAiMenu">
+                  <button
+                    type="button"
+                    className="responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn"
+                    disabled={!open || editorBusy}
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (editorBusy) return
+                      setAiMenuOpen(prev => !prev)
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={aiMenuOpen}
+                    aria-label="AI actions"
+                    title={aiBusy ? 'AI is working…' : 'AI actions'}
+                  >
+                    <span className="aiEnhanceBtnSpark" aria-hidden="true">
+                      <StarIcon size={14} />
+                    </span>
+                    <span className="aiEnhanceBtnText">AI</span>
+                  </button>
+                  {aiMenuOpen ? (
+                    <div
+                      className="selectMenuPanel sqlTerminalAiMenuPanel"
+                      role="menu"
+                      onPointerDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      onClick={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="selectMenuItem"
+                        role="menuitem"
+                        disabled={editorBusy || !sql.trim()}
+                        onClick={() => void handleEnhanceSqlWithAi()}
+                      >
+                        <span>Enchance with AI</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="selectMenuItem"
+                        role="menuitem"
+                        onClick={handleCreateSqlWithAi}
+                      >
+                        <span>Create SQL with AI</span>
+                        <span style={{ opacity: 0.58 }}>Soon</span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="iconBtn sqlTerminalPlayBtn"
+                  onClick={() => void run()}
+                  disabled={editorBusy || !open || !selectedConn || !sql.trim()}
+                  aria-label="Run SQL"
+                  title={busy ? 'Running…' : (aiBusy ? 'AI is working…' : 'Run (Ctrl+Enter). Selection/current statement. Trailing ; is optional.')}
+                >
+                  ▶
+                </button>
+              </div>
             </div>
             <div ref={editorWrapRef} className="sqlTerminalEditorWrap" style={editorWrapStyle}>
               <div className="sqlTerminalLineNumbers" aria-hidden="true">
@@ -1548,7 +1678,7 @@ export function SqlTerminalDrawer(props: {
                 ref={sqlRef}
                 className="sqlTerminalEditor mono"
                 value={sql}
-                disabled={!open || busy}
+                disabled={!open || editorBusy}
                 onChange={e => {
                   const nextText = e.target.value
                   const caret = e.target.selectionStart ?? 0
@@ -1733,7 +1863,7 @@ export function SqlTerminalDrawer(props: {
                     <button
                       type="button"
                       className="iconBtn"
-                      disabled={busy || paging.loading || !paging.hasMore}
+                      disabled={editorBusy || paging.loading || !paging.hasMore}
                       onClick={() => void loadMoreRows(true)}
                       title={paging.hasMore ? 'Load full result' : 'All rows loaded'}
                       aria-label="Load all rows"

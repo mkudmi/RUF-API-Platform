@@ -33,6 +33,7 @@ const sqlTerminalTool: AppSidebarToolExtension = {
       collections={ctx.collections}
       environmentsByCollection={ctx.environmentsByCollection}
       extraConnections={ctx.globalSqlConnections}
+      aiSettings={ctx.aiSettings}
     />
   ),
 }

@@ -1,7 +1,7 @@
 import type { AiProviderSettings } from '../../shared/utils/appSettings'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
-import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt } from './prompts'
+import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt, buildSqlEnhancementPrompt } from './prompts'
 import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
 import {
   buildResponseSearchContext,
@@ -103,6 +103,17 @@ export type AiResponseSchemaDiffSnapshot = {
   }
   baselineSchemaText: string
   actualSchemaText: string
+}
+
+export type AiSqlEnhancementSnapshot = {
+  sql: string
+  dialect: 'postgres' | 'mysql'
+  schema?: string
+}
+
+export type AiSqlEnhancementResult = {
+  sql: string
+  summary: string
 }
 
 function stringifyHeaders(headers: Record<string, string>) {
@@ -466,4 +477,51 @@ export async function enhanceBugReportWithYandex(
   }
 
   return { summary, description }
+}
+
+export async function enhanceSqlWithYandex(
+  settings: AiProviderSettings,
+  snapshot: AiSqlEnhancementSnapshot,
+): Promise<AiSqlEnhancementResult> {
+  ensureYandexSettings(settings)
+
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: 0.1,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: buildSqlEnhancementPrompt(snapshot),
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`AI SQL enhancement failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError('AI SQL enhancement returned an empty response.', text))
+  }
+
+  const result = parseJsonFromAiText<Partial<AiSqlEnhancementResult>>(content)
+  if (!result || typeof result !== 'object') {
+    throw new Error('AI SQL enhancement returned invalid JSON.')
+  }
+
+  const sql = typeof result.sql === 'string' ? result.sql.trim() : ''
+  const summary = typeof result.summary === 'string' ? result.summary.trim() : ''
+  if (!sql) {
+    throw new Error('AI SQL enhancement did not return SQL.')
+  }
+
+  return { sql, summary: summary || 'SQL checked.' }
 }
