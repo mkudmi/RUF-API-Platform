@@ -742,6 +742,130 @@ button:hover { background: rgba(255,255,255,.10); }
   margin-top: 10px;
 }
 
+.bugReportModal {
+  width: min(760px, 92vw);
+}
+
+.bugReportModalBody {
+  width: 100%;
+}
+
+.bugReportFormRow {
+  grid-template-columns: 140px minmax(0, 1fr);
+}
+
+.bugReportFormRowTop {
+  align-items: start;
+}
+
+.bugReportFormRowTop .formLabel {
+  padding-top: 10px;
+}
+
+.aiMagicBtn,
+.aiEnhanceBtn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-color: rgba(118, 196, 255, 0.34);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.16), transparent 48%),
+    linear-gradient(135deg, rgba(64, 134, 255, .28), rgba(86, 214, 190, .22) 52%, rgba(255, 184, 77, .2));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.14),
+    0 0 0 1px rgba(118, 196, 255, 0.08),
+    0 10px 24px rgba(32, 82, 166, 0.22);
+  transition: transform .18s ease, box-shadow .22s ease, border-color .22s ease, filter .22s ease;
+}
+
+.aiMagicBtn::before,
+.aiEnhanceBtn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(115deg, transparent 18%, rgba(255,255,255,.18) 48%, transparent 76%);
+  transform: translateX(-135%);
+  animation: aiEnhanceShimmer 2.8s ease-in-out infinite;
+}
+
+.aiMagicBtn:hover,
+.aiEnhanceBtn:hover {
+  border-color: rgba(149, 220, 255, 0.55);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.2), transparent 52%),
+    linear-gradient(135deg, rgba(72, 148, 255, .34), rgba(103, 229, 203, .28) 52%, rgba(255, 194, 92, .24));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.18),
+    0 0 0 1px rgba(118, 196, 255, 0.14),
+    0 14px 30px rgba(32, 82, 166, 0.28);
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+}
+
+.aiMagicBtn:focus-visible,
+.aiEnhanceBtn:focus-visible {
+  outline: 2px solid rgba(167, 226, 255, 0.72);
+  outline-offset: 2px;
+}
+
+.aiMagicBtn:disabled,
+.aiEnhanceBtn:disabled {
+  transform: none;
+  filter: saturate(.86);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.08),
+    0 0 0 1px rgba(118, 196, 255, 0.05);
+}
+
+.aiMagicBtn:disabled::before,
+.aiEnhanceBtn:disabled::before {
+  animation-duration: 4.2s;
+  opacity: .55;
+}
+
+.aiEnhanceBtnSpark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #dff8ff;
+  filter: drop-shadow(0 0 10px rgba(194, 238, 255, .52));
+  animation: aiEnhanceSparkPulse 1.8s ease-in-out infinite;
+}
+
+.aiEnhanceBtnText {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes aiEnhanceShimmer {
+  0%, 18% {
+    transform: translateX(-135%);
+    opacity: .15;
+  }
+  55% {
+    opacity: .85;
+  }
+  100% {
+    transform: translateX(135%);
+    opacity: .08;
+  }
+}
+
+@keyframes aiEnhanceSparkPulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: .92;
+  }
+  50% {
+    transform: scale(1.12) rotate(10deg);
+    opacity: 1;
+  }
+}
+
 .importMenuGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -763,6 +887,30 @@ button:hover { background: rgba(255,255,255,.10); }
 
 @media (max-width: 520px) {
   .importMenuGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .bugReportFormRow {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .bugReportFormRowTop .formLabel {
+    padding-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aiEnhanceBtn::before,
+  .aiEnhanceBtnSpark {
+    animation: none;
+  }
+
+  .aiEnhanceBtn {
+    transition: border-color .18s ease, box-shadow .18s ease;
+  }
+
+  .aiEnhanceBtn:hover {
+    transform: none;
+  }
 }
 
 .importHint {
@@ -2819,7 +2967,7 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
   transition: max-height 180ms ease, opacity 180ms ease;
 }
 .responseSearchWrapOpen { max-height: 120px; opacity: 1; }
-.responseSearchWrapOpen .responseSearchInner { margin-top: 6px; }
+.responseSearchWrapOpen .responseSearchInner { margin-top: 8px; margin-bottom: 10px; }
 .responseSearchInner { display: flex; gap: 8px; align-items: center; }
 .responseSearchActionBtn,
 .responseSearchModeBtn {
@@ -2843,11 +2991,18 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .responseSearchInner input:focus-visible { outline: none; box-shadow: none; border-color: rgba(255,255,255,.22); }
 .responseSearchModeBtn {
   min-width: 54px;
+  justify-content: center;
+  text-align: center;
 }
 .responseSearchModeBtnActive {
   border-color: rgba(143,211,255,.45);
-  background: rgba(143,211,255,.14);
-  box-shadow: inset 0 0 0 1px rgba(143,211,255,.14);
+  background:
+    radial-gradient(circle at top, rgba(255,255,255,.2), transparent 52%),
+    linear-gradient(135deg, rgba(72, 148, 255, .34), rgba(103, 229, 203, .28) 52%, rgba(255, 194, 92, .24));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.16),
+    inset 0 0 0 1px rgba(143,211,255,.14),
+    0 10px 22px rgba(32, 82, 166, 0.22);
 }
 
 /* Tabs */

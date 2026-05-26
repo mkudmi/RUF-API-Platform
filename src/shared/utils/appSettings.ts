@@ -31,6 +31,15 @@ export type AiProviderSettings = {
   timeoutMs: number
 }
 
+export type JiraIntegrationSettings = {
+  enabled: boolean
+  baseUrl: string
+  email: string
+  apiToken: string
+  projectKey: string
+  issueType: string
+}
+
 export type AppSettings = {
   validateCertificates: boolean
   caCertificates: CaCertificate[]
@@ -40,6 +49,7 @@ export type AppSettings = {
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
   ai: AiProviderSettings
+  jira: JiraIntegrationSettings
 }
 
 export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
@@ -54,6 +64,15 @@ export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
   timeoutMs: 30_000,
 }
 
+export const DEFAULT_JIRA_INTEGRATION_SETTINGS: JiraIntegrationSettings = {
+  enabled: false,
+  baseUrl: '',
+  email: '',
+  apiToken: '',
+  projectKey: '',
+  issueType: 'Bug',
+}
+
 const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
   caCertificates: [],
@@ -63,6 +82,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
   globalSqlConnections: [],
   ai: { ...DEFAULT_AI_PROVIDER_SETTINGS },
+  jira: { ...DEFAULT_JIRA_INTEGRATION_SETTINGS },
 }
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
@@ -210,6 +230,24 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     }
   })()
 
+  const rawJira = rec.jira
+  const jira: JiraIntegrationSettings = (() => {
+    if (!rawJira || typeof rawJira !== 'object') return { ...DEFAULT_JIRA_INTEGRATION_SETTINGS }
+    const jiraRec = rawJira as Record<string, unknown>
+    const issueType = typeof jiraRec.issueType === 'string' && jiraRec.issueType.trim()
+      ? jiraRec.issueType.trim()
+      : DEFAULT_JIRA_INTEGRATION_SETTINGS.issueType
+
+    return {
+      enabled: typeof jiraRec.enabled === 'boolean' ? jiraRec.enabled : DEFAULT_JIRA_INTEGRATION_SETTINGS.enabled,
+      baseUrl: typeof jiraRec.baseUrl === 'string' ? jiraRec.baseUrl.trim() : '',
+      email: typeof jiraRec.email === 'string' ? jiraRec.email.trim() : '',
+      apiToken: typeof jiraRec.apiToken === 'string' ? jiraRec.apiToken : '',
+      projectKey: typeof jiraRec.projectKey === 'string' ? jiraRec.projectKey.trim().toUpperCase() : '',
+      issueType,
+    }
+  })()
+
   return {
     validateCertificates,
     caCertificates,
@@ -219,6 +257,7 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     globalSql,
     globalSqlConnections,
     ai,
+    jira,
   }
 }
 

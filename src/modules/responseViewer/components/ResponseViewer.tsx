@@ -1831,7 +1831,7 @@ export function ResponseViewer(props: {
               </button>
               <button
                 type="button"
-                className={`responseSearchModeBtn ${responseSearchUseAi ? 'responseSearchModeBtnActive' : ''}`.trim()}
+                className={`responseSearchModeBtn ${responseSearchUseAi ? 'responseSearchModeBtnActive aiMagicBtn' : ''}`.trim()}
                 aria-pressed={responseSearchUseAi}
                 disabled={!aiSearchAvailable}
                 onClick={() => {

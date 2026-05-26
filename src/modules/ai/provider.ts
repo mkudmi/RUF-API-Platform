@@ -1,7 +1,7 @@
 import type { AiProviderSettings } from '../../shared/utils/appSettings'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
-import { buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt } from './prompts'
+import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt } from './prompts'
 import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
 
 export type AiExplainSnapshot = {
@@ -70,6 +70,11 @@ export type AiResponseSearchSnapshot = {
 
 export type AiGeneratedSearchQuery = {
   query: string
+}
+
+export type AiEnhancedBugReport = {
+  summary: string
+  description: string
 }
 
 export type AiResponseSchemaDiffSnapshot = {
@@ -145,6 +150,64 @@ function stripMarkdownCodeFence(text: string): string {
   const trimmed = text.trim()
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)
   return fenced ? fenced[1].trim() : trimmed
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === '\\') {
+        escaped = true
+        continue
+      }
+      if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === '{') {
+      depth += 1
+      continue
+    }
+
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0) {
+        return text.slice(start, i + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function parseJsonFromAiText<T>(text: string): T | null {
+  const direct = safeJsonParse(text) as T | null
+  if (direct && typeof direct === 'object') return direct
+
+  const extracted = extractFirstJsonObject(text)
+  if (!extracted) return null
+
+  const fallback = safeJsonParse(extracted) as T | null
+  return fallback && typeof fallback === 'object' ? fallback : null
 }
 
 function ensureYandexSettings(settings: AiProviderSettings) {
@@ -239,7 +302,7 @@ export async function generateResponseSearchQueryWithYandex(
     throw new Error(buildEmptyAiResponseError('AI search returned an empty response.', text))
   }
 
-  const result = safeJsonParse(content) as Partial<AiGeneratedSearchQuery> | null
+  const result = parseJsonFromAiText<Partial<AiGeneratedSearchQuery>>(content)
   if (!result || typeof result !== 'object') {
     throw new Error('AI search returned invalid JSON.')
   }
@@ -295,4 +358,54 @@ export async function compareResponseSchemaWithYandex(
   }
 
   return trimmed
+}
+
+export async function enhanceBugReportWithYandex(
+  settings: AiProviderSettings,
+  input: { summary: string, description: string },
+): Promise<AiEnhancedBugReport> {
+  ensureYandexSettings(settings)
+
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: 0.2,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: buildBugReportPrompt(input),
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`AI bug report enhancement failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError('AI bug report enhancement returned an empty response.', text))
+  }
+
+  const result = parseJsonFromAiText<Partial<AiEnhancedBugReport>>(content)
+  if (!result || typeof result !== 'object') {
+    throw new Error('AI bug report enhancement returned invalid JSON.')
+  }
+
+  const summary = typeof result.summary === 'string' ? result.summary.trim() : ''
+  const description = typeof result.description === 'string' ? result.description.trim() : ''
+  if (!summary) {
+    throw new Error('AI bug report enhancement did not return a summary.')
+  }
+  if (!description) {
+    throw new Error('AI bug report enhancement did not return a description.')
+  }
+
+  return { summary, description }
 }

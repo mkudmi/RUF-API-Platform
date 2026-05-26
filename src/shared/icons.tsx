@@ -2,6 +2,7 @@ import {
   IconArrowLeft,
   IconArrowsSort,
   IconArrowsDiagonal,
+  IconBug,
   IconCopy,
   IconEraser,
   IconFolderMinus,
@@ -136,6 +137,10 @@ export function TerminalIcon(props?: SharedIconProps) {
 
 export function MockServerIcon(props?: SharedIconProps) {
   return renderIcon(IconServer2, props)
+}
+
+export function BugIcon(props?: SharedIconProps) {
+  return renderIcon(IconBug, props)
 }
 
 export function PlusIcon(props?: SharedIconProps) {

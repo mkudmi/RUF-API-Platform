@@ -53,11 +53,13 @@ import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHi
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
 import {
   DEFAULT_AI_PROVIDER_SETTINGS,
+  DEFAULT_JIRA_INTEGRATION_SETTINGS,
   loadAppSettings,
   saveAppSettings,
   type AiProviderSettings,
   type CaCertificate,
   type ClientTlsIdentity,
+  type JiraIntegrationSettings,
 } from '../shared/utils/appSettings'
 import { testYandexAiStudioConnection } from '../modules/ai/provider'
 import { platformFetch } from '../shared/utils/platformFetch'
@@ -426,6 +428,7 @@ export default function App() {
   const [clientTlsError, setClientTlsError] = useState<string | null>(null)
   const [clientTlsBusy, setClientTlsBusy] = useState(false)
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => initialAppSettings.ai ?? { ...DEFAULT_AI_PROVIDER_SETTINGS })
+  const [jiraSettings, setJiraSettings] = useState<JiraIntegrationSettings>(() => initialAppSettings.jira ?? { ...DEFAULT_JIRA_INTEGRATION_SETTINGS })
   const [aiTestBusy, setAiTestBusy] = useState(false)
   const [aiTestMessage, setAiTestMessage] = useState<string | null>(null)
   const [aiTestError, setAiTestError] = useState<string | null>(null)
@@ -659,8 +662,11 @@ export default function App() {
     setOpenDrawerId(null)
   }
 
-  function openSettings() {
-    const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
+  function openSettings(tabId?: string) {
+    const requestedTabId = tabId && settingsTabExtensions.some(tab => tab.id === tabId)
+      ? tabId
+      : null
+    const defaultTabId = requestedTabId ?? settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
     setSettingsTab(defaultTabId)
     setAiTestBusy(false)
     setAiTestMessage(null)
@@ -969,10 +975,11 @@ export default function App() {
       caCertificates,
       clientTlsIdentity,
       ai: aiSettings,
+      jira: jiraSettings,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [aiSettings, caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
+  }, [aiSettings, caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, jiraSettings, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -3842,7 +3849,7 @@ export default function App() {
             <div className="sidebarBottomLeft">
               <button
                 className="iconBtn settingsBtn"
-                onClick={openSettings}
+                onClick={() => openSettings()}
                 aria-label="Settings"
                 title="Settings"
               >
@@ -4409,6 +4416,8 @@ export default function App() {
             appVersion,
             aiSettings,
             setAiSettings,
+            jiraSettings,
+            setJiraSettings,
             aiTestMessage,
             aiTestError,
           }) : null}
@@ -4896,9 +4905,13 @@ export default function App() {
             {tool.render({
               openDrawerId,
               closeDrawer,
+              openSettings,
               collections,
               environmentsByCollection: envByCollection,
               globalSqlConnections,
+              aiSettings,
+              jiraSettings,
+              appVersion,
             })}
           </div>
         ))}
