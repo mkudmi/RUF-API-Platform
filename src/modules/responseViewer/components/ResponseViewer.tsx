@@ -456,6 +456,7 @@ export function ResponseViewer(props: {
   ))
   const [schemaNoticeMode, setSchemaNoticeMode] = useState<SchemaNoticeMode>('none')
   const [schemaAutoNoticeDismissed, setSchemaAutoNoticeDismissed] = useState(false)
+  const lastSchemaResponseRef = useRef<{ requestId: string | null, resultIdentity: string }>({ requestId: null, resultIdentity: 'no-result' })
   const overwriteSchemaDialogRef = useRef<HTMLDialogElement | null>(null)
   const aiSchemaExplainDialogRef = useRef<HTMLDialogElement | null>(null)
   const [overwriteSchemaText, setOverwriteSchemaText] = useState('')
@@ -1117,13 +1118,26 @@ export function ResponseViewer(props: {
     setAiSearchBodyView(null)
     setAiSearchExecutionSnapshot(null)
     setPaginatedBodyView(null)
-    setSchemaAutoNoticeDismissed(false)
-    setSchemaNoticeMode('none')
     setOverwriteSchemaError(null)
     setAiSchemaExplainBusy(false)
     setAiSchemaExplainError(null)
     setAiSchemaExplainText('')
-  }, [resultIdentity])
+
+    const currentRequestId = props.request?.id ?? null
+    const previous = lastSchemaResponseRef.current
+    const sameRequest = previous.requestId === currentRequestId
+    const responseChanged = previous.resultIdentity !== resultIdentity
+
+    if (sameRequest && responseChanged) {
+      setSchemaAutoNoticeDismissed(false)
+      setSchemaNoticeMode('none')
+    }
+
+    lastSchemaResponseRef.current = {
+      requestId: currentRequestId,
+      resultIdentity,
+    }
+  }, [props.request?.id, resultIdentity])
 
   useEffect(() => {
     if (!props.request?.id) {
@@ -1955,6 +1969,7 @@ export function ResponseViewer(props: {
                       e.stopPropagation()
                     }}
                   >
+                    <div className="responseSchemaMenuSectionLabel">Current schema</div>
                     <button
                       type="button"
                       className="methodMenuItem mono"
@@ -1962,13 +1977,15 @@ export function ResponseViewer(props: {
                       onClick={copySchemaToClipboard}
                       disabled={schemaCopyFeedback}
                     >
-                      {schemaCopyFeedback ? 'Copied!' : 'Copy'}
-                    </button>
-                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaNotice}>
-                      Save response schema
+                      {schemaCopyFeedback ? 'Copied schema JSON' : 'Copy schema JSON'}
                     </button>
                     <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openExportSchemaDialog}>
-                      Export schema…
+                      Export schema to file…
+                    </button>
+                    <div className="treeMenuDivider" role="separator" />
+                    <div className="responseSchemaMenuSectionLabel">Baseline for this request</div>
+                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaNotice}>
+                      Save current schema as baseline
                     </button>
                     <button
                       type="button"
@@ -1977,7 +1994,7 @@ export function ResponseViewer(props: {
                       onClick={removeSavedSchemaBaseline}
                       disabled={!hasSavedSchemaBaseline}
                     >
-                      Delete saved schema
+                      Delete saved baseline
                     </button>
                   </div>
                 ) : null}

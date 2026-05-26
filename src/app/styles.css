@@ -1816,6 +1816,14 @@ button:hover { background: rgba(255,255,255,.10); }
   box-shadow: 0 8px 24px rgba(0,0,0,.45);
   z-index: 40;
 }
+.responseSchemaMenuSectionLabel {
+  padding: 6px 10px 4px;
+  color: rgba(255,255,255,.5);
+  font-size: 11px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
 .copyMenuPanel {
   left: auto;
   right: 0;
@@ -2491,7 +2499,7 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .responseSchemaInlinePanelBottom {
   position: fixed;
   right: 20px;
-  bottom: 18px;
+  bottom: 53px;
   top: auto;
   width: min(340px, calc(100vw - 28px));
 }
@@ -2588,7 +2596,7 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
   }
   .responseSchemaInlinePanelBottom {
     right: 12px;
-    bottom: 12px;
+    bottom: 53px;
     width: min(340px, calc(100vw - 24px));
   }
   .responseSchemaInlineActions {
