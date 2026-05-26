@@ -63,7 +63,7 @@ export function JsonPathSearch(props: {
           value={query}
           onChange={e => props.onQueryChange(e.target.value)}
           disabled={disabled}
-          placeholder="Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id"
+          placeholder="Examples: id = 5 | code 4 | status sold | tags.name fill | $..id"
         />
         <button
           type="button"

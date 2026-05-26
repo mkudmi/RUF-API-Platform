@@ -21,6 +21,7 @@ type JsonPathMetaMatch = {
   value?: unknown
   parent?: unknown
   parentProperty?: string | number
+  path?: Array<string | number> | string
 }
 
 function errorMessage(e: unknown) {
@@ -88,20 +89,66 @@ function parseScalarSingle(text: string): unknown {
 }
 
 function parseSimpleFilter(query: string): SimpleFilter | null {
-  const m = query.trim().match(/^([a-zA-Z0-9_.-]+)\s*(==|=|!=|>=|<=|>|<|~|!~)\s*(.+)$/)
+  const m = query.trim().match(/^([\p{L}\p{N}_.-]+)\s*(==|=|!=|>=|<=|>|<|~|!~)\s*(.+)$/u)
   if (!m) return null
   const [, fieldPath, opRaw, rhs] = m
   return { fieldPath, op: opRaw as FilterOp, expected: parseScalar(rhs) }
 }
 
-function getAtPath(obj: unknown, fieldPath: string): unknown {
-  const parts = fieldPath.split('.').filter(Boolean)
-  let cur: unknown = obj
-  for (const part of parts) {
-    if (!cur || typeof cur !== 'object' || Array.isArray(cur)) return undefined
-    cur = (cur as Record<string, unknown>)[part]
+function chooseLooseFilterOp(expected: unknown): FilterOp {
+  if (Array.isArray(expected)) {
+    const allScalar = expected.every(item =>
+      typeof item === 'number' || typeof item === 'boolean' || item === null,
+    )
+    return allScalar ? '=' : '~'
   }
-  return cur
+  if (typeof expected === 'number' || typeof expected === 'boolean' || expected === null) return '='
+  return '~'
+}
+
+function parseLooseFilter(query: string): SimpleFilter | null {
+  const trimmed = query.trim()
+  if (!trimmed) return null
+
+  const normalized = trimmed.replaceAll(/\s+/g, ' ')
+  const specialCases: Array<{ re: RegExp, fieldPath: string }> = [
+    { re: /^(?:найди|покажи|ищи)?\s*(?:мне\s+)?(?:записи?|запись|объекты?|элементы?)?\s*(?:с|со)\s+код(?:ом)?\s+(.+)$/iu, fieldPath: 'code' },
+    { re: /^(?:найди|покажи|ищи)?\s*(?:мне\s+)?(?:записи?|запись|объекты?|элементы?)?\s*(?:с|со)\s+статус(?:ом)?\s+(.+)$/iu, fieldPath: 'status' },
+    { re: /^(?:найди|покажи|ищи)?\s*(?:мне\s+)?(?:записи?|запись|объекты?|элементы?)?\s*(?:с|со)\s+категори(?:ей|ю|я)\s+(.+)$/iu, fieldPath: 'category.name' },
+    { re: /^(?:найди|покажи|ищи)?\s*(?:мне\s+)?(?:записи?|запись|объекты?|элементы?)?\s*(?:с|со)\s+имен(?:ем)?\s+(.+)$/iu, fieldPath: 'name' },
+  ]
+
+  for (const specialCase of specialCases) {
+    const match = normalized.match(specialCase.re)
+    if (!match) continue
+    const expected = parseScalar(match[1])
+    return { fieldPath: specialCase.fieldPath, op: chooseLooseFilterOp(expected), expected }
+  }
+
+  const generic = normalized.match(/^([\p{L}\p{N}_.-]+)\s+(.+)$/u)
+  if (!generic) return null
+  const [, fieldPath, rhs] = generic
+  const expected = parseScalar(rhs)
+  return { fieldPath, op: chooseLooseFilterOp(expected), expected }
+}
+
+function getAtPathValues(obj: unknown, fieldPath: string): unknown[] {
+  const parts = fieldPath.split('.').filter(Boolean)
+
+  function visit(node: unknown, index: number): unknown[] {
+    if (index >= parts.length) return [node]
+    if (Array.isArray(node)) {
+      const out: unknown[] = []
+      for (const item of node) out.push(...visit(item, index))
+      return out
+    }
+    if (!node || typeof node !== 'object') return []
+    const next = (node as Record<string, unknown>)[parts[index]]
+    if (typeof next === 'undefined') return []
+    return visit(next, index + 1)
+  }
+
+  return visit(obj, 0)
 }
 
 function compare(op: FilterOp, actual: unknown, expected: unknown): boolean {
@@ -146,23 +193,33 @@ function findMatchingValues(root: JsonValue, filter: SimpleFilter): SimpleFilter
   const parts = filter.fieldPath.split('.').filter(Boolean)
   const fieldName = parts.length ? parts[parts.length - 1] : null
 
-  function visit(node: unknown) {
+  function getDisplayContainer(recordContainer: unknown, fallback: unknown) {
+    if (recordContainer && typeof recordContainer === 'object') return recordContainer
+    if (root && typeof root === 'object' && !Array.isArray(root)) return root
+    return fallback
+  }
+
+  function visit(node: unknown, recordContainer: unknown) {
     if (!node || typeof node !== 'object') return
 
     if (Array.isArray(node)) {
-      for (const v of node) visit(v)
+      for (const v of node) {
+        const nextRecordContainer = Array.isArray(root) ? v : recordContainer
+        visit(v, nextRecordContainer)
+      }
       return
     }
 
-    const actual = getAtPath(node, filter.fieldPath)
-    if (actual !== undefined && compare(filter.op, actual, filter.expected)) {
-      values.push({ container: node, actual, fieldName })
+    const actualValues = getAtPathValues(node, filter.fieldPath)
+    for (const actual of actualValues) {
+      if (!compare(filter.op, actual, filter.expected)) continue
+      values.push({ container: getDisplayContainer(recordContainer, node), actual, fieldName })
     }
 
-    for (const v of Object.values(node as Record<string, unknown>)) visit(v)
+    for (const v of Object.values(node as Record<string, unknown>)) visit(v, recordContainer)
   }
 
-  visit(root)
+  visit(root, Array.isArray(root) ? null : root)
   return values
 }
 
@@ -260,7 +317,15 @@ function buildSimpleFilterHighlightPlan(filter: SimpleFilter, matches: SimpleFil
   return plan
 }
 
-function buildJsonPathDisplayValue(match: JsonPathMetaMatch) {
+function buildJsonPathDisplayValue(root: JsonValue, match: JsonPathMetaMatch) {
+  if (root && typeof root === 'object' && !Array.isArray(root)) return root
+
+  if (Array.isArray(root) && Array.isArray(match.path)) {
+    for (const part of match.path) {
+      if (typeof part === 'number') return root[part]
+    }
+  }
+
   const parent = match.parent
   if (parent && typeof parent === 'object' && !Array.isArray(parent)) return parent
   if (Array.isArray(parent) && match.value && typeof match.value === 'object') return match.value
@@ -288,8 +353,15 @@ export function evaluateJsonSearch(json: JsonValue, query: string): JsonSearchRe
 
   try {
     if (!isJsonPathQuery(q)) {
-      const filter = parseSimpleFilter(q)
-      if (!filter) return { matches: [], displayMatches: [], highlightPlan: createEmptyHighlightPlan(), error: 'Enter JSONPath (starts with $) or a filter like: id = 5' }
+      const filter = parseSimpleFilter(q) ?? parseLooseFilter(q)
+      if (!filter) {
+        return {
+          matches: [],
+          displayMatches: [],
+          highlightPlan: createEmptyHighlightPlan(),
+          error: 'Enter JSONPath, a filter like: id = 5, or shorthand like: code 4',
+        }
+      }
       const detailedMatches = findMatchingValues(json, filter)
       const matches = detailedMatches.map(match => match.actual)
       const displayMatches = dedupeValues(detailedMatches.map(match => match.container))
@@ -300,7 +372,7 @@ export function evaluateJsonSearch(json: JsonValue, query: string): JsonSearchRe
     const res = jsonPath<JsonPathMetaMatch[] | JsonPathMetaMatch>({ path: q, json, resultType: 'all' })
     const detailedMatches = Array.isArray(res) ? res : [res]
     const matches = detailedMatches.map(match => match?.value)
-    const displayMatches = dedupeValues(detailedMatches.map(buildJsonPathDisplayValue))
+    const displayMatches = dedupeValues(detailedMatches.map(match => buildJsonPathDisplayValue(json, match)))
     const highlightPlan = buildJsonPathHighlightPlan(detailedMatches)
     return { matches, displayMatches, highlightPlan, error: null }
   } catch (e: unknown) {

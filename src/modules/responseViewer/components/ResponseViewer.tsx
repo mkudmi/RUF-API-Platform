@@ -183,6 +183,24 @@ type SearchBodyView = {
   highlightPlan: { keyTerms: string[], valuesByKey: Record<string, string[]>, standaloneTerms: string[] }
 }
 
+type AiSearchExecutionSnapshot = {
+  source: JsonValue
+  rootWasArray: boolean
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    bodyText: string
+  }
+  response: {
+    status: number
+    statusText: string
+    headers: Record<string, string>
+    bodyText: string
+    timeMs: number
+  }
+}
+
 type PaginationPlan =
   | { kind: 'page', pageParam: string, currentPage: number, totalPages: number, pageSize: number | null }
   | { kind: 'offset', offsetParam: string, currentOffset: number, limitParam: string, limit: number, totalItems: number }
@@ -401,6 +419,7 @@ export function ResponseViewer(props: {
   const [aiGeneratedQuery, setAiGeneratedQuery] = useState<string | null>(null)
   const [aiSearchBodyView, setAiSearchBodyView] = useState<SearchBodyView | null>(null)
   const [aiSearchSubmittedQuery, setAiSearchSubmittedQuery] = useState('')
+  const [aiSearchExecutionSnapshot, setAiSearchExecutionSnapshot] = useState<AiSearchExecutionSnapshot | null>(null)
   const [syntheticDataOpen, setSyntheticDataOpen] = useState(false)
   const responseSearchInputRef = useRef<HTMLInputElement | null>(null)
   const responseSearchHelpDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -422,6 +441,16 @@ export function ResponseViewer(props: {
   const parsed = useMemo(() => {
     if (!props.result) return null
     return safeJsonParse(props.result.bodyText)
+  }, [props.result])
+
+  const resultIdentity = useMemo(() => {
+    if (!props.result) return 'no-result'
+    return [
+      props.result.status,
+      props.result.statusText,
+      props.result.timeMs,
+      props.result.bodyText,
+    ].join('|')
   }, [props.result])
 
   const isJson = props.result ? parsed !== null : false
@@ -575,7 +604,7 @@ export function ResponseViewer(props: {
   ])
 
   useEffect(() => {
-    if (!responseSearchUseAi || !responseSearchOpen || props.tab !== 'body' || !props.result || !aiSearchSubmittedQuery.trim()) {
+    if (!responseSearchUseAi || !responseSearchOpen || props.tab !== 'body' || !aiSearchSubmittedQuery.trim() || !aiSearchExecutionSnapshot) {
       setAiSearchBusy(false)
       setAiGeneratedQuery(null)
       setAiSearchBodyView(null)
@@ -595,7 +624,6 @@ export function ResponseViewer(props: {
     }
 
     let canceled = false
-    const result = props.result
     setAiSearchBusy(true)
     setAiGeneratedQuery(null)
     setAiSearchBodyView(null)
@@ -603,28 +631,20 @@ export function ResponseViewer(props: {
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          const latestUrl = (props.latestHistoryItem?.url || '').trim()
-          const generated = await generateResponseSearchQueryWithYandex(props.aiSettings, {
-            request: {
-              method: props.request?.method || props.latestHistoryItem?.method || 'GET',
-              url: latestUrl,
-              headers: props.latestHistoryItem?.draft?.headers ?? result.requestHeaders ?? {},
-              bodyText: props.latestHistoryItem?.draft?.bodyText ?? '',
+          const generated = await generateResponseSearchQueryWithYandex(
+            props.aiSettings,
+            {
+              request: aiSearchExecutionSnapshot.request,
+              response: aiSearchExecutionSnapshot.response,
             },
-            response: {
-              status: result.status,
-              statusText: result.statusText,
-              headers: result.responseHeaders,
-              bodyText: result.bodyText,
-              timeMs: result.timeMs,
-            },
-          }, aiSearchSubmittedQuery)
+            aiSearchSubmittedQuery,
+          )
 
           if (canceled) return
           setAiGeneratedQuery(generated.query)
           setAiSearchBodyView(buildSearchBodyView({
-            source: parsed as JsonValue,
-            rootWasArray: Array.isArray(parsed),
+            source: aiSearchExecutionSnapshot.source,
+            rootWasArray: aiSearchExecutionSnapshot.rootWasArray,
             bodyQuery: generated.query,
           }))
         } catch (error) {
@@ -648,15 +668,9 @@ export function ResponseViewer(props: {
     }
   }, [
     aiSearchAvailable,
+    aiSearchExecutionSnapshot,
     aiSearchSubmittedQuery,
-    parsed,
     props.aiSettings,
-    props.latestHistoryItem?.draft?.bodyText,
-    props.latestHistoryItem?.draft?.headers,
-    props.latestHistoryItem?.method,
-    props.latestHistoryItem?.url,
-    props.request,
-    props.result,
     responseSearchOpen,
     responseSearchUseAi,
     props.tab,
@@ -714,6 +728,7 @@ export function ResponseViewer(props: {
   const canCopy = !!result && copyPayload.length > 0
   const canGenerateSchema = tab === 'body' && isJson
   const hasActiveSearchQuery = !!(responseSearchUseAi ? aiSearchSubmittedQuery.trim() : responseSearchSubmittedQuery.trim())
+  const canClearSearch = !!(bodyQuery.trim() || responseSearchSubmittedQuery.trim() || aiSearchSubmittedQuery.trim() || aiGeneratedQuery)
   const responseSearchErrorText = tab === 'body' && responseSearchOpen && hasActiveSearchQuery ? effectiveBodyView.error : null
   const responseSearchMatchesCount = !effectiveBodyView.error && hasActiveSearchQuery && typeof effectiveBodyView.matchesCount === 'number' ? effectiveBodyView.matchesCount : null
   const responseSearchHasMatchesMeta = tab === 'body' && responseSearchOpen && typeof responseSearchMatchesCount === 'number'
@@ -782,6 +797,24 @@ export function ResponseViewer(props: {
     const q = bodyQuery.trim()
     if (!q) return
     if (responseSearchUseAi) {
+      if (!props.result || !isJson || parsed === null) return
+      setAiSearchExecutionSnapshot({
+        source: parsed as JsonValue,
+        rootWasArray: Array.isArray(parsed),
+        request: {
+          method: props.request?.method || props.latestHistoryItem?.method || 'GET',
+          url: (props.latestHistoryItem?.url || '').trim(),
+          headers: props.latestHistoryItem?.draft?.headers ?? props.result.requestHeaders ?? {},
+          bodyText: props.latestHistoryItem?.draft?.bodyText ?? '',
+        },
+        response: {
+          status: props.result.status,
+          statusText: props.result.statusText,
+          headers: props.result.responseHeaders,
+          bodyText: props.result.bodyText,
+          timeMs: props.result.timeMs,
+        },
+      })
       setAiSearchSubmittedQuery(q)
       return
     }
@@ -1011,6 +1044,15 @@ export function ResponseViewer(props: {
     const t = window.setTimeout(() => responseSearchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(t)
   }, [responseSearchOpen, tab])
+
+  useEffect(() => {
+    setResponseSearchSubmittedQuery('')
+    setAiSearchSubmittedQuery('')
+    setAiGeneratedQuery(null)
+    setAiSearchBodyView(null)
+    setAiSearchExecutionSnapshot(null)
+    setPaginatedBodyView(null)
+  }, [resultIdentity])
 
   useDismissibleLayer({
     open: responseSearchHistoryOpen,
@@ -1499,7 +1541,7 @@ export function ResponseViewer(props: {
                   style={{ width: '100%' }}
                   placeholder={responseSearchUseAi
                     ? 'Examples: найди все failed заказы | покажи user с id 42 | есть ли traceId | сколько items со status=done'
-                    : 'Examples: id = 5 | id = 24, 25 | name ~ Max | height >= 166 | $..id'}
+                    : 'Examples: id = 5 | code 4 | status sold | tags.name fill | $..id'}
                 />
 
                 <button
@@ -1650,7 +1692,7 @@ export function ResponseViewer(props: {
                   setAiGeneratedQuery(null)
                   setAiSearchBodyView(null)
                 }}
-                disabled={!bodyQuery.trim()}
+                disabled={!canClearSearch}
                 title="Clear"
                 aria-label="Clear"
               >
@@ -1863,7 +1905,7 @@ export function ResponseViewer(props: {
                     Format: <span className="mono">field op value</span>. Matches across all objects inside the JSON (recursively).
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Examples: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Max"</span>
+                    Examples: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Max"</span>, <span className="mono">code 4</span>, <span className="mono">status sold</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
                     Operators: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span> (for <span className="mono">~</span>, substring match, case-insensitive).
@@ -1873,6 +1915,9 @@ export function ResponseViewer(props: {
                   </div>
                   <div style={{ opacity: 0.85 }}>
                     Field paths: <span className="mono">user.name = "Bob"</span> (dot-separated).
+                  </div>
+                  <div style={{ opacity: 0.85 }}>
+                    Arrays inside paths also work in filter mode, for example: <span className="mono">tags.name fill</span> or <span className="mono">tags.name ~ fill</span>.
                   </div>
                 </div>
               </div>
