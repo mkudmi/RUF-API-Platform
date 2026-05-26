@@ -1,4 +1,4 @@
-import { SqlIcon } from '../../shared/icons'
+import { MockServerIcon, SqlIcon, TerminalIcon } from '../../shared/icons'
 import { LocalMockServerDrawer } from '../../modules/localMockServer'
 import { SqlTerminalDrawer } from '../../modules/sqlTerminal'
 import { TerminalDrawer } from '../../modules/terminal'
@@ -8,7 +8,7 @@ const terminalTool: AppSidebarToolExtension = {
   id: 'terminal',
   label: 'Terminal',
   title: 'Terminal',
-  icon: <span className="iconGlyph">&gt;_</span>,
+  icon: <span className="iconGlyph"><TerminalIcon size={16} /></span>,
   order: 10,
   buttonClassName: 'terminalBtn',
   render: ctx => (
@@ -41,7 +41,7 @@ const localMockServerTool: AppSidebarToolExtension = {
   id: 'local-mock-server',
   label: 'Local Mock Server',
   title: 'Local Mock Server',
-  icon: <span className="iconGlyph">M</span>,
+  icon: <span className="iconGlyph"><MockServerIcon size={16} /></span>,
   order: 30,
   buttonClassName: 'terminalBtn',
   render: ctx => (

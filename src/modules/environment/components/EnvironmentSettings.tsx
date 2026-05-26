@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Environment } from '../../../shared/types/environment'
-import { CloseIcon } from '../../../shared/icons'
+import { CloseIcon, PlusIcon } from '../../../shared/icons'
 import {
   buildDbConnectionString,
   getDbConnectionStringPreview,
@@ -443,7 +443,7 @@ export function EnvironmentSettings(props: {
                       aria-label="Add variable"
                       title={canAdd ? 'Add' : 'Fill key/value to add'}
                     >
-                      <span className="addRowGlyph">+</span>
+                      <PlusIcon size={16} />
                     </button>
                   ) : (
                     <button
@@ -494,7 +494,7 @@ export function EnvironmentSettings(props: {
                       aria-label="Add header"
                       title={canAdd ? 'Add' : 'Fill key/value to add'}
                     >
-                      <span className="addRowGlyph">+</span>
+                      <PlusIcon size={16} />
                     </button>
                   ) : (
                     <button

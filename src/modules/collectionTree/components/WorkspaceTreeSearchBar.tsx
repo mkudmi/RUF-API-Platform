@@ -1,5 +1,5 @@
 import type { TreeSortMode } from '../types'
-import { FoldersCollapseIcon, FoldersExpandIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../../../shared/icons'
+import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, SortAscIcon, SortDescIcon, SortNeutralIcon } from '../../../shared/icons'
 
 export function WorkspaceTreeSearchBar(props: {
   query: string
@@ -38,10 +38,7 @@ export function WorkspaceTreeSearchBar(props: {
               }}
               onClick={props.onClearQuery}
             >
-              <svg className="workspaceTreeSearchClearIcon" width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <path d="M1 1L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              <CloseIcon size={10} className="workspaceTreeSearchClearIcon" />
             </button>
           ) : null}
           <button

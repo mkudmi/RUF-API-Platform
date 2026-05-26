@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Collection } from '../../collectionTree'
 import { importCollectionFromFile, importCollectionFromText, importCollectionFromUrl } from './importHelpers'
 import { logError } from '../../../shared/utils/logger'
-import { CloseIcon } from '../../../shared/icons'
+import { CloseIcon, PlusIcon } from '../../../shared/icons'
 
 export function ImportFab(props: {
   onImported: (c: Collection) => void
@@ -183,7 +183,7 @@ export function ImportFab(props: {
           <button onClick={openMenu}>{label}</button>
         ) : (
           <button className="fab" onClick={openMenu} aria-label="Import">
-            <span className="fabIcon">+</span>
+            <PlusIcon size={22} />
           </button>
         )
       ) : null}

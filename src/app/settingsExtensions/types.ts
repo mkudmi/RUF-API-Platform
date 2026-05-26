@@ -6,6 +6,8 @@ export type AppSettingsTabContext = {
   appVersion: string | null
   aiSettings: AiProviderSettings
   setAiSettings: (next: AiProviderSettings | ((prev: AiProviderSettings) => AiProviderSettings)) => void
+  aiTestMessage: string | null
+  aiTestError: string | null
 }
 
 export type AppSettingsTabExtension = {

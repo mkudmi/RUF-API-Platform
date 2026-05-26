@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CloseIcon } from '../../../shared/icons'
+import { BroomIcon, CloseIcon } from '../../../shared/icons'
 import type { DataDrivenDatasetFormat, DataDrivenRow } from '../../../shared/utils/variables'
 
 export type DataDrivenRunItem = {
@@ -82,13 +82,7 @@ export function DataDrivenReportSheet(props: Props) {
                 title="Clear report"
                 aria-label="Clear report"
               >
-                <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M10.9 2.2L13.8 5.1L12.7 6.2L9.8 3.3L10.9 2.2Z" fill="currentColor" />
-                    <path d="M4.1 8.6L9.5 3.2L12.8 6.5L7.4 11.9L4.7 11.3L4.1 8.6Z" fill="currentColor" />
-                    <path d="M2.4 12.4H9.6V13.8H2.4V12.4Z" fill="currentColor" />
-                  </svg>
-                </span>
+                <BroomIcon size={14} />
               </button>
             ) : null}
             <button type="button" className="iconBtn" onClick={onClose} aria-label="Close" title="Close">

@@ -3,7 +3,7 @@ import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../co
 import type { Environment } from '../../../shared/types/environment'
 import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../../shared/types/requestHistory'
-import { CloseIcon, CopyIcon, ReloadIcon, StarIcon } from '../../../shared/icons'
+import { CloseIcon, CopyIcon, OpenInNewIcon, PlusIcon, ReloadIcon, StarIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../../shared/utils/url'
 import { uid } from '../../../shared/utils/id'
@@ -4613,14 +4613,7 @@ export function RequestEditor(props: {
                     padding: 0,
                   }}
                 >
-                  <span aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <path d="M2.5 6V2.5H6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M13.5 10V13.5H10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M6.2 2.8L2.8 6.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                      <path d="M9.8 13.2L13.2 9.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  </span>
+                  <OpenInNewIcon size={14} />
                 </button>
                 <ConfirmIconButton
                   className="iconBtn"
@@ -4675,7 +4668,7 @@ export function RequestEditor(props: {
               aria-label="Add query param"
               title="Add query param"
             >
-              <span className="addRowGlyph">+</span>
+              <PlusIcon size={16} />
             </button>
           </div>
 
@@ -4981,7 +4974,7 @@ export function RequestEditor(props: {
                 aria-label="Add header"
                 title="Add header"
               >
-                <span className="addRowGlyph">+</span>
+                <PlusIcon size={16} />
               </button>
             </div>
           </div>
@@ -5378,7 +5371,7 @@ export function RequestEditor(props: {
                   setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, isActive: true }])
                 }}
               >
-                <span className="addRowGlyph">+</span>
+                <PlusIcon size={16} />
               </button>
           </summary>
           {renderFilePicker()}

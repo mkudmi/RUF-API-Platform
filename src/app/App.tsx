@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
-import { BackIcon, CloseIcon, MaximizeIcon, MinimizeIcon } from '../shared/icons'
+import { BackIcon, CloseIcon, FunctionIcon, MaximizeIcon, MinimizeIcon, PlayIcon, SettingsIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
 import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
@@ -59,6 +59,7 @@ import {
   type CaCertificate,
   type ClientTlsIdentity,
 } from '../shared/utils/appSettings'
+import { testYandexAiStudioConnection } from '../modules/ai/provider'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -410,6 +411,9 @@ export default function App() {
   const [clientTlsError, setClientTlsError] = useState<string | null>(null)
   const [clientTlsBusy, setClientTlsBusy] = useState(false)
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => initialAppSettings.ai ?? { ...DEFAULT_AI_PROVIDER_SETTINGS })
+  const [aiTestBusy, setAiTestBusy] = useState(false)
+  const [aiTestMessage, setAiTestMessage] = useState<string | null>(null)
+  const [aiTestError, setAiTestError] = useState<string | null>(null)
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
     createInitialGlobalSqlConnections(
       initialAppSettings.globalSqlConnections ?? [],
@@ -643,6 +647,9 @@ export default function App() {
   function openSettings() {
     const defaultTabId = settingsTabExtensions.find(tab => tab.id === 'general')?.id ?? settingsTabExtensions[0]?.id ?? 'general'
     setSettingsTab(defaultTabId)
+    setAiTestBusy(false)
+    setAiTestMessage(null)
+    setAiTestError(null)
     if (defaultTabId === 'general') refreshCacheSize()
     settingsDialogRef.current?.showModal()
     requestAnimationFrame(() => {
@@ -653,6 +660,20 @@ export default function App() {
 
   function closeSettings() {
     settingsDialogRef.current?.close()
+  }
+
+  async function runAiSettingsConnectionTest() {
+    setAiTestBusy(true)
+    setAiTestMessage(null)
+    setAiTestError(null)
+    try {
+      const message = await testYandexAiStudioConnection(aiSettings)
+      setAiTestMessage(message)
+    } catch (error) {
+      setAiTestError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAiTestBusy(false)
+    }
   }
 
   function openCaCertDialog() {
@@ -3807,7 +3828,7 @@ export default function App() {
                 aria-label="Settings"
                 title="Settings"
               >
-                <span className="iconGlyph">&#9881;</span>
+                <span className="iconGlyph"><SettingsIcon size={16} /></span>
               </button>
               {sidebarToolExtensions.map(tool => (
                 <button
@@ -3828,9 +3849,7 @@ export default function App() {
                 title="Collection run history"
               >
                 <span className="iconGlyph" aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <svg width="20" height="20" viewBox="0 0 16 16" fill="none" style={{ display: 'block' }}>
-                    <path d="M5.8 3.8L11 8L5.8 12.2V3.8Z" fill="currentColor" />
-                  </svg>
+                  <PlayIcon size={18} />
                 </span>
               </button>
               <button
@@ -3839,7 +3858,7 @@ export default function App() {
                 aria-label="Global tests"
                 title="Global tests"
               >
-                <span className="mono footerLambdaGlyph" aria-hidden="true">λ</span>
+                <FunctionIcon size={16} />
               </button>
             </div>
             <div className="sidebarVersion mono">
@@ -4372,6 +4391,8 @@ export default function App() {
             appVersion,
             aiSettings,
             setAiSettings,
+            aiTestMessage,
+            aiTestError,
           }) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
@@ -4842,7 +4863,12 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="modalActions" style={{ justifyContent: 'flex-end', marginTop: 18 }}>
+          <div className="modalActions" style={{ justifyContent: 'flex-end', marginTop: 18, gap: 8 }}>
+            {settingsTab === 'ai' ? (
+              <button type="button" onClick={() => void runAiSettingsConnectionTest()} disabled={aiTestBusy}>
+                {aiTestBusy ? 'Testing...' : 'Test'}
+              </button>
+            ) : null}
             <button onClick={closeSettings}>Save</button>
           </div>
         </dialog>

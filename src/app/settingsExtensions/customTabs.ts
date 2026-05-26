@@ -11,6 +11,8 @@ export const customSettingsTabExtensions: AppSettingsTabExtension[] = [
     render: ctx => createElement(AiSettingsTab, {
       value: ctx.aiSettings,
       onChange: ctx.setAiSettings,
+      testMessage: ctx.aiTestMessage,
+      testError: ctx.aiTestError,
     }),
   },
 ]

@@ -391,17 +391,6 @@ html.platform-macos .sidebarPlusMenuItem {
   line-height: 1;
   transform: none;
 }
-.footerLambdaGlyph {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  font-size: 16px;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
 
 .settingsBtn { font-size: 18px; line-height: 1; }
 .settingsBtn > .iconGlyph { display: block; }
@@ -739,7 +728,6 @@ button:hover { background: rgba(255,255,255,.10); }
   font-size: 22px;
   line-height: 1;
 }
-.addRowGlyph { display: block; transform: translateY(-2px); }
 
 .modalTextarea {
   width: 100%;
@@ -1290,12 +1278,6 @@ button:hover { background: rgba(255,255,255,.10); }
 .sqlTerminalPlayBtn:hover { background: rgba(255,255,255,.06); }
 .sqlTerminalPlayBtn:disabled { opacity: 0.55; cursor: default; }
 
-
-.fabIcon {
-  display: block;
-  transform: translateY(-2px);
-  line-height: 1;
-}
 
 .fab:hover { background: rgba(255,255,255,.16); }
 
@@ -2394,10 +2376,15 @@ html.platform-macos .terminalClearBtn .terminalClearGlyph {
 .sizePopoverValue { color: rgba(255,255,255,.86); }
 .sizePopoverDivider { height: 1px; background: rgba(255,255,255,.10); margin: 10px 0; }
 
-.responseFooterWrap { display: grid; grid-template-rows: auto auto auto; row-gap: 6px; min-height: 0; }
+.responseFooterWrap { display: grid; grid-template-rows: auto auto auto; row-gap: 0; min-height: 0; }
 .responseFooterDivider { margin: 0; }
-.responseFooter { display: flex; padding: 5px 0 7px; justify-content: space-between; align-items: center; gap: 12px; }
+.responseFooter { display: flex; padding: 5px 0; min-height: 42px; justify-content: space-between; align-items: center; gap: 12px; }
 .responseFooterLeft { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.responseFooterLeft > button,
+.responseFooterLeft > .iconBtn,
+.responseFooterLeft > .responseFooterMeta {
+  align-self: center;
+}
 .responseFooterMeta { min-width: 0; opacity: .85; }
 .responseFooterActions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .responseFooterError { color: #ff9a9a; opacity: 1; }
