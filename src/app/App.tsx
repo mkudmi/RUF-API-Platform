@@ -88,6 +88,11 @@ import {
   listLocalMockAdditionalServers,
   onLocalMockServerUpdated,
 } from '../modules/requestEditor/utils/localMockServer'
+import {
+  getResponseSchemaBaselineStorageKeys,
+  isResponseSchemaBaselineStorageKey,
+  RESPONSE_SCHEMA_BASELINES_KEY,
+} from '../modules/responseViewer/utils/responseSchemaBaseline'
 
 //TODO:
 // Кафка
@@ -120,6 +125,7 @@ const APP_CACHE_KEYS = [
   'ruf_request_drafts_v1',
   'ruf_value_history_v1',
   'ruf_response_search_history_v1',
+  RESPONSE_SCHEMA_BASELINES_KEY,
   COLLECTION_RUN_HISTORY_KEY,
   TEST_CLASSES_STORAGE_KEY,
   'ruf.update.toastSuppress',
@@ -135,7 +141,16 @@ function utf8ByteLength(value: string) {
 
 function getLocalStorageCacheSizeBytes() {
   let total = 0
+  const seen = new Set<string>()
   for (const key of APP_CACHE_KEYS) {
+    seen.add(key)
+    const value = localStorage.getItem(key)
+    if (typeof value !== 'string') continue
+    total += utf8ByteLength(key) + utf8ByteLength(value)
+  }
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index)
+    if (!key || seen.has(key) || !isResponseSchemaBaselineStorageKey(key)) continue
     const value = localStorage.getItem(key)
     if (typeof value !== 'string') continue
     total += utf8ByteLength(key) + utf8ByteLength(value)
@@ -736,6 +751,9 @@ export default function App() {
 
   function clearAppCache() {
     for (const key of APP_CACHE_KEYS) {
+      localStorage.removeItem(key)
+    }
+    for (const key of getResponseSchemaBaselineStorageKeys()) {
       localStorage.removeItem(key)
     }
     setHistoryByRequestId({})

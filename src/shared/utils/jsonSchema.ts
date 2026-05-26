@@ -1,6 +1,6 @@
-type JsonSchemaType = 'null' | 'boolean' | 'number' | 'integer' | 'string' | 'array' | 'object'
+export type JsonSchemaType = 'null' | 'boolean' | 'number' | 'integer' | 'string' | 'array' | 'object'
 
-type JsonSchema = {
+export type JsonSchema = {
   $schema?: string
   title?: string
   type?: JsonSchemaType
@@ -111,4 +111,59 @@ export function generateJsonSchema(value: unknown, title = 'requestResponseSchem
     title,
     ...schemaFor(value),
   }
+}
+
+function normalizeJsonSchemaInner(schema: JsonSchema): JsonSchema {
+  const normalized: JsonSchema = {}
+
+  if (schema.$schema) normalized.$schema = schema.$schema
+  if (schema.title) normalized.title = schema.title
+  if (schema.type) normalized.type = schema.type
+
+  if (schema.properties && typeof schema.properties === 'object') {
+    normalized.properties = Object.fromEntries(
+      Object.entries(schema.properties)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => [key, normalizeJsonSchemaInner(value)]),
+    )
+  }
+
+  if (schema.required?.length) {
+    normalized.required = [...schema.required].sort((left, right) => left.localeCompare(right))
+  }
+
+  if (schema.items) normalized.items = normalizeJsonSchemaInner(schema.items)
+
+  if (schema.anyOf?.length) {
+    normalized.anyOf = schema.anyOf
+      .map(normalizeJsonSchemaInner)
+      .sort((left, right) => schemaSignature(left).localeCompare(schemaSignature(right)))
+  }
+
+  return normalized
+}
+
+export function normalizeJsonSchema(schema: JsonSchema): JsonSchema {
+  return normalizeJsonSchemaInner(schema)
+}
+
+export function parseJsonSchemaText(text: string): JsonSchema | null {
+  try {
+    const parsed = JSON.parse(text) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    return parsed as JsonSchema
+  } catch {
+    return null
+  }
+}
+
+export function stringifyJsonSchema(schema: JsonSchema): string {
+  return JSON.stringify(normalizeJsonSchema(schema), null, 2)
+}
+
+export function areJsonSchemaTextsEqual(leftText: string, rightText: string): boolean {
+  const left = parseJsonSchemaText(leftText)
+  const right = parseJsonSchemaText(rightText)
+  if (!left || !right) return false
+  return stringifyJsonSchema(left) === stringifyJsonSchema(right)
 }

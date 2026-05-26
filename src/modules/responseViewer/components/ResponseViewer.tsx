@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { safeJsonParse } from '../../../shared/utils/http'
-import { generateJsonSchema } from '../../../shared/utils/jsonSchema'
+import { areJsonSchemaTextsEqual, generateJsonSchema, parseJsonSchemaText, stringifyJsonSchema } from '../../../shared/utils/jsonSchema'
 import type { AiProviderSettings } from '../../../shared/utils/appSettings'
 import type { RequestHistoryItem } from '../../../shared/types/requestHistory'
 import type { RequestItem } from '../../collectionTree'
@@ -14,7 +14,13 @@ import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseS
 import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logWarn } from '../../../shared/utils/logger'
-import { generateResponseSearchQueryWithYandex } from '../../ai/provider'
+import { compareResponseSchemaWithYandex, generateResponseSearchQueryWithYandex } from '../../ai/provider'
+import {
+  deleteResponseSchemaBaseline,
+  loadResponseSchemaBaseline,
+  saveResponseSchemaBaseline,
+  type ResponseSchemaBaseline,
+} from '../utils/responseSchemaBaseline'
 
 type FileSystemWritableFileStreamLike = {
   write: (data: string) => Promise<void>
@@ -204,6 +210,14 @@ type AiSearchExecutionSnapshot = {
 type PaginationPlan =
   | { kind: 'page', pageParam: string, currentPage: number, totalPages: number, pageSize: number | null }
   | { kind: 'offset', offsetParam: string, currentOffset: number, limitParam: string, limit: number, totalItems: number }
+
+type SchemaValidationState =
+  | { kind: 'none' }
+  | { kind: 'missingBaseline' }
+  | { kind: 'match', baseline: ResponseSchemaBaseline, currentSchemaText: string }
+  | { kind: 'mismatch', baseline: ResponseSchemaBaseline, currentSchemaText: string, message: string }
+
+type SchemaNoticeMode = 'none' | 'save' | 'missing' | 'mismatch'
 
 const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
 const MAX_PAGINATION_SEARCH_DEPTH = 8
@@ -437,6 +451,18 @@ export function ResponseViewer(props: {
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
   const [sizePopoverPos, setSizePopoverPos] = useState<{ left: number, top: number } | null>(null)
   const [paginatedBodyView, setPaginatedBodyView] = useState<SearchBodyView | null>(null)
+  const [schemaBaseline, setSchemaBaseline] = useState<ResponseSchemaBaseline | null>(() => (
+    props.request?.id ? loadResponseSchemaBaseline(props.request.id) : null
+  ))
+  const [schemaNoticeMode, setSchemaNoticeMode] = useState<SchemaNoticeMode>('none')
+  const [schemaAutoNoticeDismissed, setSchemaAutoNoticeDismissed] = useState(false)
+  const overwriteSchemaDialogRef = useRef<HTMLDialogElement | null>(null)
+  const aiSchemaExplainDialogRef = useRef<HTMLDialogElement | null>(null)
+  const [overwriteSchemaText, setOverwriteSchemaText] = useState('')
+  const [overwriteSchemaError, setOverwriteSchemaError] = useState<string | null>(null)
+  const [aiSchemaExplainBusy, setAiSchemaExplainBusy] = useState(false)
+  const [aiSchemaExplainError, setAiSchemaExplainError] = useState<string | null>(null)
+  const [aiSchemaExplainText, setAiSchemaExplainText] = useState('')
 
   const parsed = useMemo(() => {
     if (!props.result) return null
@@ -454,6 +480,10 @@ export function ResponseViewer(props: {
   }, [props.result])
 
   const isJson = props.result ? parsed !== null : false
+  const currentSchemaText = useMemo(() => {
+    if (!isJson) return null
+    return stringifyJsonSchema(generateJsonSchema(parsed))
+  }, [isJson, parsed])
   const aiSearchAvailable = props.aiSettings.enabled
   const isXmlBody = useMemo(() => {
     if (!props.result || isJson) return false
@@ -481,6 +511,29 @@ export function ResponseViewer(props: {
 
     return buildSearchBodyView({ source: parsed as JsonValue, rootWasArray: Array.isArray(parsed), bodyQuery: responseSearchSubmittedQuery })
   }, [isJson, parsed, props.result, responseSearchSubmittedQuery])
+
+  const schemaValidationState = useMemo<SchemaValidationState>(() => {
+    if (!props.result || !props.request) return { kind: 'none' }
+    if (!schemaBaseline) return currentSchemaText ? { kind: 'missingBaseline' } : { kind: 'none' }
+    if (!currentSchemaText) {
+      return {
+        kind: 'mismatch',
+        baseline: schemaBaseline,
+        currentSchemaText: '',
+        message: 'Ответ не удалось распознать как JSON, хотя для запроса уже сохранена эталонная JSON Schema.',
+      }
+    }
+    if (areJsonSchemaTextsEqual(schemaBaseline.schemaText, currentSchemaText)) {
+      return { kind: 'match', baseline: schemaBaseline, currentSchemaText }
+    }
+    return {
+      kind: 'mismatch',
+      baseline: schemaBaseline,
+      currentSchemaText,
+      message: 'The current response schema differs from the saved baseline.',
+    }
+  }, [currentSchemaText, props.request, props.result, schemaBaseline])
+  const hasSavedSchemaBaseline = !!schemaBaseline
 
   const paginationPlan = useMemo(
     () => (!responseSearchUseAi && isJson ? buildPaginationPlan({ url: props.latestHistoryItem?.url, parsed: parsed as JsonValue | null }) : null),
@@ -936,9 +989,17 @@ export function ResponseViewer(props: {
     setSchemaMenuOpen(false)
   }, [clearSchemaCloseTimer])
 
+  const closeSchemaNotice = useCallback((options?: { dismissAuto?: boolean }) => {
+    if (options?.dismissAuto) setSchemaAutoNoticeDismissed(true)
+    setSchemaNoticeMode('none')
+  }, [])
+
   useDismissibleLayer({
-    open: schemaMenuOpen,
-    onDismiss: closeSchemaMenu,
+    open: schemaMenuOpen || schemaNoticeMode !== 'none',
+    onDismiss: () => {
+      closeSchemaMenu()
+      closeSchemaNotice({ dismissAuto: schemaNoticeMode === 'missing' || schemaNoticeMode === 'mismatch' })
+    },
     isInsideTarget: target => {
       const wrap = schemaMenuWrapRef.current
       return !!(target && wrap && wrap.contains(target))
@@ -946,9 +1007,7 @@ export function ResponseViewer(props: {
   })
 
   function getSchemaText() {
-    if (!isJson) return null
-    const schema = generateJsonSchema(parsed)
-    return JSON.stringify(schema, null, 2)
+    return currentSchemaText
   }
 
   async function copySchemaToClipboard() {
@@ -962,7 +1021,13 @@ export function ResponseViewer(props: {
     }, 900)
   }
 
-  function openSaveSchemaDialog() {
+  function openSaveSchemaNotice() {
+    closeSchemaMenu()
+    setSchemaAutoNoticeDismissed(false)
+    setSchemaNoticeMode('save')
+  }
+
+  function openExportSchemaDialog() {
     closeSchemaMenu()
     setSchemaFileBaseName('requestResponseSchema')
     saveSchemaDialogRef.current?.showModal()
@@ -1052,7 +1117,38 @@ export function ResponseViewer(props: {
     setAiSearchBodyView(null)
     setAiSearchExecutionSnapshot(null)
     setPaginatedBodyView(null)
+    setSchemaAutoNoticeDismissed(false)
+    setSchemaNoticeMode('none')
+    setOverwriteSchemaError(null)
+    setAiSchemaExplainBusy(false)
+    setAiSchemaExplainError(null)
+    setAiSchemaExplainText('')
   }, [resultIdentity])
+
+  useEffect(() => {
+    if (!props.request?.id) {
+      setSchemaBaseline(null)
+      return
+    }
+    setSchemaBaseline(loadResponseSchemaBaseline(props.request.id))
+  }, [props.request?.id])
+
+  useEffect(() => {
+    if (schemaNoticeMode === 'save') return
+    if (schemaAutoNoticeDismissed) {
+      setSchemaNoticeMode('none')
+      return
+    }
+    if (schemaValidationState.kind === 'missingBaseline') {
+      setSchemaNoticeMode('missing')
+      return
+    }
+    if (schemaValidationState.kind === 'mismatch') {
+      setSchemaNoticeMode('mismatch')
+      return
+    }
+    setSchemaNoticeMode('none')
+  }, [schemaAutoNoticeDismissed, schemaNoticeMode, schemaValidationState])
 
   useDismissibleLayer({
     open: responseSearchHistoryOpen,
@@ -1077,6 +1173,81 @@ export function ResponseViewer(props: {
     if (selectedTestResult) return
     closeTestDetailsDialog()
   }, [selectedTestResult, selectedTestResultId])
+
+  function persistCurrentSchemaAsBaseline(nextSchemaText: string) {
+    if (!props.request) return
+    const saved = saveResponseSchemaBaseline({ request: props.request, schemaText: nextSchemaText })
+    setSchemaBaseline(saved)
+    setSchemaAutoNoticeDismissed(false)
+    setSchemaNoticeMode('none')
+  }
+
+  function removeSavedSchemaBaseline() {
+    if (!props.request?.id) return
+    deleteResponseSchemaBaseline(props.request.id)
+    setSchemaBaseline(null)
+    setSchemaAutoNoticeDismissed(true)
+    setSchemaNoticeMode('none')
+    closeSchemaMenu()
+  }
+
+  function openOverwriteSchemaDialog() {
+    if (schemaValidationState.kind !== 'mismatch') return
+    setOverwriteSchemaText(schemaValidationState.currentSchemaText || schemaValidationState.baseline.schemaText)
+    setOverwriteSchemaError(null)
+    overwriteSchemaDialogRef.current?.showModal()
+  }
+
+  function closeOverwriteSchemaDialog() {
+    setOverwriteSchemaError(null)
+    overwriteSchemaDialogRef.current?.close()
+  }
+
+  function confirmOverwriteSchema() {
+    const parsedSchema = parseJsonSchemaText(overwriteSchemaText)
+    if (!parsedSchema) {
+      setOverwriteSchemaError('The new schema must be a valid JSON object.')
+      return
+    }
+    persistCurrentSchemaAsBaseline(stringifyJsonSchema(parsedSchema))
+    closeOverwriteSchemaDialog()
+  }
+
+  async function openAiSchemaExplainDialog() {
+    aiSchemaExplainDialogRef.current?.showModal()
+    setAiSchemaExplainBusy(true)
+    setAiSchemaExplainError(null)
+    setAiSchemaExplainText('')
+
+    if (schemaValidationState.kind !== 'mismatch' || !props.request) {
+      setAiSchemaExplainBusy(false)
+      setAiSchemaExplainError('Нет данных для сравнения схем.')
+      return
+    }
+
+    if (!props.aiSettings.enabled) {
+      setAiSchemaExplainBusy(false)
+      setAiSchemaExplainError('Включите AI в Settings, чтобы получить объяснение.')
+      return
+    }
+
+    try {
+      const text = await compareResponseSchemaWithYandex(props.aiSettings, {
+        request: {
+          name: props.request.name || 'Untitled request',
+          method: props.request.method,
+          path: props.request.path,
+        },
+        baselineSchemaText: schemaValidationState.baseline.schemaText,
+        actualSchemaText: schemaValidationState.currentSchemaText,
+      })
+      setAiSchemaExplainText(text)
+    } catch (error) {
+      setAiSchemaExplainError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setAiSchemaExplainBusy(false)
+    }
+  }
 
   useDismissibleLayer({
     open: !!historyInfoOpenId,
@@ -1147,7 +1318,7 @@ export function ResponseViewer(props: {
   }, [closeSizePopover, sizePopoverOpen])
 
   return (
-    <div className="responseViewer" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
+    <div className="responseViewer responseViewerSurface" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', flex: 1, minHeight: 0 }}>
       {result ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span className={`badge ${statusClass(result.status)}`} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1748,12 +1919,12 @@ export function ResponseViewer(props: {
                 <SearchIcon />
               </button>
 
-              <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="methodMenuWrap">
+              <div ref={schemaMenuOpen || schemaNoticeMode !== 'none' ? schemaMenuWrapRef : null} className="methodMenuWrap responseSchemaMenuWrap">
                 <button
                   type="button"
                   className="iconBtn"
                   aria-haspopup="menu"
-                  aria-expanded={schemaMenuOpen}
+                  aria-expanded={schemaMenuOpen || schemaNoticeMode !== 'none'}
                   onPointerDown={e => e.stopPropagation()}
                   onClick={e => {
                     e.preventDefault()
@@ -1793,9 +1964,87 @@ export function ResponseViewer(props: {
                     >
                       {schemaCopyFeedback ? 'Copied!' : 'Copy'}
                     </button>
-                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaDialog}>
-                      Save
+                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openSaveSchemaNotice}>
+                      Save response schema
                     </button>
+                    <button type="button" className="methodMenuItem mono" role="menuitem" onClick={openExportSchemaDialog}>
+                      Export schema…
+                    </button>
+                    <button
+                      type="button"
+                      className="methodMenuItem mono"
+                      role="menuitem"
+                      onClick={removeSavedSchemaBaseline}
+                      disabled={!hasSavedSchemaBaseline}
+                    >
+                      Delete saved schema
+                    </button>
+                  </div>
+                ) : null}
+
+                {schemaNoticeMode !== 'none' ? (
+                  <div
+                    className={`responseSchemaInlinePanel ${schemaNoticeMode === 'mismatch' ? 'responseSchemaInlinePanelDanger' : ''} responseSchemaInlinePanelBottom`.trim()}
+                    role={schemaNoticeMode === 'mismatch' ? 'alert' : 'status'}
+                    aria-live="polite"
+                    onPointerDown={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                    onClick={e => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                    }}
+                  >
+                    <div className="responseSchemaInlineHeader">
+                      <div className="responseSchemaInlineTitle">
+                        {schemaNoticeMode === 'save'
+                          ? 'Save response schema'
+                          : schemaNoticeMode === 'missing'
+                            ? 'No saved schema'
+                            : 'Schema mismatch'}
+                      </div>
+                      <button
+                        type="button"
+                        className="iconBtn"
+                        onClick={() => closeSchemaNotice({ dismissAuto: schemaNoticeMode === 'missing' || schemaNoticeMode === 'mismatch' })}
+                        aria-label="Close"
+                        title="Close"
+                      >
+                        <CloseIcon size={14} />
+                      </button>
+                    </div>
+
+                    <div className="small responseSchemaInlineBody">
+                      {schemaNoticeMode === 'save'
+                        ? 'Save current JSON Schema as baseline for this request.'
+                        : schemaNoticeMode === 'missing'
+                          ? 'There is no saved baseline for this request yet.'
+                          : schemaValidationState.kind === 'mismatch'
+                            ? schemaValidationState.message
+                            : ''}
+                    </div>
+
+                    <div className="responseSchemaInlineActions">
+                      {schemaNoticeMode === 'save' || schemaNoticeMode === 'missing' ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!currentSchemaText) return
+                            persistCurrentSchemaAsBaseline(currentSchemaText)
+                          }}
+                        >
+                          Save schema
+                        </button>
+                      ) : null}
+
+                      {schemaNoticeMode === 'mismatch' ? (
+                        <>
+                          <button type="button" onClick={openOverwriteSchemaDialog}>Overwrite</button>
+                          <button type="button" onClick={() => void openAiSchemaExplainDialog()}>Explain with AI</button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -1817,7 +2066,7 @@ export function ResponseViewer(props: {
 
           <dialog ref={saveSchemaDialogRef} className="modal modalSmall" onClose={() => setSchemaFileBaseName('requestResponseSchema')}>
             <div className="modalHeader">
-              <b>Save JSON Schema</b>
+              <b>Export JSON Schema</b>
               <button className="iconBtn" onClick={() => saveSchemaDialogRef.current?.close()} aria-label="Close" title="Close">
                 <CloseIcon />
               </button>
@@ -1841,9 +2090,81 @@ export function ResponseViewer(props: {
 
             <div className="modalActions">
               <button type="button" onClick={confirmSaveSchema}>
-                Save
+                Export
               </button>
             </div>
+          </dialog>
+
+          <dialog
+            ref={overwriteSchemaDialogRef}
+            className="modal responseSchemaDiffModal"
+            onCancel={e => {
+              e.preventDefault()
+              closeOverwriteSchemaDialog()
+            }}
+            onClick={e => {
+              if (e.target === e.currentTarget) closeOverwriteSchemaDialog()
+            }}
+          >
+            <div className="modalHeader">
+              <b>Overwrite Baseline Schema</b>
+              <button className="iconBtn" onClick={closeOverwriteSchemaDialog} aria-label="Close" title="Close">
+                <CloseIcon />
+              </button>
+            </div>
+
+            {schemaValidationState.kind === 'mismatch' ? (
+              <div className="responseSchemaDiffGrid">
+                <div>
+                  <div className="small responseSchemaDiffLabel">Current Baseline</div>
+                  <pre className="responseSchemaReadonly mono">{schemaValidationState.baseline.schemaText}</pre>
+                </div>
+                <div>
+                  <div className="small responseSchemaDiffLabel">New Schema</div>
+                  <textarea
+                    className="modalTextarea mono responseSchemaEditable"
+                    value={overwriteSchemaText}
+                    onChange={e => {
+                      setOverwriteSchemaText(e.target.value)
+                      if (overwriteSchemaError) setOverwriteSchemaError(null)
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {overwriteSchemaError ? <div className="responseSchemaInlineError small">{overwriteSchemaError}</div> : null}
+
+            <div className="modalActions">
+              <button type="button" onClick={confirmOverwriteSchema}>Save as Baseline</button>
+            </div>
+          </dialog>
+
+          <dialog
+            ref={aiSchemaExplainDialogRef}
+            className="modal responseSchemaExplainModal"
+            onCancel={e => {
+              e.preventDefault()
+              aiSchemaExplainDialogRef.current?.close()
+            }}
+            onClick={e => {
+              if (e.target === e.currentTarget) aiSchemaExplainDialogRef.current?.close()
+            }}
+          >
+            <div className="modalHeader">
+              <b>Schema Difference Explanation</b>
+              <button className="iconBtn" onClick={() => aiSchemaExplainDialogRef.current?.close()} aria-label="Close" title="Close">
+                <CloseIcon />
+              </button>
+            </div>
+
+            {aiSchemaExplainBusy ? (
+              <div className="small" style={{ opacity: 0.85 }}>ИИ сравнивает схемы…</div>
+            ) : aiSchemaExplainError ? (
+              <div className="responseSchemaInlineError small">{aiSchemaExplainError}</div>
+            ) : (
+              <pre className="aiOutputBlock">{aiSchemaExplainText || 'Ответ ИИ пуст.'}</pre>
+            )}
           </dialog>
 
           <dialog ref={responseSearchHelpDialogRef} className="modal">

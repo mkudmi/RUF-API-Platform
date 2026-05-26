@@ -1,7 +1,8 @@
 import type { AiProviderSettings } from '../../shared/utils/appSettings'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
-import { buildExplainApiPrompt, buildResponseSearchPrompt } from './prompts'
+import { buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt } from './prompts'
+import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
 
 export type AiExplainSnapshot = {
   request: {
@@ -27,9 +28,14 @@ type YandexChatCompletionResponse = {
   choices?: Array<{
     message?: {
       content?: unknown
+      text?: unknown
+      reasoning_content?: unknown
+      refusal?: unknown
     }
   }>
 }
+
+type YandexChatMessage = NonNullable<NonNullable<YandexChatCompletionResponse['choices']>[number]['message']>
 
 function buildYandexModelUri(settings: AiProviderSettings) {
   const model = settings.model.trim()
@@ -66,6 +72,16 @@ export type AiGeneratedSearchQuery = {
   query: string
 }
 
+export type AiResponseSchemaDiffSnapshot = {
+  request: {
+    name: string
+    method: string
+    path: string
+  }
+  baselineSchemaText: string
+  actualSchemaText: string
+}
+
 function stringifyHeaders(headers: Record<string, string>) {
   const entries = Object.entries(headers || {}).sort(([a], [b]) => a.localeCompare(b))
   if (!entries.length) return '(none)'
@@ -79,22 +95,50 @@ function trimBody(text: string, limit = 10_000) {
   return `${raw.slice(0, limit)}\n...[truncated ${raw.length - limit} chars]`
 }
 
-function contentToText(content: unknown): string {
+function contentPartToText(content: unknown): string {
   if (typeof content === 'string') return content
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    const rec = content as Record<string, unknown>
+    if (typeof rec.text === 'string') return rec.text
+    if (rec.text && typeof rec.text === 'object') {
+      const textRec = rec.text as Record<string, unknown>
+      if (typeof textRec.value === 'string') return textRec.value
+    }
+    if (typeof rec.content === 'string') return rec.content
+    if (typeof rec.reasoning_content === 'string') return rec.reasoning_content
+  }
   if (Array.isArray(content)) {
     return content
-      .map(item => {
-        if (typeof item === 'string') return item
-        if (!item || typeof item !== 'object') return ''
-        const rec = item as Record<string, unknown>
-        if (typeof rec.text === 'string') return rec.text
-        if (rec.type === 'output_text' && typeof rec.text === 'string') return rec.text
-        return ''
-      })
+      .map(item => contentPartToText(item))
       .filter(Boolean)
       .join('\n')
   }
   return ''
+}
+
+function messageToText(message: YandexChatMessage | undefined): string {
+  if (!message) return ''
+  const primary = contentPartToText(message.content)
+  if (primary.trim()) return primary.trim()
+
+  const fallbackFields = [
+    contentPartToText(message.text),
+    contentPartToText(message.reasoning_content),
+    contentPartToText(message.refusal),
+  ]
+  return fallbackFields.find(text => text.trim())?.trim() ?? ''
+}
+
+function buildEmptyAiResponseError(prefix: string, rawText: string) {
+  return `${prefix} Empty content. Raw payload: ${trimBody(rawText, 600)}`
+}
+
+function looksLikeReasoningLeak(text: string) {
+  const normalized = text.toLowerCase()
+  return normalized.includes('thinking process')
+    || normalized.includes('analyze user input')
+    || normalized.includes('mental walkthrough')
+    || normalized.includes('output format required')
 }
 
 function stripMarkdownCodeFence(text: string): string {
@@ -154,9 +198,9 @@ export async function explainApiWithYandex(settings: AiProviderSettings, snapsho
   }
 
   const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = contentToText(parsed?.choices?.[0]?.message?.content)
+  const content = messageToText(parsed?.choices?.[0]?.message)
   if (!content.trim()) {
-    throw new Error('AI returned an empty response.')
+    throw new Error(buildEmptyAiResponseError('AI returned an empty response.', text))
   }
   return content.trim()
 }
@@ -190,9 +234,9 @@ export async function generateResponseSearchQueryWithYandex(
   }
 
   const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = stripMarkdownCodeFence(contentToText(parsed?.choices?.[0]?.message?.content))
+  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
   if (!content.trim()) {
-    throw new Error('AI search returned an empty response.')
+    throw new Error(buildEmptyAiResponseError('AI search returned an empty response.', text))
   }
 
   const result = safeJsonParse(content) as Partial<AiGeneratedSearchQuery> | null
@@ -206,4 +250,49 @@ export async function generateResponseSearchQueryWithYandex(
   }
 
   return { query }
+}
+
+export async function compareResponseSchemaWithYandex(
+  settings: AiProviderSettings,
+  snapshot: AiResponseSchemaDiffSnapshot,
+): Promise<string> {
+  ensureYandexSettings(settings)
+
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: 0,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: buildResponseSchemaDiffPrompt(snapshot),
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`AI schema diff failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = messageToText(parsed?.choices?.[0]?.message)
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError('AI schema diff returned an empty response.', text))
+  }
+
+  const trimmed = content.trim()
+  if (looksLikeReasoningLeak(trimmed)) {
+    return buildSchemaDiffTesterSummary({
+      request: snapshot.request,
+      baselineSchemaText: snapshot.baselineSchemaText,
+      actualSchemaText: snapshot.actualSchemaText,
+    })
+  }
+
+  return trimmed
 }
