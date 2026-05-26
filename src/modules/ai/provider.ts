@@ -3,6 +3,12 @@ import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
 import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt } from './prompts'
 import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
+import {
+  buildResponseSearchContext,
+  hasResponseSearchFieldCandidate,
+  normalizeResponseSearchFieldPath,
+  serializeResponseSearchValue,
+} from './responseSearchContext'
 
 export type AiExplainSnapshot = {
   request: {
@@ -69,8 +75,20 @@ export type AiResponseSearchSnapshot = {
 }
 
 export type AiGeneratedSearchQuery = {
-  query: string
+  query: string | null
+  error: string | null
 }
+
+type AiGeneratedSearchPlan = {
+  mode?: unknown
+  fieldPath?: unknown
+  operator?: unknown
+  value?: unknown
+  query?: unknown
+  error?: unknown
+}
+
+const AI_FILTER_OPERATORS = new Set(['=', '==', '!=', '>=', '<=', '>', '<', '~', '!~'])
 
 export type AiEnhancedBugReport = {
   summary: string
@@ -302,17 +320,57 @@ export async function generateResponseSearchQueryWithYandex(
     throw new Error(buildEmptyAiResponseError('AI search returned an empty response.', text))
   }
 
-  const result = parseJsonFromAiText<Partial<AiGeneratedSearchQuery>>(content)
+  const result = parseJsonFromAiText<AiGeneratedSearchPlan>(content)
   if (!result || typeof result !== 'object') {
     throw new Error('AI search returned invalid JSON.')
   }
 
-  const query = typeof result.query === 'string' ? result.query.trim() : ''
-  if (!query) {
-    throw new Error('AI search did not return a query.')
+  const error = typeof result.error === 'string' ? result.error.trim() : ''
+
+  if (error) {
+    return { query: null, error }
   }
 
-  return { query }
+  const mode = typeof result.mode === 'string' ? result.mode.trim() : ''
+  const query = typeof result.query === 'string' ? result.query.trim() : ''
+
+  if (mode === 'jsonpath') {
+    if (!query.startsWith('$')) {
+      return { query: null, error: 'AI search returned an invalid JSONPath query.' }
+    }
+    return { query, error: null }
+  }
+
+  if (query && !mode) {
+    if (!query.startsWith('$')) return { query: null, error: 'AI search returned an invalid query.' }
+    return { query, error: null }
+  }
+
+  if (mode !== 'filter') {
+    throw new Error('AI search did not return a valid search plan.')
+  }
+
+  const fieldPath = typeof result.fieldPath === 'string' ? normalizeResponseSearchFieldPath(result.fieldPath) : ''
+  if (!fieldPath) {
+    throw new Error('AI search did not return a field path.')
+  }
+
+  const context = buildResponseSearchContext(snapshot.response.bodyText)
+  if (!hasResponseSearchFieldCandidate(context, fieldPath)) {
+    return { query: null, error: `AI search selected an unknown field path: ${fieldPath}` }
+  }
+
+  const operator = typeof result.operator === 'string' ? result.operator.trim() : ''
+  if (!AI_FILTER_OPERATORS.has(operator)) {
+    return { query: null, error: `AI search selected an unsupported operator: ${operator || '(empty)'}` }
+  }
+
+  const serializedValue = serializeResponseSearchValue(result.value)
+  if (!serializedValue) {
+    return { query: null, error: 'AI search could not determine a supported value for the selected field.' }
+  }
+
+  return { query: `${fieldPath} ${operator} ${serializedValue}`, error: null }
 }
 
 export async function compareResponseSchemaWithYandex(

@@ -11,7 +11,7 @@ import { CloseIcon, CopyIcon, SchemaIcon, SearchIcon, StarIcon, TrashIcon } from
 import { SyntheticDataDialog } from './SyntheticDataDialog'
 import { copyText } from '../../../shared/utils/clipboard'
 import { addResponseSearchHistoryEntry, loadResponseSearchHistory, saveResponseSearchHistory } from '../utils/responseSearchHistory'
-import { renderJsonLineSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
+import { renderJsonTextSyntax, renderXmlLineSyntax } from '../utils/responseSyntaxHighlight'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logWarn } from '../../../shared/utils/logger'
 import { compareResponseSchemaWithYandex, generateResponseSearchQueryWithYandex } from '../../ai/provider'
@@ -186,7 +186,13 @@ type SearchBodyView = {
   text: string
   matchesCount: number | null
   error: string | null
-  highlightPlan: { keyTerms: string[], valuesByKey: Record<string, string[]>, standaloneTerms: string[] }
+  highlightPlan: {
+    keyTerms: string[]
+    keyPaths: string[]
+    valuesByKey: Record<string, string[]>
+    valuesByPath: Record<string, string[]>
+    standaloneTerms: string[]
+  }
 }
 
 type AiSearchExecutionSnapshot = {
@@ -219,7 +225,7 @@ type SchemaValidationState =
 
 type SchemaNoticeMode = 'none' | 'save' | 'missing' | 'mismatch'
 
-const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+const EMPTY_HIGHLIGHT_PLAN: SearchBodyView['highlightPlan'] = { keyTerms: [], keyPaths: [], valuesByKey: {}, valuesByPath: {}, standaloneTerms: [] }
 const MAX_PAGINATION_SEARCH_DEPTH = 8
 
 function deepFindNumericByNames(node: unknown, names: string[], depth = 0): number | null {
@@ -365,17 +371,26 @@ function uniqueConcat(values: unknown[][]) {
 }
 
 function mergeHighlightPlans(plans: Array<SearchBodyView['highlightPlan']>) {
-  const merged: SearchBodyView['highlightPlan'] = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+  const merged: SearchBodyView['highlightPlan'] = { keyTerms: [], keyPaths: [], valuesByKey: {}, valuesByPath: {}, standaloneTerms: [] }
 
   for (const plan of plans) {
     for (const key of plan.keyTerms) {
       if (!merged.keyTerms.includes(key)) merged.keyTerms.push(key)
+    }
+    for (const keyPath of plan.keyPaths) {
+      if (!merged.keyPaths.includes(keyPath)) merged.keyPaths.push(keyPath)
     }
     for (const term of plan.standaloneTerms) {
       if (!merged.standaloneTerms.includes(term)) merged.standaloneTerms.push(term)
     }
     for (const [key, values] of Object.entries(plan.valuesByKey)) {
       const bucket = merged.valuesByKey[key] ?? (merged.valuesByKey[key] = [])
+      for (const value of values) {
+        if (!bucket.includes(value)) bucket.push(value)
+      }
+    }
+    for (const [key, values] of Object.entries(plan.valuesByPath)) {
+      const bucket = merged.valuesByPath[key] ?? (merged.valuesByPath[key] = [])
       for (const value of values) {
         if (!bucket.includes(value)) bucket.push(value)
       }
@@ -695,12 +710,48 @@ export function ResponseViewer(props: {
           )
 
           if (canceled) return
-          setAiGeneratedQuery(generated.query)
-          setAiSearchBodyView(buildSearchBodyView({
+          if (generated.error) {
+            setAiGeneratedQuery(null)
+            setAiSearchBodyView({
+              text: '',
+              matchesCount: null,
+              error: generated.error,
+              highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+            })
+            return
+          }
+
+          const generatedQuery = generated.query?.trim() ?? ''
+          if (!generatedQuery) {
+            setAiGeneratedQuery(null)
+            setAiSearchBodyView({
+              text: '',
+              matchesCount: null,
+              error: 'AI search did not produce a reliable query for this response.',
+              highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+            })
+            return
+          }
+
+          const nextBodyView = buildSearchBodyView({
             source: aiSearchExecutionSnapshot.source,
             rootWasArray: aiSearchExecutionSnapshot.rootWasArray,
-            bodyQuery: generated.query,
-          }))
+            bodyQuery: generatedQuery,
+          })
+
+          if (!nextBodyView.error && nextBodyView.matchesCount === 0) {
+            setAiGeneratedQuery(null)
+            setAiSearchBodyView({
+              text: '',
+              matchesCount: 0,
+              error: 'AI search could not map the request to a reliable query for the current response. Try a more exact field name or value.',
+              highlightPlan: EMPTY_HIGHLIGHT_PLAN,
+            })
+            return
+          }
+
+          setAiGeneratedQuery(generatedQuery)
+          setAiSearchBodyView(nextBodyView)
         } catch (error) {
           if (canceled) return
           setAiGeneratedQuery(null)
@@ -822,6 +873,10 @@ export function ResponseViewer(props: {
   }, [result])
 
   const bodyLines = useMemo(() => splitLines(effectiveBodyView.text), [effectiveBodyView.text])
+  const renderedJsonBodyLines = useMemo(
+    () => (isJson ? renderJsonTextSyntax(effectiveBodyView.text, bodyHighlightPlan) : []),
+    [bodyHighlightPlan, effectiveBodyView.text, isJson],
+  )
   const bodyLineCount = bodyLines.length
   const bodyGutterWidthCh = Math.max(2, String(bodyLineCount).length) + 1
 
@@ -1502,7 +1557,7 @@ export function ResponseViewer(props: {
                     {idx + 1}
                   </div>
                   <div className="mono codeRowText">
-                    {isJson ? renderJsonLineSyntax(line, bodyHighlightPlan) : isXmlBody ? renderXmlLineSyntax(line) : line}
+                    {isJson ? renderedJsonBodyLines[idx]?.rendered ?? line : isXmlBody ? renderXmlLineSyntax(line) : line}
                   </div>
                 </div>
               ))}
@@ -2243,10 +2298,10 @@ export function ResponseViewer(props: {
                     Format: <span className="mono">field op value</span>. Matches across all objects inside the JSON (recursively).
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Examples: <span className="mono">id = 5</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">name ~ "Max"</span>, <span className="mono">code 4</span>, <span className="mono">status sold</span>
+                    Examples: <span className="mono">id = 5</span>, <span className="mono">category.name = dogs</span>, <span className="mono">tags.name ~ fill</span>, <span className="mono">photoUrls ~ tmp</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">code 4</span>, <span className="mono">status sold</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Operators: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span> (for <span className="mono">~</span>, substring match, case-insensitive).
+                    Operators: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span>. For strings, <span className="mono">=</span> is case-insensitive exact match, <span className="mono">==</span> is strict exact match, and <span className="mono">~</span> is case-insensitive substring match.
                   </div>
                   <div style={{ opacity: 0.85 }}>
                     Lists: <span className="mono">id = 1, 2, 3</span>. Strings can be quoted: <span className="mono">"text"</span> or <span className="mono">'text'</span>.

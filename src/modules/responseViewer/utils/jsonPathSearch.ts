@@ -4,7 +4,9 @@ import { logWarn } from '../../../shared/utils/logger'
 export type JsonValue = null | boolean | number | string | object | unknown[]
 export type JsonSearchHighlightPlan = {
   keyTerms: string[]
+  keyPaths: string[]
   valuesByKey: Record<string, string[]>
+  valuesByPath: Record<string, string[]>
   standaloneTerms: string[]
 }
 export type JsonSearchResult = {
@@ -151,6 +153,10 @@ function getAtPathValues(obj: unknown, fieldPath: string): unknown[] {
   return visit(obj, 0)
 }
 
+function normalizeComparableString(value: unknown) {
+  return String(value ?? '').trim().toLowerCase()
+}
+
 function compare(op: FilterOp, actual: unknown, expected: unknown): boolean {
   if (Array.isArray(expected)) {
     if (op === '=' || op === '==') return expected.some(e => compare('==', actual, e))
@@ -162,12 +168,13 @@ function compare(op: FilterOp, actual: unknown, expected: unknown): boolean {
 
   if (op === '=' || op === '==') {
     if (typeof actual === 'number' && typeof expected === 'number') return actual === expected
+    if (op === '=') return normalizeComparableString(actual) === normalizeComparableString(expected)
     return String(actual) === String(expected)
   }
 
   if (op === '!=') {
     if (typeof actual === 'number' && typeof expected === 'number') return actual !== expected
-    return String(actual) !== String(expected)
+    return normalizeComparableString(actual) !== normalizeComparableString(expected)
   }
 
   if (op === '~' || op === '!~') {
@@ -266,7 +273,7 @@ function toHighlightText(value: unknown) {
 }
 
 function createEmptyHighlightPlan(): JsonSearchHighlightPlan {
-  return { keyTerms: [], valuesByKey: {}, standaloneTerms: [] }
+  return { keyTerms: [], keyPaths: [], valuesByKey: {}, valuesByPath: {}, standaloneTerms: [] }
 }
 
 function pushUnique(list: string[], text: string) {
@@ -292,6 +299,8 @@ function buildSimpleFilterHighlightPlan(filter: SimpleFilter, matches: SimpleFil
     const normalized = text.trim()
     if (!normalized) return
     if (filter.fieldPath) {
+      pushUnique(plan.keyPaths, filter.fieldPath)
+      pushUniqueToRecord(plan.valuesByPath, filter.fieldPath, normalized)
       const key = filter.fieldPath.split('.').filter(Boolean).at(-1) ?? ''
       if (key) pushUniqueToRecord(plan.valuesByKey, key, normalized)
       return
@@ -300,8 +309,6 @@ function buildSimpleFilterHighlightPlan(filter: SimpleFilter, matches: SimpleFil
   }
 
   for (const match of matches) {
-    if (match.fieldName) pushUnique(plan.keyTerms, match.fieldName)
-
     if (filter.op === '~') {
       if (Array.isArray(filter.expected)) {
         for (const item of filter.expected) add(toHighlightText(item))
@@ -336,8 +343,17 @@ function buildJsonPathHighlightPlan(matches: JsonPathMetaMatch[]) {
   const plan = createEmptyHighlightPlan()
 
   for (const match of matches) {
+    if (Array.isArray(match.path) && match.path.length) {
+      const pathParts = match.path
+        .filter((part): part is string => typeof part === 'string' && part !== '$')
+      const fullPath = pathParts.join('.')
+      if (fullPath) {
+        pushUnique(plan.keyPaths, fullPath)
+        pushUniqueToRecord(plan.valuesByPath, fullPath, toHighlightText(match.value))
+      }
+    }
+
     if (typeof match.parentProperty === 'string') {
-      pushUnique(plan.keyTerms, match.parentProperty)
       pushUniqueToRecord(plan.valuesByKey, match.parentProperty, toHighlightText(match.value))
       continue
     }

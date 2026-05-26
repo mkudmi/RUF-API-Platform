@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react'
 import type { JsonSearchHighlightPlan } from './jsonPathSearch'
 
+type JsonLineRenderContext = {
+  activePath: string | null
+  keyPath: string | null
+}
+
 function renderHighlightedText(text: string, keyPrefix: string, className: string | null, highlightTerms: string[]): ReactNode[] {
   if (!text) return []
 
@@ -62,7 +67,8 @@ function stripJsonQuotes(text: string) {
 
 export function renderJsonLineSyntax(
   line: string,
-  highlightPlan: JsonSearchHighlightPlan = { keyTerms: [], valuesByKey: {}, standaloneTerms: [] },
+  highlightPlan: JsonSearchHighlightPlan = { keyTerms: [], keyPaths: [], valuesByKey: {}, valuesByPath: {}, standaloneTerms: [] },
+  context: JsonLineRenderContext = { activePath: null, keyPath: null },
 ): ReactNode[] {
   type Segment = { kind: 'text' | 'string', text: string, start: number, end: number }
   const segments: Segment[] = []
@@ -107,7 +113,10 @@ export function renderJsonLineSyntax(
 
   const out: ReactNode[] = []
   const tokenRegex = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b|[{}[\],:]/g
-  let activeValueTerms: string[] = highlightPlan.standaloneTerms
+  let activeValueTerms: string[] = (
+    (context.activePath ? highlightPlan.valuesByPath[context.activePath] : null)
+    ?? highlightPlan.standaloneTerms
+  )
 
   for (let segIdx = 0; segIdx < segments.length; segIdx++) {
     const seg = segments[segIdx]
@@ -118,10 +127,18 @@ export function renderJsonLineSyntax(
       const isKey = j < line.length && line[j] === ':'
       if (isKey) {
         const rawKey = stripJsonQuotes(seg.text)
-        activeValueTerms = highlightPlan.valuesByKey[rawKey] ?? highlightPlan.standaloneTerms
+        activeValueTerms = (
+          (context.keyPath ? highlightPlan.valuesByPath[context.keyPath] : null)
+          ?? highlightPlan.valuesByKey[rawKey]
+          ?? highlightPlan.standaloneTerms
+        )
       }
       const stringHighlightTerms = isKey
-        ? (highlightPlan.keyTerms.includes(stripJsonQuotes(seg.text)) ? [stripJsonQuotes(seg.text)] : [])
+        ? (
+          (context.keyPath && highlightPlan.keyPaths.includes(context.keyPath))
+            ? [stripJsonQuotes(seg.text)]
+            : (highlightPlan.keyTerms.includes(stripJsonQuotes(seg.text)) ? [stripJsonQuotes(seg.text)] : [])
+        )
         : activeValueTerms
       out.push(...renderHighlightedText(seg.text, `s:${seg.start}:${seg.end}`, isKey ? 'jsonKeyToken' : 'jsonStringToken', stringHighlightTerms))
       continue
@@ -156,6 +173,56 @@ export function renderJsonLineSyntax(
   }
 
   return out
+}
+
+export function renderJsonTextSyntax(
+  text: string,
+  highlightPlan: JsonSearchHighlightPlan = { keyTerms: [], keyPaths: [], valuesByKey: {}, valuesByPath: {}, standaloneTerms: [] },
+) {
+  const lines = text.replaceAll('\r', '').split('\n')
+  const stack: Array<{ kind: 'object' | 'array', path: string | null }> = []
+
+  function normalizePath(parentPath: string | null, key: string) {
+    const normalizedKey = key.trim()
+    if (!normalizedKey) return parentPath
+    return parentPath ? `${parentPath}.${normalizedKey}` : normalizedKey
+  }
+
+  function currentPath() {
+    return stack.length ? stack[stack.length - 1].path : null
+  }
+
+  return lines.map((line, idx) => {
+    const trimmed = line.trim()
+
+    while (trimmed.startsWith('}') || trimmed.startsWith(']')) {
+      if (!stack.length) break
+      stack.pop()
+      break
+    }
+
+    const currentContainerPath = currentPath()
+    const keyMatch = line.match(/^\s*"((?:\\.|[^"\\])+)":/)
+    const keyPath = keyMatch ? normalizePath(currentContainerPath, keyMatch[1]) : currentContainerPath
+    const rendered = renderJsonLineSyntax(line, highlightPlan, {
+      activePath: currentContainerPath,
+      keyPath,
+    })
+
+    if (keyMatch) {
+      if (trimmed.endsWith('{') || trimmed.endsWith('{,')) {
+        stack.push({ kind: 'object', path: keyPath })
+      } else if (trimmed.endsWith('[') || trimmed.endsWith('[,')) {
+        stack.push({ kind: 'array', path: keyPath })
+      }
+    } else if (trimmed === '{' || trimmed === '{,') {
+      stack.push({ kind: 'object', path: currentContainerPath })
+    } else if (trimmed === '[' || trimmed === '[,') {
+      stack.push({ kind: 'array', path: currentContainerPath })
+    }
+
+    return { lineNumber: idx + 1, rendered }
+  })
 }
 
 function renderXmlTagSyntax(tagText: string, keyPrefix: string): ReactNode[] {
