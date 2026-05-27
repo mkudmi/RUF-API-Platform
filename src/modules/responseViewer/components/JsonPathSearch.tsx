@@ -63,7 +63,7 @@ export function JsonPathSearch(props: {
           value={query}
           onChange={e => props.onQueryChange(e.target.value)}
           disabled={disabled}
-          placeholder='Examples: $[category.name = "Dogs"] | $[photoUrls[$contains($, "tmp")]]'
+          placeholder='JSONata: $[category.name = "Dogs"] | AI: найди записи где есть voluptates'
         />
         <button
           type="button"

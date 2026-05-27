@@ -1798,8 +1798,8 @@ export function ResponseViewer(props: {
                   disabled={!isJson}
                   style={{ width: '100%' }}
                   placeholder={responseSearchUseAi
-                    ? 'Examples: найди все failed заказы | покажи user с id 42 | есть ли traceId | сколько items со status=done'
-                    : 'Examples: id = 5 | code 4 | status sold | tags.name fill | $..id'}
+                    ? 'AI: найди записи где есть voluptates'
+                    : 'JSONata: $[category.name = "Dogs"]'}
                 />
 
                 <button
