@@ -153,6 +153,31 @@ function getAtPathValues(obj: unknown, fieldPath: string): unknown[] {
   return visit(obj, 0)
 }
 
+function resolveDisplayContainerFromPath(root: JsonValue, path: Array<string | number> | string | undefined) {
+  if (!Array.isArray(path) || !path.length) return null
+
+  let current: unknown = root
+  let lastRecord: unknown = Array.isArray(root) ? null : root
+
+  for (const part of path) {
+    if (part === '$') continue
+
+    if (typeof part === 'number') {
+      if (!Array.isArray(current)) break
+      current = current[part]
+      if (current && typeof current === 'object') lastRecord = current
+      continue
+    }
+
+    if (!current || typeof current !== 'object' || Array.isArray(current)) break
+    current = (current as Record<string, unknown>)[part]
+  }
+
+  if (lastRecord && typeof lastRecord === 'object') return lastRecord
+  if (current && typeof current === 'object') return current
+  return null
+}
+
 function normalizeComparableString(value: unknown) {
   return String(value ?? '').trim().toLowerCase()
 }
@@ -211,7 +236,7 @@ function findMatchingValues(root: JsonValue, filter: SimpleFilter): SimpleFilter
 
     if (Array.isArray(node)) {
       for (const v of node) {
-        const nextRecordContainer = Array.isArray(root) ? v : recordContainer
+        const nextRecordContainer = v && typeof v === 'object' ? v : recordContainer
         visit(v, nextRecordContainer)
       }
       return
@@ -325,7 +350,8 @@ function buildSimpleFilterHighlightPlan(filter: SimpleFilter, matches: SimpleFil
 }
 
 function buildJsonPathDisplayValue(root: JsonValue, match: JsonPathMetaMatch) {
-  if (root && typeof root === 'object' && !Array.isArray(root)) return root
+  const resolvedFromPath = resolveDisplayContainerFromPath(root, match.path)
+  if (resolvedFromPath) return resolvedFromPath
 
   if (Array.isArray(root) && Array.isArray(match.path)) {
     for (const part of match.path) {
