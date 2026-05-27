@@ -158,6 +158,47 @@ function looksLikeReasoningLeak(text: string) {
     || normalized.includes('analyze user input')
     || normalized.includes('mental walkthrough')
     || normalized.includes('output format required')
+    || normalized.includes('the user wants')
+    || normalized.includes('i need to determine')
+    || normalized.includes('looking at the')
+    || normalized.includes('the jsonata query should be')
+    || normalized.includes('i will construct')
+    || normalized.includes('let me')
+}
+
+function isProbablyBareJsonataQuery(text: string) {
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  if (trimmed.includes('\n')) return false
+  if (looksLikeReasoningLeak(trimmed)) return false
+  if (/[{}]/.test(trimmed)) return false
+
+  const hasJsonataSignals =
+    trimmed.startsWith('$')
+    || trimmed.includes('$contains(')
+    || trimmed.includes('$lowercase(')
+    || trimmed.includes('[')
+    || trimmed.includes('.')
+    || trimmed.includes('=')
+
+  if (!hasJsonataSignals) return false
+
+  const suspiciousPhrases = [
+    'response_context',
+    'response_string_value_hints',
+    'query should be',
+    'user asks',
+    'contains the text',
+  ]
+  const lower = trimmed.toLowerCase()
+  return !suspiciousPhrases.some(phrase => lower.includes(phrase))
+}
+
+function normalizeAiJsonataQuery(query: string): string | null {
+  const trimmed = query.trim()
+  if (!trimmed) return null
+  if (looksLikeReasoningLeak(trimmed)) return null
+  return trimmed
 }
 
 function stripMarkdownCodeFence(text: string): string {
@@ -318,6 +359,8 @@ export async function generateResponseSearchQueryWithYandex(
 
   const result = parseJsonFromAiText<AiGeneratedSearchPlan>(content)
   if (!result || typeof result !== 'object') {
+    const rawQuery = content.trim()
+    if (isProbablyBareJsonataQuery(rawQuery)) return { query: rawQuery, error: null }
     throw new Error('AI search returned invalid JSON.')
   }
 
@@ -327,8 +370,8 @@ export async function generateResponseSearchQueryWithYandex(
     return { query: null, error }
   }
 
-  const query = typeof result.query === 'string' ? result.query.trim() : ''
-  if (!query) throw new Error('AI search did not return a JSONata query.')
+  const query = typeof result.query === 'string' ? normalizeAiJsonataQuery(result.query) : null
+  if (!query) throw new Error('AI search did not return a valid JSONata query.')
   return { query, error: null }
 }
 
