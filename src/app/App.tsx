@@ -53,16 +53,15 @@ import type { RequestDraft, RequestHistoryItem } from '../shared/types/requestHi
 import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHistoryByRequestId } from '../shared/utils/requestHistory'
 import {
   DEFAULT_AI_PROVIDER_SETTINGS,
-  DEFAULT_JIRA_INTEGRATION_SETTINGS,
+  DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS,
   loadAppSettings,
   saveAppSettings,
   type AiProviderSettings,
   type CaCertificate,
   type ClientTlsIdentity,
-  type JiraIntegrationSettings,
+  type McpServerSettings,
 } from '../shared/utils/appSettings'
 import { testYandexAiStudioConnection } from '../modules/ai/provider'
-import { testJiraConnection } from '../modules/jira'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -429,13 +428,10 @@ export default function App() {
   const [clientTlsError, setClientTlsError] = useState<string | null>(null)
   const [clientTlsBusy, setClientTlsBusy] = useState(false)
   const [aiSettings, setAiSettings] = useState<AiProviderSettings>(() => initialAppSettings.ai ?? { ...DEFAULT_AI_PROVIDER_SETTINGS })
-  const [jiraSettings, setJiraSettings] = useState<JiraIntegrationSettings>(() => initialAppSettings.jira ?? { ...DEFAULT_JIRA_INTEGRATION_SETTINGS })
+  const [mcpSettings, setMcpSettings] = useState<McpServerSettings[]>(() => initialAppSettings.mcp ?? [{ ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS }])
   const [aiTestBusy, setAiTestBusy] = useState(false)
   const [aiTestMessage, setAiTestMessage] = useState<string | null>(null)
   const [aiTestError, setAiTestError] = useState<string | null>(null)
-  const [jiraTestBusy, setJiraTestBusy] = useState(false)
-  const [jiraTestMessage, setJiraTestMessage] = useState<string | null>(null)
-  const [jiraTestError, setJiraTestError] = useState<string | null>(null)
   const [globalSqlConnections, setGlobalSqlConnections] = useState<GlobalSqlConnectionItem[]>(() => (
     createInitialGlobalSqlConnections(
       initialAppSettings.globalSqlConnections ?? [],
@@ -675,9 +671,6 @@ export default function App() {
     setAiTestBusy(false)
     setAiTestMessage(null)
     setAiTestError(null)
-    setJiraTestBusy(false)
-    setJiraTestMessage(null)
-    setJiraTestError(null)
     if (defaultTabId === 'general') refreshCacheSize()
     settingsDialogRef.current?.showModal()
     requestAnimationFrame(() => {
@@ -701,24 +694,6 @@ export default function App() {
       setAiTestError(error instanceof Error ? error.message : String(error))
     } finally {
       setAiTestBusy(false)
-    }
-  }
-
-  async function runJiraSettingsConnectionTest() {
-    setJiraTestBusy(true)
-    setJiraTestMessage(null)
-    setJiraTestError(null)
-    try {
-      const result = await testJiraConnection(jiraSettings, {
-        validateCertificates,
-        caCertificates,
-        clientTlsIdentity,
-      })
-      setJiraTestMessage(result.message)
-    } catch (error) {
-      setJiraTestError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setJiraTestBusy(false)
     }
   }
 
@@ -1000,11 +975,11 @@ export default function App() {
       caCertificates,
       clientTlsIdentity,
       ai: aiSettings,
-      jira: jiraSettings,
+      mcp: mcpSettings,
       globalSql: primaryGlobalSqlSettings ?? DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS,
       globalSqlConnections,
     })
-  }, [aiSettings, caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, jiraSettings, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
+  }, [aiSettings, caCertificates, clientTlsIdentity, disableRequestTimeout, globalSqlConnections, mcpSettings, primaryGlobalSqlSettings, requestTimeoutSec, validateCertificates])
 
   useEffect(() => {
     return () => {
@@ -4441,17 +4416,13 @@ export default function App() {
             appVersion,
             aiSettings,
             setAiSettings,
-            jiraSettings,
-            setJiraSettings,
+            mcpSettings,
+            setMcpSettings,
             validateCertificates,
             caCertificates,
             clientTlsIdentity,
             aiTestMessage,
             aiTestError,
-            jiraTestBusy,
-            jiraTestMessage,
-            jiraTestError,
-            runJiraSettingsConnectionTest,
           }) : null}
 
           {!activeSettingsTabExtension?.render && settingsTab === 'general' ? (
@@ -4928,11 +4899,6 @@ export default function App() {
                 {aiTestBusy ? 'Testing...' : 'Test'}
               </button>
             ) : null}
-            {settingsTab === 'jira' ? (
-              <button type="button" onClick={() => void runJiraSettingsConnectionTest()} disabled={jiraTestBusy}>
-                {jiraTestBusy ? 'Testing...' : 'Test'}
-              </button>
-            ) : null}
             <button onClick={closeSettings}>Save</button>
           </div>
         </dialog>
@@ -4947,7 +4913,7 @@ export default function App() {
               environmentsByCollection: envByCollection,
               globalSqlConnections,
               aiSettings,
-              jiraSettings,
+              mcpSettings,
               validateCertificates,
               caCertificates,
               clientTlsIdentity,

@@ -31,14 +31,19 @@ export type AiProviderSettings = {
   timeoutMs: number
 }
 
-export type JiraIntegrationSettings = {
+export type McpServerTemplate = 'atlassian' | 'custom'
+
+export type McpServerSettings = {
+  id: string
+  name: string
   enabled: boolean
-  baseUrl: string
-  email: string
-  apiToken: string
-  projectKey: string
-  issueType: string
-  useTlsCertificates: boolean
+  template: McpServerTemplate
+  command: string
+  args: string[]
+  env: Record<string, string>
+  bugReportCloudId: string
+  bugReportProjectKey: string
+  bugReportIssueType: string
 }
 
 export type AppSettings = {
@@ -50,7 +55,7 @@ export type AppSettings = {
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
   ai: AiProviderSettings
-  jira: JiraIntegrationSettings
+  mcp: McpServerSettings[]
 }
 
 export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
@@ -65,14 +70,17 @@ export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
   timeoutMs: 30_000,
 }
 
-export const DEFAULT_JIRA_INTEGRATION_SETTINGS: JiraIntegrationSettings = {
+export const DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS: McpServerSettings = {
+  id: 'mcp_atlassian_default',
+  name: 'Atlassian MCP',
   enabled: false,
-  baseUrl: '',
-  email: '',
-  apiToken: '',
-  projectKey: '',
-  issueType: 'Bug',
-  useTlsCertificates: false,
+  template: 'atlassian',
+  command: 'npx',
+  args: ['-y', 'mcp-remote@latest', 'https://mcp.atlassian.com/v1/mcp/authv2'],
+  env: {},
+  bugReportCloudId: '',
+  bugReportProjectKey: '',
+  bugReportIssueType: 'Bug',
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -84,7 +92,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
   globalSqlConnections: [],
   ai: { ...DEFAULT_AI_PROVIDER_SETTINGS },
-  jira: { ...DEFAULT_JIRA_INTEGRATION_SETTINGS },
+  mcp: [{ ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS, env: { ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.env }, args: [...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.args] }],
 }
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
@@ -232,26 +240,44 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     }
   })()
 
-  const rawJira = rec.jira
-  const jira: JiraIntegrationSettings = (() => {
-    if (!rawJira || typeof rawJira !== 'object') return { ...DEFAULT_JIRA_INTEGRATION_SETTINGS }
-    const jiraRec = rawJira as Record<string, unknown>
-    const issueType = typeof jiraRec.issueType === 'string' && jiraRec.issueType.trim()
-      ? jiraRec.issueType.trim()
-      : DEFAULT_JIRA_INTEGRATION_SETTINGS.issueType
-
-    return {
-      enabled: typeof jiraRec.enabled === 'boolean' ? jiraRec.enabled : DEFAULT_JIRA_INTEGRATION_SETTINGS.enabled,
-      baseUrl: typeof jiraRec.baseUrl === 'string' ? jiraRec.baseUrl.trim() : '',
-      email: typeof jiraRec.email === 'string' ? jiraRec.email.trim() : '',
-      apiToken: typeof jiraRec.apiToken === 'string' ? jiraRec.apiToken : '',
-      projectKey: typeof jiraRec.projectKey === 'string' ? jiraRec.projectKey.trim().toUpperCase() : '',
-      issueType,
-      useTlsCertificates: typeof jiraRec.useTlsCertificates === 'boolean'
-        ? jiraRec.useTlsCertificates
-        : DEFAULT_JIRA_INTEGRATION_SETTINGS.useTlsCertificates,
-    }
-  })()
+  const rawMcp = rec.mcp
+  const mcp: McpServerSettings[] = Array.isArray(rawMcp)
+    ? rawMcp
+      .filter(x => x && typeof x === 'object')
+      .map(x => x as Record<string, unknown>)
+      .map((x, index): McpServerSettings | null => {
+        const id = typeof x.id === 'string' && x.id.trim() ? x.id.trim() : `mcp_server_${index + 1}`
+        const name = typeof x.name === 'string' && x.name.trim()
+          ? x.name.trim()
+          : (index === 0 ? DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.name : `MCP Server ${index + 1}`)
+        const template = x.template === 'atlassian' ? 'atlassian' : 'custom'
+        const command = typeof x.command === 'string' ? x.command.trim() : ''
+        const args = Array.isArray(x.args)
+          ? x.args.filter((arg): arg is string => typeof arg === 'string')
+          : []
+        const env = x.env && typeof x.env === 'object'
+          ? Object.fromEntries(
+            Object.entries(x.env as Record<string, unknown>)
+              .filter((entry): entry is [string, string] => typeof entry[0] === 'string' && !!entry[0].trim() && typeof entry[1] === 'string'),
+          )
+          : {}
+        return {
+          id,
+          name,
+          enabled: typeof x.enabled === 'boolean' ? x.enabled : false,
+          template,
+          command,
+          args,
+          env,
+          bugReportCloudId: typeof x.bugReportCloudId === 'string' ? x.bugReportCloudId.trim() : '',
+          bugReportProjectKey: typeof x.bugReportProjectKey === 'string' ? x.bugReportProjectKey.trim().toUpperCase() : '',
+          bugReportIssueType: typeof x.bugReportIssueType === 'string' && x.bugReportIssueType.trim()
+            ? x.bugReportIssueType.trim()
+            : DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.bugReportIssueType,
+        }
+      })
+      .filter((x): x is McpServerSettings => !!x)
+    : []
 
   return {
     validateCertificates,
@@ -262,7 +288,9 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     globalSql,
     globalSqlConnections,
     ai,
-    jira,
+    mcp: mcp.length
+      ? mcp
+      : [{ ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS, env: { ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.env }, args: [...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.args] }],
   }
 }
 

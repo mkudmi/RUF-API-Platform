@@ -1,6 +1,6 @@
 import type { Collection } from '../../modules/collectionTree'
 import type { RunResult } from '../../modules/requestRunner/runRequest'
-import type { AiProviderSettings, CaCertificate, ClientTlsIdentity, JiraIntegrationSettings } from '../../shared/utils/appSettings'
+import type { AiProviderSettings, CaCertificate, ClientTlsIdentity, McpServerSettings } from '../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem, GlobalSqlConnectionSettings } from '../../shared/types/environment'
 import type { RequestHistoryItem } from '../../shared/types/requestHistory'
 import type { Workspace } from '../../shared/types/workspace'
@@ -14,7 +14,7 @@ export type AppSettingsState = {
   globalSql: GlobalSqlConnectionSettings
   globalSqlConnections: GlobalSqlConnectionItem[]
   ai: AiProviderSettings
-  jira: JiraIntegrationSettings
+  mcp: McpServerSettings[]
 }
 
 export type HistoryRepository = {

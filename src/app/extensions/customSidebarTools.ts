@@ -1,5 +1,5 @@
 import { createElement } from 'react'
-import { BugReportDialog } from '../../modules/jira'
+import { BugReportDialog } from '../../modules/mcp'
 import { BugIcon } from '../../shared/icons'
 import type { AppSidebarToolExtension } from './types'
 
@@ -16,10 +16,7 @@ export const customSidebarToolExtensions: AppSidebarToolExtension[] = [
       open: ctx.openDrawerId === 'bug-report',
       onClose: ctx.closeDrawer,
       aiSettings: ctx.aiSettings,
-      jiraSettings: ctx.jiraSettings,
-      validateCertificates: ctx.validateCertificates,
-      caCertificates: ctx.caCertificates,
-      clientTlsIdentity: ctx.clientTlsIdentity,
+      mcpSettings: ctx.mcpSettings,
       openSettings: ctx.openSettings,
     }),
   },

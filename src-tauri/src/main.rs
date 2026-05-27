@@ -37,6 +37,8 @@ fn main() {
             commands::db::db_test,
             commands::db::db_exec,
             commands::http::http_request,
+            commands::mcp::mcp_list_tools,
+            commands::mcp::mcp_call_tool,
             commands::mocker::mocker_run_java,
             commands::mocker::mocker_server_start,
             commands::mocker::mocker_server_stop,

@@ -8,7 +8,7 @@ export function buildBugReportPrompt(input: BugReportInput) {
     {
       role: 'system',
       content: [
-        'You are a senior QA engineer preparing a Jira bug report.',
+        'You are a senior QA engineer preparing a technical bug report.',
         'Reply in Russian.',
         'Do not invent facts that are missing in the draft.',
         'Rewrite the report into a more technical and concise format.',
@@ -20,7 +20,7 @@ export function buildBugReportPrompt(input: BugReportInput) {
     {
       role: 'user',
       content: [
-        'Преобразуй черновик баг-репорта в технический вид для Jira.',
+        'Преобразуй черновик баг-репорта в технический структурированный вид.',
         'Если summary пустой, придумай краткий технический заголовок только на основе текста ниже.',
         'Если каких-то данных не хватает, явно оставь это как "Не указано".',
         '',

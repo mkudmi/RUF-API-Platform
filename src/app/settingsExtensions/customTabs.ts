@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import type { AppSettingsTabExtension } from './types'
 import { AiSettingsTab } from '../../modules/ai'
-import { JiraSettingsTab } from '../../modules/jira'
+import { McpSettingsTab } from '../../modules/mcp'
 
 // Project-level extension point: register additional Settings tabs here.
 export const customSettingsTabExtensions: AppSettingsTabExtension[] = [
@@ -17,14 +17,12 @@ export const customSettingsTabExtensions: AppSettingsTabExtension[] = [
     }),
   },
   {
-    id: 'jira',
-    label: 'Jira',
+    id: 'mcp',
+    label: 'MCP',
     order: 50,
-    render: ctx => createElement(JiraSettingsTab, {
-      value: ctx.jiraSettings,
-      onChange: ctx.setJiraSettings,
-      testMessage: ctx.jiraTestMessage,
-      testError: ctx.jiraTestError,
+    render: ctx => createElement(McpSettingsTab, {
+      value: ctx.mcpSettings,
+      onChange: ctx.setMcpSettings,
     }),
   },
 ]
