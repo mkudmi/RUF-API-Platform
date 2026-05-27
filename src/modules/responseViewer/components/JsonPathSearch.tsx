@@ -63,7 +63,7 @@ export function JsonPathSearch(props: {
           value={query}
           onChange={e => props.onQueryChange(e.target.value)}
           disabled={disabled}
-          placeholder="Examples: id = 5 | category.name = dogs | tags.name ~ fill | photoUrls ~ tmp | $..id"
+          placeholder='Examples: $[category.name = "Dogs"] | $[photoUrls[$contains($, "tmp")]]'
         />
         <button
           type="button"

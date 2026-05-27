@@ -400,23 +400,20 @@ function mergeHighlightPlans(plans: Array<SearchBodyView['highlightPlan']>) {
   return merged
 }
 
-function buildSearchBodyView(args: {
+async function buildSearchBodyView(args: {
   source: JsonValue
-  rootWasArray: boolean
   bodyQuery: string
-}): SearchBodyView {
+}): Promise<SearchBodyView> {
   const q = args.bodyQuery.trim()
   if (!q) {
     return { text: JSON.stringify(args.source, null, 2), matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
   }
 
-  const { matches, displayMatches, highlightPlan, error } = evaluateJsonSearch(args.source, q)
+  const { matches, output, highlightPlan, error } = await evaluateJsonSearch(args.source, q)
   if (error) return { text: '', matchesCount: matches.length, error, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
   if (!matches.length) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
 
-  const outputMatches = displayMatches.length ? displayMatches : matches
-  const out = args.rootWasArray ? outputMatches : (outputMatches.length === 1 ? outputMatches[0] : outputMatches)
-  return { text: JSON.stringify(out, null, 2), matchesCount: matches.length, error: null, highlightPlan }
+  return { text: JSON.stringify(output, null, 2), matchesCount: matches.length, error: null, highlightPlan }
 }
 
 export function ResponseViewer(props: {
@@ -466,6 +463,7 @@ export function ResponseViewer(props: {
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false)
   const [sizePopoverPos, setSizePopoverPos] = useState<{ left: number, top: number } | null>(null)
   const [paginatedBodyView, setPaginatedBodyView] = useState<SearchBodyView | null>(null)
+  const [bodyView, setBodyView] = useState<SearchBodyView>({ text: '', matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
   const [schemaBaseline, setSchemaBaseline] = useState<ResponseSchemaBaseline | null>(() => (
     props.request?.id ? loadResponseSchemaBaseline(props.request.id) : null
   ))
@@ -507,25 +505,46 @@ export function ResponseViewer(props: {
     return looksLikeXml(ct, props.result.bodyText)
   }, [isJson, props.result])
 
-  const bodyView = useMemo(() => {
-    if (!props.result) return { text: '', matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+  useEffect(() => {
+    let canceled = false
 
-    if (props.result.file?.suppressBody) {
-      const name = props.result.file.fileName || 'download'
-      const sizeText = props.result.file.size ? ` (${formatBytes(props.result.file.size)})` : ''
-      return { text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
-    }
-
-    if (!isJson) {
-      const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
-      if (looksLikeXml(ct, props.result.bodyText)) {
-        const pretty = prettyPrintXml(props.result.bodyText)
-        if (pretty !== null) return { text: pretty, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+    const run = async () => {
+      if (!props.result) {
+        setBodyView({ text: '', matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
+        return
       }
-      return { text: props.result.bodyText, matchesCount: null as number | null, error: null as string | null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+
+      if (props.result.file?.suppressBody) {
+        const name = props.result.file.fileName || 'download'
+        const sizeText = props.result.file.size ? ` (${formatBytes(props.result.file.size)})` : ''
+        setBodyView({ text: `[Binary file received: ${name}${sizeText}]`, matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
+        return
+      }
+
+      if (!isJson) {
+        const ct = getHeaderCaseInsensitive(props.result.responseHeaders, 'Content-Type')
+        if (looksLikeXml(ct, props.result.bodyText)) {
+          const pretty = prettyPrintXml(props.result.bodyText)
+          if (pretty !== null) {
+            setBodyView({ text: pretty, matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
+            return
+          }
+        }
+        setBodyView({ text: props.result.bodyText, matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN })
+        return
+      }
+
+      const nextBodyView = await buildSearchBodyView({
+        source: parsed as JsonValue,
+        bodyQuery: responseSearchSubmittedQuery,
+      })
+      if (!canceled) setBodyView(nextBodyView)
     }
 
-    return buildSearchBodyView({ source: parsed as JsonValue, rootWasArray: Array.isArray(parsed), bodyQuery: responseSearchSubmittedQuery })
+    void run()
+    return () => {
+      canceled = true
+    }
   }, [isJson, parsed, props.result, responseSearchSubmittedQuery])
 
   const schemaValidationState = useMemo<SchemaValidationState>(() => {
@@ -587,7 +606,7 @@ export function ResponseViewer(props: {
       const allHighlightPlans: Array<SearchBodyView['highlightPlan']> = []
       let totalMatchesCount = 0
 
-      const currentEval = evaluateJsonSearch(parsed as JsonValue, responseSearchSubmittedQuery.trim())
+      const currentEval = await evaluateJsonSearch(parsed as JsonValue, responseSearchSubmittedQuery.trim())
       if (currentEval.error) return
       if (currentEval.matches.length) {
         totalMatchesCount += currentEval.matches.length
@@ -628,7 +647,7 @@ export function ResponseViewer(props: {
         const nextParsed = safeJsonParse(nextResult.bodyText)
         if (nextParsed === null) continue
 
-        const nextEval = evaluateJsonSearch(nextParsed as JsonValue, responseSearchSubmittedQuery.trim())
+        const nextEval = await evaluateJsonSearch(nextParsed as JsonValue, responseSearchSubmittedQuery.trim())
         if (nextEval.error || !nextEval.matches.length) continue
         totalMatchesCount += nextEval.matches.length
         allDisplayMatches.push(nextEval.displayMatches.length ? nextEval.displayMatches : nextEval.matches)
@@ -733,9 +752,8 @@ export function ResponseViewer(props: {
             return
           }
 
-          const nextBodyView = buildSearchBodyView({
+          const nextBodyView = await buildSearchBodyView({
             source: aiSearchExecutionSnapshot.source,
-            rootWasArray: aiSearchExecutionSnapshot.rootWasArray,
             bodyQuery: generatedQuery,
           })
 
@@ -2259,58 +2277,58 @@ export function ResponseViewer(props: {
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div><b>AI mode</b></div>
                   <div>
-                    Turn on <span className="mono">AI</span> to translate natural language into a valid local search query.
+                    Turn on <span className="mono">AI</span> to translate natural language into a valid JSONata query.
                   </div>
                   <div style={{ opacity: 0.85 }}>
                     Examples: <span className="mono">найди все ошибки валидации</span>, <span className="mono">покажи пользователя с id 42</span>, <span className="mono">есть ли traceId</span>, <span className="mono">сколько заказов со status = failed</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    AI does not answer the question directly. It generates JSONPath or filter syntax, then Ruf runs the usual local search engine.
+                    AI does not answer the question directly. It generates JSONata, and Ruf runs that JSONata expression against the response JSON.
                   </div>
                 </div>
 
                 <div className="treeMenuDivider" role="separator" style={{ width: 1, height: '100%', margin: 0, alignSelf: 'stretch' }} />
 
                 <div style={{ display: 'grid', gap: 10 }}>
-                  <div><b>JSONPath</b></div>
+                  <div><b>JSONata</b></div>
                   <div>
-                    A query starts with <span className="mono">$</span> and runs against the JSON response.
+                    The query is a JSONata expression that runs against the JSON response and returns the final filtered JSON.
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Examples: <span className="mono">$..id</span>, <span className="mono">$.data.items[*].name</span>, <span className="mono">$[0]</span>
+                    Examples: <span className="mono">$[category.name = "Dogs"]</span>, <span className="mono">$[photoUrls[$contains($, "tmp")]]</span>, <span className="mono">tags[name = "fill some value"]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
                     Docs:{' '}
                     <a
-                      href="https://github.com/JSONPath-Plus/JSONPath"
+                      href="https://docs.jsonata.org/overview.html"
                       target="_blank"
                       rel="noreferrer"
                       style={{ textDecoration: 'underline dotted rgba(255,255,255,.28)', textUnderlineOffset: 2 }}
                     >
-                      JSONPath-Plus / JSONPath
+                      JSONata docs
                     </a>
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gap: 12 }}>
-                  <div><b>Filter</b></div>
+                  <div><b>Patterns</b></div>
                   <div>
-                    Format: <span className="mono">field op value</span>. Matches across all objects inside the JSON (recursively).
+                    Use JSONata filters and functions to return only the records or values you need.
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Examples: <span className="mono">id = 5</span>, <span className="mono">category.name = dogs</span>, <span className="mono">tags.name ~ fill</span>, <span className="mono">photoUrls ~ tmp</span>, <span className="mono">status != 404</span>, <span className="mono">height &gt;= 166</span>, <span className="mono">code 4</span>, <span className="mono">status sold</span>
+                    Find matching objects: <span className="mono">$[category.name = "Dogs"]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Operators: <span className="mono">= == != &gt;= &lt;= &gt; &lt; ~ !~</span>. For strings, <span className="mono">=</span> is case-insensitive exact match, <span className="mono">==</span> is strict exact match, and <span className="mono">~</span> is case-insensitive substring match.
+                    Search inside an array field: <span className="mono">$[photoUrls[$contains($, "146")]]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Lists: <span className="mono">id = 1, 2, 3</span>. Strings can be quoted: <span className="mono">"text"</span> or <span className="mono">'text'</span>.
+                    Filter nested array objects: <span className="mono">tags[name = "fill some value"]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Field paths: <span className="mono">user.name = "Bob"</span> (dot-separated).
+                    Project values only: <span className="mono">photoUrls[$contains($, "tmp")]</span>
                   </div>
                   <div style={{ opacity: 0.85 }}>
-                    Arrays inside paths also work in filter mode, for example: <span className="mono">tags.name fill</span> or <span className="mono">tags.name ~ fill</span>.
+                    JSONata returns the final output directly, so the viewer shows exactly what the expression returns.
                   </div>
                 </div>
               </div>
