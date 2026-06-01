@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { McpServerSettings } from '../../../shared/utils/appSettings'
 import { FoldersCollapseIcon, FoldersExpandIcon, PlayIcon, ReloadIcon } from '../../../shared/icons'
 import { uid } from '../../../shared/utils/id'
@@ -63,6 +63,26 @@ export function McpSettingsTab(props: Props) {
   const [busyActionById, setBusyActionById] = useState<Record<string, 'test' | 'reconnect' | null>>({})
   const [messageById, setMessageById] = useState<Record<string, string | null>>({})
   const [errorById, setErrorById] = useState<Record<string, string | null>>({})
+  const [envDraftById, setEnvDraftById] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setEnvDraftById(prev => {
+      const next: Record<string, string> = {}
+      let changed = false
+
+      for (const server of props.value) {
+        if (Object.prototype.hasOwnProperty.call(prev, server.id)) {
+          next[server.id] = prev[server.id]
+        }
+      }
+
+      if (Object.keys(prev).length !== Object.keys(next).length) {
+        changed = true
+      }
+
+      return changed ? next : prev
+    })
+  }, [props.value])
 
   function updateServer(id: string, patch: Partial<McpServerSettings>) {
     props.onChange(prev => prev.map(server => (server.id === id ? { ...server, ...patch } : server)))
@@ -74,10 +94,34 @@ export function McpSettingsTab(props: Props) {
 
   function removeServer(id: string) {
     props.onChange(prev => prev.filter(server => server.id !== id))
+    setEnvDraftById(prev => {
+      if (!Object.prototype.hasOwnProperty.call(prev, id)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }
 
   function toggleExpanded(id: string) {
     setExpandedById(prev => ({ ...prev, [id]: !(prev[id] ?? false) }))
+  }
+
+  function getEnvValue(server: McpServerSettings) {
+    return envDraftById[server.id] ?? formatEnv(server.env)
+  }
+
+  function updateEnvDraft(server: McpServerSettings, value: string) {
+    setEnvDraftById(prev => ({ ...prev, [server.id]: value }))
+    updateServer(server.id, { env: parseEnv(value) })
+  }
+
+  function resetEnvDraft(server: McpServerSettings) {
+    setEnvDraftById(prev => {
+      if (!Object.prototype.hasOwnProperty.call(prev, server.id)) return prev
+      const next = { ...prev }
+      delete next[server.id]
+      return next
+    })
   }
 
   async function runServerAction(server: McpServerSettings, action: 'test' | 'reconnect') {
@@ -217,8 +261,9 @@ export function McpSettingsTab(props: Props) {
                   <div className="settingsTableValue">
                     <textarea
                       className="mono modalTextarea"
-                      value={formatEnv(server.env)}
-                      onChange={event => updateServer(server.id, { env: parseEnv(event.target.value) })}
+                      value={getEnvValue(server)}
+                      onChange={event => updateEnvDraft(server, event.target.value)}
+                      onBlur={() => resetEnvDraft(server)}
                       rows={4}
                       placeholder="KEY=value"
                     />
