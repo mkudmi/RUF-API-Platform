@@ -33,6 +33,11 @@ export type AiProviderSettings = {
 
 export type McpServerTemplate = 'atlassian' | 'custom'
 
+export type McpEnvEntry = {
+  key: string
+  value: string
+}
+
 export type McpServerSettings = {
   id: string
   name: string
@@ -41,6 +46,7 @@ export type McpServerSettings = {
   command: string
   args: string[]
   env: Record<string, string>
+  envEntries?: McpEnvEntry[]
   bugReportCloudId: string
   bugReportProjectKey: string
   bugReportIssueType: string
@@ -78,6 +84,7 @@ export const DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS: McpServerSettings = {
   command: 'npx',
   args: ['-y', 'mcp-remote@latest', 'https://mcp.atlassian.com/v1/mcp/authv2'],
   env: {},
+  envEntries: [],
   bugReportCloudId: '',
   bugReportProjectKey: '',
   bugReportIssueType: 'Bug',
@@ -261,6 +268,18 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
               .filter((entry): entry is [string, string] => typeof entry[0] === 'string' && !!entry[0].trim() && typeof entry[1] === 'string'),
           )
           : {}
+        const envEntries = Array.isArray(x.envEntries)
+          ? x.envEntries
+            .filter(item => item && typeof item === 'object')
+            .map(item => item as Record<string, unknown>)
+            .map((item): McpEnvEntry | null => {
+              const key = typeof item.key === 'string' ? item.key : ''
+              const value = typeof item.value === 'string' ? item.value : ''
+              if (!key.trim() && !value.trim()) return null
+              return { key, value }
+            })
+            .filter((item): item is McpEnvEntry => !!item)
+          : Object.entries(env).map(([key, value]) => ({ key, value }))
         return {
           id,
           name,
@@ -269,6 +288,7 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
           command,
           args,
           env,
+          envEntries,
           bugReportCloudId: typeof x.bugReportCloudId === 'string' ? x.bugReportCloudId.trim() : '',
           bugReportProjectKey: typeof x.bugReportProjectKey === 'string' ? x.bugReportProjectKey.trim().toUpperCase() : '',
           bugReportIssueType: typeof x.bugReportIssueType === 'string' && x.bugReportIssueType.trim()

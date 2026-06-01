@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { McpServerSettings } from '../../../shared/utils/appSettings'
+import { useState } from 'react'
+import type { McpEnvEntry, McpServerSettings } from '../../../shared/utils/appSettings'
 import { FoldersCollapseIcon, FoldersExpandIcon, PlayIcon, ReloadIcon } from '../../../shared/icons'
 import { uid } from '../../../shared/utils/id'
 import { reconnectMcpServer, testMcpServerConnection } from '../services/mcp'
@@ -18,6 +18,7 @@ function createCustomServer(): McpServerSettings {
     command: '',
     args: [],
     env: {},
+    envEntries: [],
     bugReportCloudId: '',
     bugReportProjectKey: '',
     bugReportIssueType: 'Bug',
@@ -35,27 +36,26 @@ function parseArgs(value: string) {
     .filter(Boolean)
 }
 
-function formatEnv(env: Record<string, string>) {
-  return Object.entries(env)
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
+function getEnvEntries(server: McpServerSettings): McpEnvEntry[] {
+  if (Array.isArray(server.envEntries)) return server.envEntries
+  return Object.entries(server.env).map(([key, value]) => ({ key, value }))
 }
 
-function parseEnv(value: string) {
+function toEnvRecord(entries: McpEnvEntry[]) {
   const out: Record<string, string> = {}
-  value
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .forEach(line => {
-      const eqIndex = line.indexOf('=')
-      if (eqIndex <= 0) return
-      const key = line.slice(0, eqIndex).trim()
-      const envValue = line.slice(eqIndex + 1)
-      if (!key) return
-      out[key] = envValue
-    })
+  for (const entry of entries) {
+    const key = entry.key.trim()
+    if (!key) continue
+    out[key] = entry.value
+  }
   return out
+}
+
+function syncEnv(entries: McpEnvEntry[]) {
+  return {
+    envEntries: entries,
+    env: toEnvRecord(entries),
+  } satisfies Pick<McpServerSettings, 'envEntries' | 'env'>
 }
 
 export function McpSettingsTab(props: Props) {
@@ -63,26 +63,6 @@ export function McpSettingsTab(props: Props) {
   const [busyActionById, setBusyActionById] = useState<Record<string, 'test' | 'reconnect' | null>>({})
   const [messageById, setMessageById] = useState<Record<string, string | null>>({})
   const [errorById, setErrorById] = useState<Record<string, string | null>>({})
-  const [envDraftById, setEnvDraftById] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    setEnvDraftById(prev => {
-      const next: Record<string, string> = {}
-      let changed = false
-
-      for (const server of props.value) {
-        if (Object.prototype.hasOwnProperty.call(prev, server.id)) {
-          next[server.id] = prev[server.id]
-        }
-      }
-
-      if (Object.keys(prev).length !== Object.keys(next).length) {
-        changed = true
-      }
-
-      return changed ? next : prev
-    })
-  }, [props.value])
 
   function updateServer(id: string, patch: Partial<McpServerSettings>) {
     props.onChange(prev => prev.map(server => (server.id === id ? { ...server, ...patch } : server)))
@@ -94,34 +74,30 @@ export function McpSettingsTab(props: Props) {
 
   function removeServer(id: string) {
     props.onChange(prev => prev.filter(server => server.id !== id))
-    setEnvDraftById(prev => {
-      if (!Object.prototype.hasOwnProperty.call(prev, id)) return prev
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
   }
 
   function toggleExpanded(id: string) {
     setExpandedById(prev => ({ ...prev, [id]: !(prev[id] ?? false) }))
   }
 
-  function getEnvValue(server: McpServerSettings) {
-    return envDraftById[server.id] ?? formatEnv(server.env)
+  function updateEnvEntries(server: McpServerSettings, entries: McpEnvEntry[]) {
+    updateServer(server.id, syncEnv(entries))
   }
 
-  function updateEnvDraft(server: McpServerSettings, value: string) {
-    setEnvDraftById(prev => ({ ...prev, [server.id]: value }))
-    updateServer(server.id, { env: parseEnv(value) })
+  function addEnvEntry(server: McpServerSettings) {
+    updateEnvEntries(server, [...getEnvEntries(server), { key: '', value: '' }])
   }
 
-  function resetEnvDraft(server: McpServerSettings) {
-    setEnvDraftById(prev => {
-      if (!Object.prototype.hasOwnProperty.call(prev, server.id)) return prev
-      const next = { ...prev }
-      delete next[server.id]
-      return next
-    })
+  function updateEnvEntry(server: McpServerSettings, index: number, patch: Partial<McpEnvEntry>) {
+    const nextEntries = getEnvEntries(server).map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, ...patch } : entry
+    ))
+    updateEnvEntries(server, nextEntries)
+  }
+
+  function removeEnvEntry(server: McpServerSettings, index: number) {
+    const nextEntries = getEnvEntries(server).filter((_, entryIndex) => entryIndex !== index)
+    updateEnvEntries(server, nextEntries)
   }
 
   async function runServerAction(server: McpServerSettings, action: 'test' | 'reconnect') {
@@ -259,14 +235,30 @@ export function McpSettingsTab(props: Props) {
                 <div className="settingsTableRow">
                   <div className="settingsTableLabel">Environment</div>
                   <div className="settingsTableValue">
-                    <textarea
-                      className="mono modalTextarea"
-                      value={getEnvValue(server)}
-                      onChange={event => updateEnvDraft(server, event.target.value)}
-                      onBlur={() => resetEnvDraft(server)}
-                      rows={4}
-                      placeholder="KEY=value"
-                    />
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {getEnvEntries(server).map((entry, index) => (
+                        <div key={`${server.id}:env:${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+                          <input
+                            className="mono"
+                            value={entry.key}
+                            onChange={event => updateEnvEntry(server, index, { key: event.target.value })}
+                            placeholder="KEY"
+                          />
+                          <input
+                            className="mono"
+                            value={entry.value}
+                            onChange={event => updateEnvEntry(server, index, { value: event.target.value })}
+                            placeholder="value"
+                          />
+                          <button type="button" className="iconBtn" onClick={() => removeEnvEntry(server, index)} aria-label="Delete environment entry" title="Delete">
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <div>
+                        <button type="button" onClick={() => addEnvEntry(server)}>Add variable</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
