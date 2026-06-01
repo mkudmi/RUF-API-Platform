@@ -22,6 +22,20 @@ function normalizeVarName(raw: string) {
   return raw.trim().replaceAll(/\s+/g, '')
 }
 
+function findHeaderKeyCaseInsensitive(headers: Record<string, unknown>, name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) return k
+  }
+  return undefined
+}
+
+function setHeaderCaseInsensitive(headers: Record<string, string>, name: string, value: string) {
+  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
+  if (existingKey && existingKey !== name) delete headers[existingKey]
+  headers[name] = value
+}
+
 export function EnvironmentSettings(props: {
   open: boolean
   collectionName: string
@@ -249,7 +263,7 @@ export function EnvironmentSettings(props: {
       for (const row of headersRows) {
         const key = row.key.trim()
         if (!key) continue
-        headers[key] = row.value ?? ''
+        setHeaderCaseInsensitive(headers, key, row.value ?? '')
       }
 
       props.onSave({

@@ -109,6 +109,35 @@ function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNa
   return next
 }
 
+function findHeaderKeyCaseInsensitive(headers: Record<string, unknown>, name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) return k
+  }
+  return undefined
+}
+
+function setHeaderCaseInsensitive(headers: Record<string, string>, name: string, value: string) {
+  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
+  if (existingKey && existingKey !== name) delete headers[existingKey]
+  headers[name] = value
+}
+
+function deleteHeaderCaseInsensitive(headers: Record<string, unknown>, name: string): boolean {
+  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
+  if (!existingKey) return false
+  delete headers[existingKey]
+  return true
+}
+
+function mergeHeadersCaseInsensitive(...sources: Array<Record<string, string>>): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const source of sources) {
+    for (const [k, v] of Object.entries(source)) setHeaderCaseInsensitive(next, k, v)
+  }
+  return next
+}
+
 function setKeyActivity(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
   const key = keyRaw.trim()
   if (!key) return prev
@@ -263,39 +292,56 @@ export function prepareCollectionRunRequest(args: {
       ? draft.disabledHeaderNames
       : {}
   )
+  const inactiveHeaderNames = (
+    draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object'
+      ? { ...draft.inactiveHeaderNames }
+      : {}
+  )
   const headerRows = normalizeDraftRows(draft?.headerDraftRows)
+  const activeCommittedHeaderNeedles = (() => {
+    const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, headerOverrides)
+    for (const key of Object.keys(disabledHeaderNames)) deleteHeaderCaseInsensitive(merged, key)
+    return new Set(Object.keys(removeInactiveHeaders(merged, inactiveHeaderNames)).map(k => k.toLowerCase()))
+  })()
+  const activeDraftHeaderNeedles = new Set(
+    headerRows
+      .filter(row => row.isActive)
+      .map(row => row.name.trim().toLowerCase())
+      .filter(Boolean),
+  )
+  const headerRowsToApply = headerRows.filter(row => {
+    if (row.isActive) return true
+    const needle = row.name.trim().toLowerCase()
+    if (!needle) return false
+    return !activeDraftHeaderNeedles.has(needle) && !activeCommittedHeaderNeedles.has(needle)
+  })
 
   const nextHeaderOverridesForSend = (() => {
-    if (!headerRows.length) return headerOverrides
+    if (!headerRowsToApply.length) return headerOverrides
     const next = { ...headerOverrides }
-    for (const row of headerRows) next[row.name] = row.value
+    for (const row of headerRowsToApply) setHeaderCaseInsensitive(next, row.name, row.value)
     return next
   })()
 
   const nextDisabledHeaderNamesForSend = (() => {
-    if (!headerRows.length) return disabledHeaderNames
+    if (!headerRowsToApply.length) return disabledHeaderNames
     const next = { ...disabledHeaderNames }
-    for (const row of headerRows) {
-      if (row.name in next) delete next[row.name]
+    for (const row of headerRowsToApply) {
+      deleteHeaderCaseInsensitive(next, row.name)
     }
     return next
   })()
 
   const nextInactiveHeaderNamesForSend = (() => {
-    const source = (
-      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object'
-        ? { ...draft.inactiveHeaderNames }
-        : {}
-    )
-    if (!headerRows.length) return source
-    let next = source
-    for (const row of headerRows) next = setHeaderActivity(next, row.name, row.isActive)
+    if (!headerRowsToApply.length) return inactiveHeaderNames
+    let next = inactiveHeaderNames
+    for (const row of headerRowsToApply) next = setHeaderActivity(next, row.name, row.isActive)
     return next
   })()
 
   const baseHeadersForSend = (() => {
-    const merged = { ...envHeaders, ...requestBaseHeaders, ...nextHeaderOverridesForSend }
-    for (const key of Object.keys(nextDisabledHeaderNamesForSend)) delete merged[key]
+    const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, nextHeaderOverridesForSend)
+    for (const key of Object.keys(nextDisabledHeaderNamesForSend)) deleteHeaderCaseInsensitive(merged, key)
     return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
   })()
 
@@ -306,20 +352,27 @@ export function prepareCollectionRunRequest(args: {
   const headers = (() => {
     if (!hasAnyBodyInput || !methodAllowsBody || bodyFormat === 'auto') return baseHeadersForSend
     if (isHeaderInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) return baseHeadersForSend
-    return { ...baseHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) }
+    const next = { ...baseHeadersForSend }
+    setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
+    return next
   })()
 
   const baseCommittedHeadersForSend = (() => {
-    const merged = { ...envHeaders, ...requestBaseHeaders, ...headerOverrides }
-    for (const key of Object.keys(disabledHeaderNames)) delete merged[key]
+    const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, headerOverrides)
+    for (const key of Object.keys(disabledHeaderNames)) deleteHeaderCaseInsensitive(merged, key)
     return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
   })()
+  const draftHeaderNeedlesForSend = new Set(headerRowsToApply.map(row => row.name.trim().toLowerCase()).filter(Boolean))
   const committedHeaderEntriesForSend = (() => {
-    if (!hasAnyBodyInput || !methodAllowsBody || bodyFormat === 'auto') return Object.entries(baseCommittedHeadersForSend)
-    if (isHeaderInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) return Object.entries(baseCommittedHeadersForSend)
-    return Object.entries({ ...baseCommittedHeadersForSend, 'Content-Type': contentTypeForBodyFormat(bodyFormat) })
+    const withoutDraftRows = (entries: Array<[string, string]>) =>
+      entries.filter(([name]) => !draftHeaderNeedlesForSend.has(name.toLowerCase()))
+    if (!hasAnyBodyInput || !methodAllowsBody || bodyFormat === 'auto') return withoutDraftRows(Object.entries(baseCommittedHeadersForSend))
+    if (isHeaderInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) return withoutDraftRows(Object.entries(baseCommittedHeadersForSend))
+    const next = { ...baseCommittedHeadersForSend }
+    setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
+    return withoutDraftRows(Object.entries(next))
   })()
-  const activeDraftHeaderEntriesForSend = headerRows
+  const activeDraftHeaderEntriesForSend = headerRowsToApply
     .filter(row => row.isActive && row.name.trim() && row.value !== '')
     .map(row => [row.name, row.value] as [string, string])
   const headerEntries = [...committedHeaderEntriesForSend, ...activeDraftHeaderEntriesForSend]

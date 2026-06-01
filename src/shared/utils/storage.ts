@@ -5,6 +5,20 @@ import { logError } from './logger'
 const COLLECTIONS_KEY = 'ruf_collections_v1'
 const ENVS_BY_COLLECTION_KEY = 'ruf_env_by_collection_v1'
 
+function findKeyCaseInsensitive(obj: Record<string, unknown>, name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const key of Object.keys(obj)) {
+    if (key.toLowerCase() === needle) return key
+  }
+  return undefined
+}
+
+function setHeaderCaseInsensitive(headers: Record<string, string>, name: string, value: string) {
+  const existingKey = findKeyCaseInsensitive(headers, name)
+  if (existingKey && existingKey !== name) delete headers[existingKey]
+  headers[name] = value
+}
+
 export function loadCollections(): Collection[] {
   try {
     const raw = localStorage.getItem(COLLECTIONS_KEY)
@@ -49,7 +63,7 @@ export function loadEnvironmentsByCollection(): Record<string, Environment> {
       const headersObj = (env as any)?.headers && typeof (env as any).headers === 'object' ? (env as any).headers : {}
       const headers: Record<string, string> = {}
       for (const [k, v] of Object.entries(headersObj)) {
-        if (typeof k === 'string' && typeof v === 'string' && k.trim()) headers[k] = v
+        if (typeof k === 'string' && typeof v === 'string' && k.trim()) setHeaderCaseInsensitive(headers, k.trim(), v)
       }
       out[id] = { baseUrlKey, variables, headers }
     }

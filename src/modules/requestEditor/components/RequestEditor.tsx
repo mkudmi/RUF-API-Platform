@@ -24,7 +24,7 @@ import { JsonCodeEditor } from './JsonCodeEditor'
 import { DataDrivenReportSheet, type DataDrivenRunItem, type DataDrivenRunReport } from './DataDrivenReportSheet'
 import { DataDrivenInputEditorSheet } from './DataDrivenInputEditorSheet'
 import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
-import { addValueHistoryEntry, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
+import { addValueHistoryEntry, getHeaderValueHistoryItems, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
 import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
 import { JsCodeEditor } from '../../../shared/components/JsCodeEditor'
@@ -316,6 +316,40 @@ function headerNameExistsCaseInsensitive(headers: Record<string, string>, name: 
     if (k.toLowerCase() === needle) return true
   }
   return false
+}
+
+function findHeaderKeyCaseInsensitive(headers: Record<string, unknown>, name: string): string | undefined {
+  const needle = name.toLowerCase()
+  for (const k of Object.keys(headers)) {
+    if (k.toLowerCase() === needle) return k
+  }
+  return undefined
+}
+
+function getHeaderCaseInsensitive(headers: Record<string, string>, name: string): string | undefined {
+  const key = findHeaderKeyCaseInsensitive(headers, name)
+  return key ? headers[key] : undefined
+}
+
+function setHeaderCaseInsensitive(headers: Record<string, string>, name: string, value: string) {
+  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
+  if (existingKey && existingKey !== name) delete headers[existingKey]
+  headers[name] = value
+}
+
+function deleteHeaderCaseInsensitive(headers: Record<string, unknown>, name: string): boolean {
+  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
+  if (!existingKey) return false
+  delete headers[existingKey]
+  return true
+}
+
+function mergeHeadersCaseInsensitive(...sources: Array<Record<string, string>>): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const source of sources) {
+    for (const [k, v] of Object.entries(source)) setHeaderCaseInsensitive(next, k, v)
+  }
+  return next
 }
 
 function defaultInactiveQueryParamNamesFromSpec(params: RequestParam[]): Record<string, true> {
@@ -1579,6 +1613,8 @@ export function RequestEditor(props: {
     setCustomMethodOptions(prev => prev.filter(m => m !== method))
   }
 
+  const headerValueHistoryItems = useMemo(() => getHeaderValueHistoryItems(valueHistory, 10), [valueHistory])
+
   function recordValueHistory(kind: ValueHistoryKind, key: string, value: string) {
     setValueHistory(prev => {
       const next = addValueHistoryEntry(prev, kind, key, value, 10)
@@ -1788,10 +1824,6 @@ export function RequestEditor(props: {
   const [preSqlScriptIsActive, setPreSqlScriptIsActive] = useState(true)
   const [postSqlScriptIsActive, setPostSqlScriptIsActive] = useState(true)
   const [selectedSqlConnectionId, setSelectedSqlConnectionId] = useState<string | null>(null)
-
-  function hasOwn<T extends object>(obj: T, key: string): key is Extract<keyof T, string> {
-    return Object.prototype.hasOwnProperty.call(obj, key)
-  }
 
   const sqlConnections = useMemo(() => {
     const out: Array<{
@@ -2026,28 +2058,29 @@ export function RequestEditor(props: {
 
 
   const committedHeaders = useMemo(() => {
-    const next: Record<string, string> = { ...envHeaders, ...requestBaseHeaders, ...headerOverrides }
-    for (const key of Object.keys(disabledHeaderNames)) delete next[key]
+    const next = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, headerOverrides)
+    for (const key of Object.keys(disabledHeaderNames)) deleteHeaderCaseInsensitive(next, key)
     return next
   }, [disabledHeaderNames, envHeaders, headerOverrides, requestBaseHeaders])
 
   const effectiveHeaders = useMemo(() => {
     const next: Record<string, string> = { ...committedHeaders }
     for (const row of headerDraftRows) {
+      if (!row.isActive) continue
       const k = row.name.trim()
       if (!k) continue
       if (row.value === '') continue
-      next[k] = row.value
+      setHeaderCaseInsensitive(next, k, row.value)
     }
     return next
   }, [committedHeaders, headerDraftRows])
 
   const envOnlyHeaderNames = useMemo(() => {
-    return Object.keys(envHeaders).filter(k => !hasOwn(requestBaseHeaders, k) && k !== 'authorization')
+    return Object.keys(envHeaders).filter(k => !findHeaderKeyCaseInsensitive(requestBaseHeaders, k) && k.toLowerCase() !== 'authorization')
   }, [envHeaders, requestBaseHeaders])
 
   const hasDisabledEnvOnlyHeaders = useMemo(() => {
-    return envOnlyHeaderNames.some(k => hasOwn(disabledHeaderNames, k))
+    return envOnlyHeaderNames.some(k => !!findHeaderKeyCaseInsensitive(disabledHeaderNames, k))
   }, [disabledHeaderNames, envOnlyHeaderNames])
 
   function reloadFromGlobalHeaders() {
@@ -2055,9 +2088,7 @@ export function RequestEditor(props: {
       let changed = false
       const next = { ...prev }
       for (const k of envOnlyHeaderNames) {
-        if (!hasOwn(next, k)) continue
-        delete next[k]
-        changed = true
+        if (deleteHeaderCaseInsensitive(next, k)) changed = true
       }
       return changed ? next : prev
     })
@@ -2069,44 +2100,58 @@ export function RequestEditor(props: {
   }
 
   function setHeaderValueForRequest(headerName: string, nextValue: string) {
-    const baseHas = hasOwn(requestBaseHeaders, headerName)
-    const envHas = hasOwn(envHeaders, headerName)
-    const defaultValue = baseHas ? (requestBaseHeaders[headerName] ?? '') : envHas ? (envHeaders[headerName] ?? '') : ''
+    const baseKey = findHeaderKeyCaseInsensitive(requestBaseHeaders, headerName)
+    const envKey = findHeaderKeyCaseInsensitive(envHeaders, headerName)
+    const baseHas = !!baseKey
+    const envHas = !!envKey
+    const storageKey = baseKey ?? envKey ?? findHeaderKeyCaseInsensitive(headerOverrides, headerName) ?? headerName
+    const defaultValue = baseKey ? (requestBaseHeaders[baseKey] ?? '') : envKey ? (envHeaders[envKey] ?? '') : ''
 
     if (nextValue === '') {
       setInactiveHeaderNames(prev => setFlagForHeaderName(prev, headerName, true))
       setHeaderOverrides(prev => {
-        if (!hasOwn(prev, headerName)) return prev
-        const { [headerName]: _removed, ...rest } = prev
-        return rest
+        const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
+        if (!existingKey) return prev
+        const next = { ...prev }
+        delete next[existingKey]
+        return next
       })
       if (baseHas || envHas) {
-        setDisabledHeaderNames(prev => ({ ...prev, [headerName]: true }))
+        setDisabledHeaderNames(prev => ({ ...prev, [storageKey]: true }))
       } else {
         setDisabledHeaderNames(prev => {
-          if (!hasOwn(prev, headerName)) return prev
+          const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
+          if (!existingKey) return prev
           const next = { ...prev }
-          delete next[headerName]
+          delete next[existingKey]
           return next
         })
       }
       return
     }
 
+    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, headerName, true))
     setDisabledHeaderNames(prev => {
-      if (!hasOwn(prev, headerName)) return prev
+      const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
+      if (!existingKey) return prev
       const next = { ...prev }
-      delete next[headerName]
+      delete next[existingKey]
       return next
     })
 
     setHeaderOverrides(prev => {
       if ((baseHas || envHas) && nextValue === defaultValue) {
-        if (!hasOwn(prev, headerName)) return prev
-        const { [headerName]: _removed, ...rest } = prev
-        return rest
+        const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
+        if (!existingKey) return prev
+        const next = { ...prev }
+        delete next[existingKey]
+        return next
       }
-      return { ...prev, [headerName]: nextValue }
+      const next = { ...prev }
+      const existingKey = findHeaderKeyCaseInsensitive(next, headerName)
+      if (existingKey && existingKey !== storageKey) delete next[existingKey]
+      next[storageKey] = nextValue
+      return next
     })
   }
 
@@ -2225,8 +2270,10 @@ export function RequestEditor(props: {
       if (!legacy) return {}
       const overrides: Record<string, string> = {}
       for (const [k, v] of Object.entries(legacy)) {
-        if (!(k in base) && (k in env) && env[k] === v) continue
-        if (!(k in base) || base[k] !== v) overrides[k] = v
+        const baseValue = getHeaderCaseInsensitive(base, k)
+        const envValue = getHeaderCaseInsensitive(env, k)
+        if (baseValue === undefined && envValue !== undefined && envValue === v) continue
+        if (baseValue === undefined || baseValue !== v) setHeaderCaseInsensitive(overrides, k, v)
       }
       return overrides
     })()
@@ -2241,8 +2288,8 @@ export function RequestEditor(props: {
     const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
 
     const headersForSeedCheck = (() => {
-      const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
-      for (const key of Object.keys(nextDisabledHeaderNames)) delete next[key]
+      const next = mergeHeadersCaseInsensitive(env, base, nextHeaderOverrides)
+      for (const key of Object.keys(nextDisabledHeaderNames)) deleteHeaderCaseInsensitive(next, key)
       return next
     })()
 
@@ -2373,8 +2420,10 @@ export function RequestEditor(props: {
       if (draft?.headerOverrides && typeof draft.headerOverrides === 'object') return draft.headerOverrides as Record<string, string>
       const overrides: Record<string, string> = {}
       for (const [k, v] of Object.entries(target)) {
-        if (!(k in base) && (k in env) && env[k] === v) continue
-        if (!(k in base) || base[k] !== v) overrides[k] = v
+        const baseValue = getHeaderCaseInsensitive(base, k)
+        const envValue = getHeaderCaseInsensitive(env, k)
+        if (baseValue === undefined && envValue !== undefined && envValue === v) continue
+        if (baseValue === undefined || baseValue !== v) setHeaderCaseInsensitive(overrides, k, v)
       }
       return overrides
     })()
@@ -2382,8 +2431,8 @@ export function RequestEditor(props: {
     const nextDisabledHeaderNames = (() => {
       if (draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object') return draft.disabledHeaderNames as Record<string, true>
       const disabled: Record<string, true> = {}
-      for (const key of Object.keys({ ...env, ...base })) {
-        if (!(key in target)) disabled[key] = true
+      for (const key of Object.keys(mergeHeadersCaseInsensitive(env, base))) {
+        if (!findHeaderKeyCaseInsensitive(target, key)) disabled[key] = true
       }
       return disabled
     })()
@@ -2393,8 +2442,8 @@ export function RequestEditor(props: {
     const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
 
     const headersForSeedCheck = (() => {
-      const next: Record<string, string> = { ...env, ...base, ...nextHeaderOverrides }
-      for (const key of Object.keys(nextDisabledHeaderNames)) delete next[key]
+      const next = mergeHeadersCaseInsensitive(env, base, nextHeaderOverrides)
+      for (const key of Object.keys(nextDisabledHeaderNames)) deleteHeaderCaseInsensitive(next, key)
       return next
     })()
 
@@ -2862,7 +2911,7 @@ export function RequestEditor(props: {
 
   const effectiveContentType = useMemo(() => {
     const activeHeaders = removeInactiveHeaders(effectiveHeaders, inactiveHeaderNames)
-    const fromHeadersOrSpec = (activeHeaders['Content-Type'] || activeHeaders['content-type'] || props.request.body?.contentType || '').trim()
+    const fromHeadersOrSpec = (getHeaderCaseInsensitive(activeHeaders, 'Content-Type') || props.request.body?.contentType || '').trim()
     return bodyFormat === 'auto' ? fromHeadersOrSpec : contentTypeForBodyFormat(bodyFormat)
   }, [bodyFormat, effectiveHeaders, inactiveHeaderNames, props.request.body?.contentType])
   const isMultipartForm = effectiveContentType.toLowerCase().includes('multipart/form-data')
@@ -3092,14 +3141,29 @@ export function RequestEditor(props: {
   function buildSendSnapshot() {
     const headerDraftRowsToCommit = headerDraftRows.filter(r => r.name.trim() && r.value !== '')
     const hasDraftHeadersToCommit = headerDraftRowsToCommit.length > 0
+    const activeCommittedHeaderNeedlesForSend = new Set(
+      Object.keys(removeInactiveHeaders(committedHeaders, inactiveHeaderNames)).map(k => k.toLowerCase()),
+    )
+    const activeDraftHeaderNeedlesForSend = new Set(
+      headerDraftRowsToCommit
+        .filter(row => row.isActive)
+        .map(row => row.name.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    const headerDraftRowsToApply = headerDraftRowsToCommit.filter(row => {
+      if (row.isActive) return true
+      const needle = row.name.trim().toLowerCase()
+      if (!needle) return false
+      return !activeDraftHeaderNeedlesForSend.has(needle) && !activeCommittedHeaderNeedlesForSend.has(needle)
+    })
 
     const nextHeaderOverridesForSend = hasDraftHeadersToCommit
       ? (() => {
         const next = { ...headerOverrides }
-        for (const row of headerDraftRowsToCommit) {
+        for (const row of headerDraftRowsToApply) {
           const key = row.name.trim()
           if (!key) continue
-          next[key] = row.value
+          setHeaderCaseInsensitive(next, key, row.value)
         }
         return next
       })()
@@ -3109,11 +3173,12 @@ export function RequestEditor(props: {
       ? (() => {
         let changed = false
         const next = { ...disabledHeaderNames }
-        for (const row of headerDraftRowsToCommit) {
+        for (const row of headerDraftRowsToApply) {
           const key = row.name.trim()
           if (!key) continue
-          if (key in next) {
-            delete next[key]
+          const existingKey = findHeaderKeyCaseInsensitive(next, key)
+          if (existingKey) {
+            delete next[existingKey]
             changed = true
           }
         }
@@ -3124,7 +3189,7 @@ export function RequestEditor(props: {
     const nextInactiveHeaderNamesForSend = hasDraftHeadersToCommit
       ? (() => {
         let next = inactiveHeaderNames
-        for (const row of headerDraftRowsToCommit) {
+        for (const row of headerDraftRowsToApply) {
           const key = row.name.trim()
           if (!key) continue
           next = setFlagForHeaderName(next, key, row.isActive)
@@ -3134,8 +3199,8 @@ export function RequestEditor(props: {
       : inactiveHeaderNames
 
     const baseHeadersForSend = (() => {
-      const merged = { ...envHeaders, ...requestBaseHeaders, ...nextHeaderOverridesForSend }
-      for (const key of Object.keys(nextDisabledHeaderNamesForSend)) delete merged[key]
+      const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, nextHeaderOverridesForSend)
+      for (const key of Object.keys(nextDisabledHeaderNamesForSend)) deleteHeaderCaseInsensitive(merged, key)
       return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
     })()
 
@@ -3150,31 +3215,34 @@ export function RequestEditor(props: {
       if (bodyFormat === 'auto') {
         if (bodyFormatForDisplay !== 'json') return baseHeadersForSend
         const next = { ...baseHeadersForSend }
-        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = 'application/json'
+        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', 'application/json')
         return next
       }
       const next = { ...baseHeadersForSend }
-      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
+      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
       return next
     })()
     const committedHeadersForSendWithoutDraftRows = (() => {
-      const merged = { ...envHeaders, ...requestBaseHeaders, ...headerOverrides }
-      for (const key of Object.keys(disabledHeaderNames)) delete merged[key]
+      const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, headerOverrides)
+      for (const key of Object.keys(disabledHeaderNames)) deleteHeaderCaseInsensitive(merged, key)
       return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
     })()
+    const draftHeaderNeedlesForSend = new Set(headerDraftRowsToApply.map(row => row.name.trim().toLowerCase()).filter(Boolean))
     const committedHeaderEntriesForSend = (() => {
-      if (!hasAnyBodyInput) return Object.entries(committedHeadersForSendWithoutDraftRows)
+      const withoutDraftRows = (entries: Array<[string, string]>) =>
+        entries.filter(([name]) => !draftHeaderNeedlesForSend.has(name.toLowerCase()))
+      if (!hasAnyBodyInput) return withoutDraftRows(Object.entries(committedHeadersForSendWithoutDraftRows))
       if (bodyFormat === 'auto') {
-        if (bodyFormatForDisplay !== 'json') return Object.entries(committedHeadersForSendWithoutDraftRows)
+        if (bodyFormatForDisplay !== 'json') return withoutDraftRows(Object.entries(committedHeadersForSendWithoutDraftRows))
         const next = { ...committedHeadersForSendWithoutDraftRows }
-        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = 'application/json'
-        return Object.entries(next)
+        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', 'application/json')
+        return withoutDraftRows(Object.entries(next))
       }
       const next = { ...committedHeadersForSendWithoutDraftRows }
-      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) next['Content-Type'] = contentTypeForBodyFormat(bodyFormat)
-      return Object.entries(next)
+      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
+      return withoutDraftRows(Object.entries(next))
     })()
-    const activeDraftHeaderEntriesForSend = headerDraftRowsToCommit
+    const activeDraftHeaderEntriesForSend = headerDraftRowsToApply
       .filter(row => row.isActive)
       .map(row => [row.name.trim(), row.value] as [string, string])
     const headerEntriesForSend = [...committedHeaderEntriesForSend, ...activeDraftHeaderEntriesForSend]
@@ -4982,10 +5050,12 @@ export function RequestEditor(props: {
           <div className="section">
             {visibleHeaderParams.map(h => {
               const isSpec = headerSpecNames.has(h.name)
-              const isInBase = Object.prototype.hasOwnProperty.call(requestBaseHeaders, h.name)
-              const isInEnv = Object.prototype.hasOwnProperty.call(envHeaders, h.name)
+              const baseKey = findHeaderKeyCaseInsensitive(requestBaseHeaders, h.name)
+              const envKey = findHeaderKeyCaseInsensitive(envHeaders, h.name)
+              const isInBase = !!baseKey
+              const isInEnv = !!envKey
               const isEnvOnly = !isInBase && isInEnv
-              const value = committedHeaders[h.name] ?? ''
+              const value = getHeaderCaseInsensitive(committedHeaders, h.name) ?? ''
               return (
                 <HeaderRow
                   key={h.name}
@@ -4998,7 +5068,7 @@ export function RequestEditor(props: {
                     setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, isActive))
                   }}
                   variableSuggestions={variableSuggestions}
-                  historyItems={valueHistory.header[h.name] ?? []}
+                  historyItems={headerValueHistoryItems}
                   onRecordHistory={next => recordValueHistory('header', h.name, next)}
                   onPickHistory={next => {
                     setHeaderValueForRequest(h.name, next)
@@ -5035,8 +5105,10 @@ export function RequestEditor(props: {
                           if (isInBase) {
                             setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                             setHeaderOverrides(prev => {
-                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                              if (!existingKey) return prev
                               const { [h.name]: _removed, ...rest } = prev
+                              if (existingKey !== h.name) delete rest[existingKey]
                               return rest
                             })
                             return
@@ -5045,24 +5117,27 @@ export function RequestEditor(props: {
                             setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                           }
                           setHeaderOverrides(prev => {
-                            if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
+                            const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                            if (!existingKey) return prev
                             const { [h.name]: _removed, ...rest } = prev
+                            if (existingKey !== h.name) delete rest[existingKey]
                             return rest
                           })
                           return
                         }
 
-                        if (Object.prototype.hasOwnProperty.call(committedHeaders, nextKey)) return
+                        if (findHeaderKeyCaseInsensitive(committedHeaders, nextKey)) return
 
                         setHeaderOverrides(prev => {
-                          const next = { ...prev, [nextKey]: value }
-                          if (Object.prototype.hasOwnProperty.call(next, h.name)) delete next[h.name]
+                          const next = { ...prev }
+                          setHeaderCaseInsensitive(next, nextKey, value)
+                          deleteHeaderCaseInsensitive(next, h.name)
                           return next
                         })
                         setDisabledHeaderNames(prev => {
                           const next = { ...prev }
                           if (isInBase || isInEnv) next[h.name] = true
-                          delete next[nextKey]
+                          deleteHeaderCaseInsensitive(next, nextKey)
                           return next
                         })
                         setInactiveHeaderNames(prev => {
@@ -5091,14 +5166,16 @@ export function RequestEditor(props: {
                           if (isInBase || isInEnv) {
                             setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                             setHeaderOverrides(prev => {
-                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
-                              const { [h.name]: _removed, ...rest } = prev
+                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                              if (!existingKey) return prev
+                              const { [existingKey]: _removed, ...rest } = prev
                               return rest
                             })
                           } else {
                             setHeaderOverrides(prev => {
-                              if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
-                              const { [h.name]: _removed, ...rest } = prev
+                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                              if (!existingKey) return prev
+                              const { [existingKey]: _removed, ...rest } = prev
                               return rest
                             })
                           }
@@ -5109,8 +5186,9 @@ export function RequestEditor(props: {
                         if (isInBase || isInEnv) {
                           setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
                           setHeaderOverrides(prev => {
-                            if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
-                            const { [h.name]: _removed, ...rest } = prev
+                            const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                            if (!existingKey) return prev
+                            const { [existingKey]: _removed, ...rest } = prev
                             return rest
                           })
                           if (shouldEnsureEmptyRowAfterDelete) {
@@ -5121,8 +5199,9 @@ export function RequestEditor(props: {
                           return
                         }
                         setHeaderOverrides(prev => {
-                          if (!Object.prototype.hasOwnProperty.call(prev, h.name)) return prev
-                          const { [h.name]: _removed, ...rest } = prev
+                          const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
+                          if (!existingKey) return prev
+                          const { [existingKey]: _removed, ...rest } = prev
                           return rest
                         })
                         if (shouldEnsureEmptyRowAfterDelete) {
@@ -5147,7 +5226,7 @@ export function RequestEditor(props: {
                 onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
                 onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
                 variableSuggestions={variableSuggestions}
-                historyItems={valueHistory.header[row.name.trim()] ?? []}
+                historyItems={headerValueHistoryItems}
                 onRecordHistory={next => recordValueHistory('header', row.name, next)}
                 onPickHistory={next => {
                   setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
