@@ -232,20 +232,43 @@ function normalizeDraftRows(raw: unknown, prefix: 'qrow' | 'hrow'): DraftRow[] {
   return out
 }
 
-type FileRow = { id: string, fieldName: string, file: File | null, isActive: boolean }
-type DraftFileRow = { fieldName: string, isActive: boolean }
+type FileRow = { id: string, fieldName: string, file: File | null, fileName: string, isActive: boolean }
+type DraftFileRow = { fieldName: string, fileName: string, isActive: boolean }
+
+const fileRowsByRequestId = new Map<string, Array<{ fieldName: string, file: File | null, fileName: string, isActive: boolean }>>()
 
 function normalizeDraftFileRows(raw: unknown): DraftFileRow[] {
   if (!Array.isArray(raw)) return []
   const out: DraftFileRow[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
-    const row = item as { fieldName?: unknown, isActive?: unknown }
+    const row = item as { fieldName?: unknown, fileName?: unknown, isActive?: unknown }
     const fieldName = typeof row.fieldName === 'string' ? row.fieldName : ''
+    const fileName = typeof row.fileName === 'string' ? row.fileName : ''
     const isActive = typeof row.isActive === 'boolean' ? row.isActive : true
-    out.push({ fieldName, isActive })
+    out.push({ fieldName, fileName, isActive })
   }
   return out
+}
+
+function restoreFileRowsForRequest(requestId: string, storedRows: DraftFileRow[], fallbackFieldNames: string[]): FileRow[] {
+  const cachedRows = fileRowsByRequestId.get(requestId) ?? []
+  const sourceRows = storedRows.length
+    ? storedRows
+    : (fallbackFieldNames.length ? fallbackFieldNames : ['']).map(fieldName => ({ fieldName, fileName: '', isActive: true }))
+
+  return sourceRows.map((row, index) => {
+    const cached = cachedRows[index]
+    const file = cached?.file ?? null
+    const fileName = file?.name ?? row.fileName ?? cached?.fileName ?? ''
+    return {
+      id: uid('frow'),
+      fieldName: row.fieldName,
+      file,
+      fileName,
+      isActive: row.isActive,
+    }
+  })
 }
 
 function setFlagForKey(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
@@ -1554,7 +1577,7 @@ export function RequestEditor(props: {
   const [enumMenuOpenId, setEnumMenuOpenId] = useState<string | null>(null)
   const [enumMenuAnchor, setEnumMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
   const [fileRows, setFileRows] = useState<FileRow[]>(() => (
-    [{ id: uid('frow'), fieldName: '', file: null, isActive: true }]
+    [{ id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }]
   ))
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [copyMenuOpen, setCopyMenuOpen] = useState(false)
@@ -2370,11 +2393,9 @@ export function RequestEditor(props: {
     setUrlDraftText('')
     setFileRows(() => {
       const storedRows = normalizeDraftFileRows(draft?.fileRows)
-      if (storedRows.length) return storedRows.map(r => ({ id: uid('frow'), fieldName: r.fieldName, file: null, isActive: r.isActive }))
       const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
       const names = (rawList ?? []).filter(x => typeof x === 'string')
-      const seed = names.length ? names : ['']
-      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null, isActive: true }))
+      return restoreFileRowsForRequest(props.request.id, storedRows, names)
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
@@ -2524,11 +2545,9 @@ export function RequestEditor(props: {
     setUrlDraftText('')
     setFileRows(() => {
       const storedRows = normalizeDraftFileRows(draft?.fileRows)
-      if (storedRows.length) return storedRows.map(r => ({ id: uid('frow'), fieldName: r.fieldName, file: null, isActive: r.isActive }))
       const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
       const names = (rawList ?? []).filter(x => typeof x === 'string')
-      const seed = names.length ? names : ['']
-      return seed.map(name => ({ id: uid('frow'), fieldName: name, file: null, isActive: true }))
+      return restoreFileRowsForRequest(props.request.id, storedRows, names)
     })
     setPreSqlScript(draft?.preSqlScript ?? '')
     setPostSqlScript(draft?.postSqlScript ?? '')
@@ -2576,7 +2595,7 @@ export function RequestEditor(props: {
         const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
         const names = (rawList ?? []).filter(x => typeof x === 'string')
         const seed = names.length ? names : ['']
-        return seed.map(fieldName => ({ fieldName, isActive: true }))
+        return seed.map(fieldName => ({ fieldName, fileName: '', isActive: true }))
       })(),
       baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
       urlTemplateOverride: draft?.urlTemplateOverride ?? '',
@@ -2610,7 +2629,7 @@ export function RequestEditor(props: {
       bodyFormat,
       fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
       fileFieldNames: fileRows.map(r => r.fieldName),
-      fileRows: fileRows.map(r => ({ fieldName: r.fieldName, isActive: r.isActive })),
+      fileRows: fileRows.map(r => ({ fieldName: r.fieldName, fileName: r.file?.name ?? r.fileName, isActive: r.isActive })),
       baseUrlKey,
       urlTemplateOverride,
       dataDrivenInput,
@@ -2645,6 +2664,19 @@ export function RequestEditor(props: {
     selectedTestFunction,
     requestTestScript,
   ])
+
+  useEffect(() => {
+    if (!props.request.id) return
+    fileRowsByRequestId.set(
+      props.request.id,
+      fileRows.map(row => ({
+        fieldName: row.fieldName,
+        file: row.file,
+        fileName: row.file?.name ?? row.fileName,
+        isActive: row.isActive,
+      })),
+    )
+  }, [fileRows, props.request.id])
 
   const grouped = useMemo(() => {
     const p = props.request.params
@@ -3440,7 +3472,7 @@ export function RequestEditor(props: {
           bodyFormat,
           fileFieldName: snapshot.fileFieldName,
           fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
-          fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? '', isActive: r.isActive })),
+          fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? r.fileName, isActive: r.isActive })),
           baseUrlKey,
           urlTemplateOverride,
           dataDrivenInput,
@@ -3919,7 +3951,7 @@ export function RequestEditor(props: {
             if (!targetRowId) return
             if (!next) return
 
-            setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next } : r)))
+            setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next, fileName: next.name } : r)))
           }}
         />
 
@@ -3936,14 +3968,14 @@ export function RequestEditor(props: {
               <button
                 type="button"
                 className={`chooseFileBtn ${row.isActive ? '' : 'rowInactive'}`.trim()}
-                title={row.file ? row.file.name : 'Choose file'}
+                title={row.file ? row.file.name : row.fileName || 'Choose file'}
                 style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                 onClick={() => {
                   activeFileRowIdRef.current = row.id
                   bodyFileInputRef.current?.click()
                 }}
               >
-                <span className="chooseFileBtnLabel">{row.file ? row.file.name : 'Choose file'}</span>
+                <span className="chooseFileBtnLabel">{row.file ? row.file.name : row.fileName || 'Choose file'}</span>
               </button>
 
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -3952,7 +3984,7 @@ export function RequestEditor(props: {
                     type="checkbox"
                     className="checkInput"
                     checked={row.isActive}
-                    aria-label={`Toggle file row ${row.fieldName.trim() || row.file?.name || ''}`.trim()}
+                    aria-label={`Toggle file row ${row.fieldName.trim() || row.file?.name || row.fileName || ''}`.trim()}
                     onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: e.target.checked } : r)))}
                     onClick={e => e.stopPropagation()}
                   />
@@ -3963,7 +3995,7 @@ export function RequestEditor(props: {
                   disabled={false}
                   onConfirm={() => {
                     if (row.file) {
-                      setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null } : r)))
+                      setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null, fileName: '' } : r)))
                       return
                     }
                     if (canDeleteRow) {
@@ -5447,7 +5479,7 @@ export function RequestEditor(props: {
                   e.preventDefault()
                   e.stopPropagation()
                   setIsFileOpen(true)
-                  setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, isActive: true }])
+	                  setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }])
                 }}
               >
                 <PlusIcon size={16} />
