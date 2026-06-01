@@ -234,6 +234,14 @@ function normalizeDraftRows(raw: unknown, prefix: 'qrow' | 'hrow'): DraftRow[] {
 
 type FileRow = { id: string, fieldName: string, file: File | null, fileName: string, isActive: boolean }
 type DraftFileRow = { fieldName: string, fileName: string, isActive: boolean }
+type HeaderDraftRow = { id: string, name: string, value: string, isActive: boolean }
+type HeaderDraftState = {
+  headerOverrides: Record<string, string>
+  headerDraftRows: HeaderDraftRow[]
+  headerKeyOrder: string[]
+  disabledHeaderNames: Record<string, true>
+  inactiveHeaderNames: Record<string, true>
+}
 
 const fileRowsByRequestId = new Map<string, Array<{ fieldName: string, file: File | null, fileName: string, isActive: boolean }>>()
 
@@ -1569,8 +1577,23 @@ export function RequestEditor(props: {
   const [headerOverrides, setHeaderOverrides] = useState<Record<string, string>>({})
   const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
   const [inactiveHeaderNames, setInactiveHeaderNames] = useState<Record<string, true>>({})
-  const [headerDraftRows, setHeaderDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
+  const [headerDraftRows, setHeaderDraftRows] = useState<HeaderDraftRow[]>([])
   const [headerKeyOrder, setHeaderKeyOrder] = useState<string[]>([])
+  const headerDraftSaveRef = useRef<HeaderDraftState>({
+    headerOverrides: {},
+    headerDraftRows: [],
+    headerKeyOrder: [],
+    disabledHeaderNames: {},
+    inactiveHeaderNames: {},
+  })
+
+  headerDraftSaveRef.current = {
+    headerOverrides,
+    headerDraftRows,
+    headerKeyOrder,
+    disabledHeaderNames,
+    inactiveHeaderNames,
+  }
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
   const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
@@ -1579,6 +1602,7 @@ export function RequestEditor(props: {
   const [fileRows, setFileRows] = useState<FileRow[]>(() => (
     [{ id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }]
   ))
+  const [loadedRequestId, setLoadedRequestId] = useState(props.request.id)
   const [baseUrlKey, setBaseUrlKey] = useState('baseUrl')
   const [copyMenuOpen, setCopyMenuOpen] = useState(false)
   const copyMenuWrapRef = useRef<HTMLDivElement | null>(null)
@@ -1660,6 +1684,28 @@ export function RequestEditor(props: {
     const empty: ValueHistoryStore = { header: {}, query: {}, path: {} }
     setValueHistory(empty)
     saveValueHistory(empty)
+  }
+
+  function persistHeaderDraftPatch(patch: Partial<HeaderDraftState>) {
+    if (!props.request.id) return
+
+    const nextHeaderState: HeaderDraftState = {
+      ...headerDraftSaveRef.current,
+      ...patch,
+    }
+    headerDraftSaveRef.current = nextHeaderState
+
+    saveRequestDraft(props.request.id, {
+      ...(loadRequestDraft(props.request.id) ?? {}),
+      ...nextHeaderState,
+    })
+  }
+
+  function setHeaderDraftRowsAndPersist(updater: (prev: HeaderDraftRow[]) => HeaderDraftRow[]) {
+    const next = updater(headerDraftSaveRef.current.headerDraftRows)
+    headerDraftSaveRef.current = { ...headerDraftSaveRef.current, headerDraftRows: next }
+    setHeaderDraftRows(next)
+    persistHeaderDraftPatch({ headerDraftRows: next })
   }
 
   function closeValueHistoryMenu() {
@@ -1785,7 +1831,7 @@ export function RequestEditor(props: {
 
     if (kind === 'headerDraft') {
       if (!rowId) return
-      setHeaderDraftRows(prev => prev.map(r => (r.id === rowId ? { ...r, value } : r)))
+      setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === rowId ? { ...r, value } : r)))
       return
     }
   }
@@ -2127,54 +2173,77 @@ export function RequestEditor(props: {
     const envKey = findHeaderKeyCaseInsensitive(envHeaders, headerName)
     const baseHas = !!baseKey
     const envHas = !!envKey
-    const storageKey = baseKey ?? envKey ?? findHeaderKeyCaseInsensitive(headerOverrides, headerName) ?? headerName
+    const current = headerDraftSaveRef.current
+    const storageKey = baseKey ?? envKey ?? findHeaderKeyCaseInsensitive(current.headerOverrides, headerName) ?? headerName
     const defaultValue = baseKey ? (requestBaseHeaders[baseKey] ?? '') : envKey ? (envHeaders[envKey] ?? '') : ''
 
     if (nextValue === '') {
-      setInactiveHeaderNames(prev => setFlagForHeaderName(prev, headerName, true))
-      setHeaderOverrides(prev => {
-        const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
-        if (!existingKey) return prev
-        const next = { ...prev }
-        delete next[existingKey]
-        return next
-      })
-      if (baseHas || envHas) {
-        setDisabledHeaderNames(prev => ({ ...prev, [storageKey]: true }))
-      } else {
-        setDisabledHeaderNames(prev => {
-          const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
-          if (!existingKey) return prev
-          const next = { ...prev }
-          delete next[existingKey]
+      const nextInactiveHeaderNames = setFlagForHeaderName(current.inactiveHeaderNames, headerName, true)
+      const existingOverrideKey = findHeaderKeyCaseInsensitive(current.headerOverrides, headerName)
+      const nextHeaderOverrides = existingOverrideKey
+        ? (() => {
+          const next = { ...current.headerOverrides }
+          delete next[existingOverrideKey]
           return next
-        })
+        })()
+        : current.headerOverrides
+      let nextDisabledHeaderNames = current.disabledHeaderNames
+
+      if (baseHas || envHas) {
+        nextDisabledHeaderNames = { ...current.disabledHeaderNames, [storageKey]: true }
+      } else {
+        const existingKey = findHeaderKeyCaseInsensitive(current.disabledHeaderNames, headerName)
+        if (existingKey) {
+          const next = { ...current.disabledHeaderNames }
+          delete next[existingKey]
+          nextDisabledHeaderNames = next
+        }
       }
+
+      setInactiveHeaderNames(nextInactiveHeaderNames)
+      setHeaderOverrides(nextHeaderOverrides)
+      setDisabledHeaderNames(nextDisabledHeaderNames)
+      persistHeaderDraftPatch({
+        inactiveHeaderNames: nextInactiveHeaderNames,
+        headerOverrides: nextHeaderOverrides,
+        disabledHeaderNames: nextDisabledHeaderNames,
+      })
       return
     }
 
-    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, headerName, true))
-    setDisabledHeaderNames(prev => {
-      const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
-      if (!existingKey) return prev
-      const next = { ...prev }
-      delete next[existingKey]
-      return next
-    })
+    const nextInactiveHeaderNames = setFlagForHeaderName(current.inactiveHeaderNames, headerName, true)
+    const existingDisabledKey = findHeaderKeyCaseInsensitive(current.disabledHeaderNames, headerName)
+    const nextDisabledHeaderNames = existingDisabledKey
+      ? (() => {
+        const next = { ...current.disabledHeaderNames }
+        delete next[existingDisabledKey]
+        return next
+      })()
+      : current.disabledHeaderNames
 
-    setHeaderOverrides(prev => {
+    const nextHeaderOverrides = (() => {
       if ((baseHas || envHas) && nextValue === defaultValue) {
-        const existingKey = findHeaderKeyCaseInsensitive(prev, headerName)
-        if (!existingKey) return prev
-        const next = { ...prev }
+        const existingKey = findHeaderKeyCaseInsensitive(current.headerOverrides, headerName)
+        if (!existingKey) return current.headerOverrides
+        const next = { ...current.headerOverrides }
         delete next[existingKey]
         return next
       }
-      const next = { ...prev }
+
+      const next = { ...current.headerOverrides }
       const existingKey = findHeaderKeyCaseInsensitive(next, headerName)
       if (existingKey && existingKey !== storageKey) delete next[existingKey]
       next[storageKey] = nextValue
       return next
+    })()
+
+    setInactiveHeaderNames(nextInactiveHeaderNames)
+    setDisabledHeaderNames(nextDisabledHeaderNames)
+    setHeaderOverrides(nextHeaderOverrides)
+    persistHeaderDraftPatch({
+      inactiveHeaderNames: nextInactiveHeaderNames,
+      disabledHeaderNames: nextDisabledHeaderNames,
+      headerOverrides: nextHeaderOverrides,
     })
   }
 
@@ -2412,6 +2481,7 @@ export function RequestEditor(props: {
     setDataDrivenReportSheetOpen(false)
     dataDrivenAbortRef.current?.abort()
     dataDrivenAbortRef.current = null
+    setLoadedRequestId(props.request.id)
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
@@ -2564,6 +2634,7 @@ export function RequestEditor(props: {
     setDataDrivenReportSheetOpen(false)
     dataDrivenAbortRef.current?.abort()
     dataDrivenAbortRef.current = null
+    setLoadedRequestId(props.request.id)
 
     saveRequestDraft(props.request.id, {
       pathParams: draft?.pathParams ?? {},
@@ -2607,6 +2678,7 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     if (!props.request.id) return
+    if (loadedRequestId !== props.request.id) return
     saveRequestDraft(props.request.id, {
       pathParams,
       queryParams,
@@ -2643,6 +2715,7 @@ export function RequestEditor(props: {
     disabledHeaderNames,
     inactiveHeaderNames,
     fileRows,
+    loadedRequestId,
     headerOverrides,
     headerKeyOrder,
     headerDraftRows,
@@ -2667,6 +2740,7 @@ export function RequestEditor(props: {
 
   useEffect(() => {
     if (!props.request.id) return
+    if (loadedRequestId !== props.request.id) return
     fileRowsByRequestId.set(
       props.request.id,
       fileRows.map(row => ({
@@ -2676,7 +2750,7 @@ export function RequestEditor(props: {
         isActive: row.isActive,
       })),
     )
-  }, [fileRows, props.request.id])
+  }, [fileRows, loadedRequestId, props.request.id])
 
   const grouped = useMemo(() => {
     const p = props.request.params
@@ -3144,7 +3218,7 @@ export function RequestEditor(props: {
   }, [bodyFormatMenuOpen])
 
   function addHeaderDraftRow() {
-    setHeaderDraftRows(prev => [...prev, { id: uid('hrow'), name: '', value: '', isActive: true }])
+    setHeaderDraftRowsAndPersist(prev => [...prev, { id: uid('hrow'), name: '', value: '', isActive: true }])
   }
 
   function addQueryDraftRow() {
@@ -5097,7 +5171,9 @@ export function RequestEditor(props: {
                   required={isSpec ? h.required : false}
                   isActive={!headerIsInactive(inactiveHeaderNames, h.name)}
                   onToggleActive={isActive => {
-                    setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, isActive))
+                    const nextInactiveHeaderNames = setFlagForHeaderName(headerDraftSaveRef.current.inactiveHeaderNames, h.name, isActive)
+                    setInactiveHeaderNames(nextInactiveHeaderNames)
+                    persistHeaderDraftPatch({ inactiveHeaderNames: nextInactiveHeaderNames })
                   }}
                   variableSuggestions={variableSuggestions}
                   historyItems={headerValueHistoryItems}
@@ -5132,53 +5208,64 @@ export function RequestEditor(props: {
                         if (nextKey === h.name) return
 
                         if (!nextKey) {
-                          setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, true))
-                          setHeaderDraftRows(draftPrev => [...draftPrev, { id: uid('hrow'), name: '', value, isActive: true }])
-                          if (isInBase) {
-                            setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
-                            setHeaderOverrides(prev => {
-                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                              if (!existingKey) return prev
-                              const { [h.name]: _removed, ...rest } = prev
-                              if (existingKey !== h.name) delete rest[existingKey]
-                              return rest
-                            })
-                            return
-                          }
-                          if (isInEnv) {
-                            setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
-                          }
-                          setHeaderOverrides(prev => {
-                            const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                            if (!existingKey) return prev
-                            const { [h.name]: _removed, ...rest } = prev
-                            if (existingKey !== h.name) delete rest[existingKey]
-                            return rest
+                          const current = headerDraftSaveRef.current
+                          const nextInactiveHeaderNames = setFlagForHeaderName(current.inactiveHeaderNames, h.name, true)
+                          const nextHeaderDraftRows = [...current.headerDraftRows, { id: uid('hrow'), name: '', value, isActive: true }]
+                          const nextDisabledHeaderNames: Record<string, true> = (isInBase || isInEnv)
+                            ? { ...current.disabledHeaderNames, [h.name]: true }
+                            : current.disabledHeaderNames
+                          const nextHeaderOverrides = (() => {
+                            const existingKey = findHeaderKeyCaseInsensitive(current.headerOverrides, h.name)
+                            if (!existingKey) return current.headerOverrides
+                            const next = { ...current.headerOverrides }
+                            delete next[existingKey]
+                            return next
+                          })()
+                          setInactiveHeaderNames(nextInactiveHeaderNames)
+                          setHeaderDraftRows(nextHeaderDraftRows)
+                          setDisabledHeaderNames(nextDisabledHeaderNames)
+                          setHeaderOverrides(nextHeaderOverrides)
+                          persistHeaderDraftPatch({
+                            inactiveHeaderNames: nextInactiveHeaderNames,
+                            headerDraftRows: nextHeaderDraftRows,
+                            disabledHeaderNames: nextDisabledHeaderNames,
+                            headerOverrides: nextHeaderOverrides,
                           })
                           return
                         }
 
                         if (findHeaderKeyCaseInsensitive(committedHeaders, nextKey)) return
 
-                        setHeaderOverrides(prev => {
-                          const next = { ...prev }
+                        const current = headerDraftSaveRef.current
+                        const nextHeaderOverrides = (() => {
+                          const next = { ...current.headerOverrides }
                           setHeaderCaseInsensitive(next, nextKey, value)
                           deleteHeaderCaseInsensitive(next, h.name)
                           return next
-                        })
-                        setDisabledHeaderNames(prev => {
-                          const next = { ...prev }
+                        })()
+                        const nextDisabledHeaderNames = (() => {
+                          const next = { ...current.disabledHeaderNames }
                           if (isInBase || isInEnv) next[h.name] = true
                           deleteHeaderCaseInsensitive(next, nextKey)
                           return next
-                        })
-                        setInactiveHeaderNames(prev => {
-                          const wasInactive = headerIsInactive(prev, h.name)
-                          let next = setFlagForHeaderName(prev, h.name, true)
+                        })()
+                        const nextInactiveHeaderNames = (() => {
+                          const wasInactive = headerIsInactive(current.inactiveHeaderNames, h.name)
+                          let next = setFlagForHeaderName(current.inactiveHeaderNames, h.name, true)
                           if (wasInactive) next = setFlagForHeaderName(next, nextKey, false)
                           return next
+                        })()
+                        const nextHeaderKeyOrder = replaceKeyInOrderCaseInsensitive(current.headerKeyOrder, h.name, nextKey)
+                        setHeaderOverrides(nextHeaderOverrides)
+                        setDisabledHeaderNames(nextDisabledHeaderNames)
+                        setInactiveHeaderNames(nextInactiveHeaderNames)
+                        setHeaderKeyOrder(nextHeaderKeyOrder)
+                        persistHeaderDraftPatch({
+                          headerOverrides: nextHeaderOverrides,
+                          disabledHeaderNames: nextDisabledHeaderNames,
+                          inactiveHeaderNames: nextInactiveHeaderNames,
+                          headerKeyOrder: nextHeaderKeyOrder,
                         })
-                        setHeaderKeyOrder(prev => replaceKeyInOrderCaseInsensitive(prev, h.name, nextKey))
                       }
                   }
                   onDelete={
@@ -5254,14 +5341,14 @@ export function RequestEditor(props: {
                 name={row.name}
                 value={row.value}
                 isActive={row.isActive}
-                onToggleActive={isActive => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
-                onChangeName={nextName => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
-                onChangeValue={nextValue => setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
+                onToggleActive={isActive => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
+                onChangeName={nextName => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
+                onChangeValue={nextValue => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
                 variableSuggestions={variableSuggestions}
                 historyItems={headerValueHistoryItems}
                 onRecordHistory={next => recordValueHistory('header', row.name, next)}
                 onPickHistory={next => {
-                  setHeaderDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
+                  setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
                   recordValueHistory('header', row.name, next)
                 }}
                 onDeleteHistoryItem={next => deleteValueHistoryItem('header', row.name, next)}
@@ -5273,7 +5360,7 @@ export function RequestEditor(props: {
                 onCloseHistoryMenu={closeValueHistoryMenu}
                 historyMenuPanelRef={valueHistoryMenuPanelRef}
                 onDelete={() => {
-                  setHeaderDraftRows(prev => {
+                  setHeaderDraftRowsAndPersist(prev => {
                     if (prev.length === 1 && prev[0]?.id === row.id) {
                       if (visibleHeaderParams.length > 0) return []
                       return [{ ...prev[0], name: '', value: '', isActive: true }]
