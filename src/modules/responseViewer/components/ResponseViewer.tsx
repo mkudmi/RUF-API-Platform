@@ -182,6 +182,16 @@ function formatUnknownForPanel(value: unknown) {
   }
 }
 
+function formatAiQueryInline(query: string) {
+  return query
+    .replaceAll('\r', ' ')
+    .replaceAll('\n', ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\{\s+/g, '{ ')
+    .replace(/\s+\}/g, ' }')
+    .trim()
+}
+
 type SearchBodyView = {
   text: string
   matchesCount: number | null
@@ -409,11 +419,11 @@ async function buildSearchBodyView(args: {
     return { text: JSON.stringify(args.source, null, 2), matchesCount: null, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
   }
 
-  const { matches, output, highlightPlan, error } = await evaluateJsonSearch(args.source, q)
-  if (error) return { text: '', matchesCount: matches.length, error, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
-  if (!matches.length) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+  const { displayMatches, output, highlightPlan, error } = await evaluateJsonSearch(args.source, q)
+  if (error) return { text: '', matchesCount: displayMatches.length, error, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
+  if (!displayMatches.length) return { text: '', matchesCount: 0, error: null, highlightPlan: EMPTY_HIGHLIGHT_PLAN }
 
-  return { text: JSON.stringify(output, null, 2), matchesCount: matches.length, error: null, highlightPlan }
+  return { text: JSON.stringify(output, null, 2), matchesCount: displayMatches.length, error: null, highlightPlan }
 }
 
 export function ResponseViewer(props: {
@@ -609,7 +619,7 @@ export function ResponseViewer(props: {
       const currentEval = await evaluateJsonSearch(parsed as JsonValue, responseSearchSubmittedQuery.trim())
       if (currentEval.error) return
       if (currentEval.matches.length) {
-        totalMatchesCount += currentEval.matches.length
+        totalMatchesCount += currentEval.displayMatches.length
         allDisplayMatches.push(currentEval.displayMatches.length ? currentEval.displayMatches : currentEval.matches)
         allHighlightPlans.push(currentEval.highlightPlan)
       }
@@ -649,7 +659,7 @@ export function ResponseViewer(props: {
 
         const nextEval = await evaluateJsonSearch(nextParsed as JsonValue, responseSearchSubmittedQuery.trim())
         if (nextEval.error || !nextEval.matches.length) continue
-        totalMatchesCount += nextEval.matches.length
+        totalMatchesCount += nextEval.displayMatches.length
         allDisplayMatches.push(nextEval.displayMatches.length ? nextEval.displayMatches : nextEval.matches)
         allHighlightPlans.push(nextEval.highlightPlan)
       }
@@ -858,6 +868,7 @@ export function ResponseViewer(props: {
   const bodyHighlightPlan = tab === 'body' && responseSearchOpen && isJson && !effectiveBodyView.error
     ? effectiveBodyView.highlightPlan
     : EMPTY_HIGHLIGHT_PLAN
+  const aiGeneratedQueryInline = aiGeneratedQuery ? formatAiQueryInline(aiGeneratedQuery) : null
 
   const onDownloadFile = useCallback(async () => {
     const f = result?.file
@@ -1979,7 +1990,7 @@ export function ResponseViewer(props: {
                   <span>AI is searching…</span>
                 ) : responseSearchUseAi && responseSearchOpen && aiSearchSubmittedQuery.trim() && aiGeneratedQuery ? (
                   <>
-                    AI query: <span className="mono">{aiGeneratedQuery}</span>
+                    AI query: <span className="mono" title={aiGeneratedQuery}>{aiGeneratedQueryInline}</span>
                     {typeof responseSearchMatchesCount === 'number' ? <> · Matches: <span className="mono">{responseSearchMatchesCount}</span></> : null}
                   </>
                 ) : responseSearchErrorText ? (

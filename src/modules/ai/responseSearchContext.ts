@@ -21,6 +21,8 @@ const MAX_STRUCTURE_ENTRIES = 160
 const MAX_SAMPLES_PER_PATH = 3
 const MAX_STRING_VALUE_HINTS = 120
 const MAX_FIELD_CANDIDATES = 160
+const MONTH_NAMES_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+const MONTH_NAMES_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
 
 function jsonKind(value: unknown): ResponseSearchFieldKind {
   if (value === null) return 'null'
@@ -36,6 +38,34 @@ function formatSampleValue(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value === null) return 'null'
   return ''
+}
+
+function buildDateAliasHints(path: string, value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed) return []
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/)
+  if (!isoMatch) return []
+
+  const [, year, monthRaw, dayRaw] = isoMatch
+  const month = Number.parseInt(monthRaw, 10)
+  const day = Number.parseInt(dayRaw, 10)
+  if (!Number.isFinite(month) || month < 1 || month > 12 || !Number.isFinite(day) || day < 1 || day > 31) return []
+
+  const monthEn = MONTH_NAMES_EN[month - 1]
+  const monthRu = MONTH_NAMES_RU[month - 1]
+  const dayNoZero = String(day)
+  const monthNoZero = String(month)
+
+  return [
+    `${path} ~ "${dayNoZero} ${monthRu} ${year}"`,
+    `${path} ~ "${dayNoZero} ${monthRu}"`,
+    `${path} ~ "${dayNoZero} ${monthEn} ${year}"`,
+    `${path} ~ "${dayNoZero} ${monthEn}"`,
+    `${path} ~ "${year}-${monthRaw}-${dayRaw}"`,
+    `${path} ~ "${dayRaw}.${monthRaw}.${year}"`,
+    `${path} ~ "${dayNoZero}.${monthNoZero}.${year}"`,
+  ]
 }
 
 export function normalizeResponseSearchFieldPath(path: string) {
@@ -111,6 +141,13 @@ export function buildResponseSearchContext(bodyText: string): ResponseSearchCont
           if (!seenStringValueHints.has(line)) {
             seenStringValueHints.add(line)
             stringValueHints.push(line)
+          }
+
+          for (const dateHint of buildDateAliasHints(path, normalized)) {
+            if (stringValueHints.length >= MAX_STRING_VALUE_HINTS) break
+            if (seenStringValueHints.has(dateHint)) continue
+            seenStringValueHints.add(dateHint)
+            stringValueHints.push(dateHint)
           }
         }
       }

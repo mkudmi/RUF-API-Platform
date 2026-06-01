@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
+    "mock:response-search": "node scripts/response-search-stub.mjs",
     "typecheck": "tsc -b",
     "release:tag": "node scripts/release-tag.mjs",
     "tauri": "tauri",

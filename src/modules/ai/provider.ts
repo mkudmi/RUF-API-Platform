@@ -1,8 +1,10 @@
 import type { AiProviderSettings } from '../../shared/utils/appSettings'
+import jsonata from 'jsonata'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
 import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt, buildSqlEnhancementPrompt } from './prompts'
 import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
+import { buildHeuristicResponseSearchQuery } from './responseSearchHeuristics'
 
 export type AiExplainSnapshot = {
   request: {
@@ -169,17 +171,20 @@ function looksLikeReasoningLeak(text: string) {
 function isProbablyBareJsonataQuery(text: string) {
   const trimmed = text.trim()
   if (!trimmed) return false
-  if (trimmed.includes('\n')) return false
   if (looksLikeReasoningLeak(trimmed)) return false
-  if (/[{}]/.test(trimmed)) return false
+  if (trimmed === '...' || trimmed === '..' || trimmed === '.') return false
+
+  const compact = trimmed.replace(/\s+/g, ' ')
 
   const hasJsonataSignals =
-    trimmed.startsWith('$')
-    || trimmed.includes('$contains(')
-    || trimmed.includes('$lowercase(')
-    || trimmed.includes('[')
-    || trimmed.includes('.')
-    || trimmed.includes('=')
+    compact.startsWith('$')
+    || compact.startsWith('{')
+    || compact.startsWith('[')
+    || compact.includes('$contains(')
+    || compact.includes('$lowercase(')
+    || compact.includes('[')
+    || compact.includes('=')
+    || /:\s*[A-Za-z_$]/.test(compact)
 
   if (!hasJsonataSignals) return false
 
@@ -190,20 +195,80 @@ function isProbablyBareJsonataQuery(text: string) {
     'user asks',
     'contains the text',
   ]
-  const lower = trimmed.toLowerCase()
-  return !suspiciousPhrases.some(phrase => lower.includes(phrase))
+  const lower = compact.toLowerCase()
+  if (suspiciousPhrases.some(phrase => lower.includes(phrase))) return false
+
+  try {
+    jsonata(trimmed).ast()
+    return true
+  } catch {
+    return false
+  }
 }
 
 function normalizeAiJsonataQuery(query: string): string | null {
-  const trimmed = query.trim()
+  let trimmed = query.trim()
+  if (!trimmed) return null
+
+  for (let i = 0; i < 3; i++) {
+    const parsed = safeJsonParse(trimmed)
+    if (typeof parsed !== 'string') break
+    trimmed = parsed.trim()
+    if (!trimmed) return null
+  }
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith('\'') && trimmed.endsWith('\''))
+    || (trimmed.startsWith('`') && trimmed.endsWith('`'))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim()
+  }
+
+  trimmed = trimmed
+    .replace(/\\"/g, '"')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/\\\\/g, '\\')
+    .trim()
+
+  if ((trimmed.startsWith('{\\') || trimmed.startsWith('[\\')) && trimmed.includes('\\"')) {
+    trimmed = trimmed.replace(/\\"/g, '"').trim()
+  }
+
   if (!trimmed) return null
   if (looksLikeReasoningLeak(trimmed)) return null
   return trimmed
 }
 
+function extractLooseQueryField(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  const lineMatch = trimmed.match(/^\s*["']?query["']?\s*:\s*([\s\S]+)$/i)
+  if (lineMatch) {
+    const raw = lineMatch[1].trim().replace(/^[`'"]+|[`'"]+$/g, '')
+    return raw || null
+  }
+
+  const jsonLikeMatch = trimmed.match(/["']query["']\s*:\s*(["'])([\s\S]*?)\1/i)
+  if (jsonLikeMatch) {
+    const raw = jsonLikeMatch[2]
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .trim()
+    return raw || null
+  }
+
+  return null
+}
+
 function stripMarkdownCodeFence(text: string): string {
   const trimmed = text.trim()
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)
+  const fenced = /^```(?:[A-Za-z0-9_-]+)?\s*([\s\S]*?)\s*```$/i.exec(trimmed)
   return fenced ? fenced[1].trim() : trimmed
 }
 
@@ -328,6 +393,13 @@ export async function generateResponseSearchQueryWithYandex(
   snapshot: AiResponseSearchSnapshot,
   userQuery: string,
 ): Promise<AiGeneratedSearchQuery> {
+  // Prefer deterministic local planning for common structured filters to avoid
+  // LLM format drift and first-run/second-run inconsistencies.
+  const heuristic = buildHeuristicResponseSearchQuery(snapshot, userQuery)
+  if (heuristic) {
+    return { query: heuristic, error: null }
+  }
+
   ensureYandexSettings(settings)
 
   const body = {
@@ -359,8 +431,17 @@ export async function generateResponseSearchQueryWithYandex(
 
   const result = parseJsonFromAiText<AiGeneratedSearchPlan>(content)
   if (!result || typeof result !== 'object') {
+    const looseQuery = extractLooseQueryField(content)
+    if (looseQuery) {
+      const normalized = normalizeAiJsonataQuery(looseQuery)
+      if (normalized && isProbablyBareJsonataQuery(normalized)) return { query: normalized, error: null }
+    }
+
     const rawQuery = content.trim()
-    if (isProbablyBareJsonataQuery(rawQuery)) return { query: rawQuery, error: null }
+    if (isProbablyBareJsonataQuery(rawQuery)) {
+      const normalized = normalizeAiJsonataQuery(rawQuery)
+      if (normalized) return { query: normalized, error: null }
+    }
     throw new Error('AI search returned invalid JSON.')
   }
 
@@ -371,7 +452,9 @@ export async function generateResponseSearchQueryWithYandex(
   }
 
   const query = typeof result.query === 'string' ? normalizeAiJsonataQuery(result.query) : null
-  if (!query) throw new Error('AI search did not return a valid JSONata query.')
+  if (!query || !isProbablyBareJsonataQuery(query)) {
+    throw new Error('AI search did not return a valid JSONata query.')
+  }
   return { query, error: null }
 }
 
