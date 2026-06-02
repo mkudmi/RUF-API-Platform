@@ -3,7 +3,7 @@ import { CloseIcon, StarIcon, TrashIcon } from '../../../shared/icons'
 import type { AiProviderSettings, McpServerSettings } from '../../../shared/utils/appSettings'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 import { enhanceBugReportWithYandex } from '../../ai/provider'
-import { getAtlassianMcpServer, isMcpServerConfigured, sendBugReportToAtlassianMcp } from '../services/mcp'
+import { getAtlassianMcpServer, getMcpServerStatus, isMcpServerConfigured, sendBugReportToAtlassianMcp, startMcpServer } from '../services/mcp'
 
 type Props = {
   open: boolean
@@ -69,6 +69,9 @@ export function BugReportDialog(props: Props) {
   const [busyMode, setBusyMode] = useState<'ai' | 'mcp' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [serverRunning, setServerRunning] = useState(false)
+  const [serverName, setServerName] = useState<string | null>(null)
+  const [serverBusy, setServerBusy] = useState(false)
 
   useEffect(() => {
     setDescription(initialDescription)
@@ -99,11 +102,42 @@ export function BugReportDialog(props: Props) {
       setBusyMode(null)
       setError(null)
       setSuccess(null)
+      setServerBusy(false)
+      setServerRunning(false)
+      setServerName(null)
       if (!dialog.open) dialog.showModal()
       return
     }
     if (dialog.open) dialog.close()
   }, [initialDescription, props.open])
+
+  useEffect(() => {
+    if (!props.open) return
+    const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
+    if (!atlassianServer || !isMcpServerConfigured(atlassianServer)) {
+      setServerRunning(false)
+      setServerName(null)
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const status = await getMcpServerStatus(atlassianServer)
+        if (cancelled) return
+        setServerRunning(status.running)
+        setServerName(status.serverName ?? null)
+      } catch {
+        if (cancelled) return
+        setServerRunning(false)
+        setServerName(null)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [props.mcpSettings, props.open])
 
   async function handleEnhanceWithAi() {
     if (busyMode) return
@@ -140,10 +174,31 @@ export function BugReportDialog(props: Props) {
       saveProjectKeyHistory(nextHistory)
       setProjectKey(projectKey.trim().toUpperCase())
       setSuccess(message)
+      setServerRunning(true)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
       setBusyMode(null)
+    }
+  }
+
+  async function handleStartServer() {
+    const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
+    if (!atlassianServer || !isMcpServerConfigured(atlassianServer) || serverBusy) return
+    setServerBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const result = await startMcpServer(atlassianServer)
+      setServerRunning(true)
+      setServerName(result.serverName)
+      setSuccess(`Connected to ${result.serverName}. ${result.tools.length} tool${result.tools.length === 1 ? '' : 's'} available.`)
+    } catch (nextError) {
+      setServerRunning(false)
+      setServerName(null)
+      setError(nextError instanceof Error ? nextError.message : String(nextError))
+    } finally {
+      setServerBusy(false)
     }
   }
 
@@ -177,6 +232,39 @@ export function BugReportDialog(props: Props) {
         </div>
 
         <div style={{ display: 'grid', gap: 12 }}>
+          {jiraConfigured ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                padding: '10px 12px',
+                border: '1px solid rgba(255,255,255,.1)',
+                borderRadius: 10,
+                background: 'rgba(255,255,255,.03)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span className={`localMockStatusDot ${serverRunning ? 'localMockStatusDotRunning' : 'localMockStatusDotStopped'}`} aria-hidden="true" />
+                <span className="small">
+                  Atlassian MCP {serverRunning ? 'running' : 'stopped'}
+                </span>
+                {serverName ? (
+                  <span className="small mono" style={{ opacity: 0.72 }} title={serverName}>
+                    {serverName}
+                  </span>
+                ) : null}
+              </div>
+              {!serverRunning ? (
+                <button type="button" onClick={() => void handleStartServer()} disabled={serverBusy || !!busyMode}>
+                  {serverBusy ? 'Starting...' : 'Start MCP Server'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="formRow bugReportFormRow">
             <div className="formLabel">Summary</div>
             <input
@@ -346,7 +434,7 @@ export function BugReportDialog(props: Props) {
             <button
               type="button"
               onClick={() => void handleSendToJira()}
-              disabled={!!busyMode || !jiraConfigured || !summary.trim() || !description.trim() || !projectKey.trim()}
+              disabled={!!busyMode || serverBusy || !jiraConfigured || !summary.trim() || !description.trim() || !projectKey.trim()}
             >
               {busyMode === 'mcp' ? 'Sending...' : 'Send Bug to Jira'}
             </button>

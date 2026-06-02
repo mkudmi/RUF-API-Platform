@@ -171,7 +171,7 @@ export async function sendBugReportToAtlassianMcp(
     throw new Error('Atlassian MCP is not configured yet. Open Settings -> MCP and finish the template setup.')
   }
 
-  const { tools } = await listMcpServerTools(server)
+  const { tools } = await startMcpServer(server)
   const createIssueTool = findToolByName(tools, 'createJiraIssue')
   if (!createIssueTool) {
     throw new Error('The connected Atlassian MCP server does not expose createJiraIssue.')
