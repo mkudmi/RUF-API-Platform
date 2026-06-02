@@ -189,6 +189,12 @@
           "markdownDescription": "Allows making HTTP requests from the Rust backend (CORS-free)."
         },
         {
+          "description": "Allows using built-in MCP bridge commands.",
+          "type": "string",
+          "const": "mcp-access",
+          "markdownDescription": "Allows using built-in MCP bridge commands."
+        },
+        {
           "description": "Allows running Java request mock scripts and local mock server controls.",
           "type": "string",
           "const": "mocker-java",

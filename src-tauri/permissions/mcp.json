@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "mcp-access",
+      "description": "Allows using built-in MCP bridge commands.",
+      "commands": {
+        "allow": ["mcp_list_tools", "mcp_call_tool"]
+      }
+    }
+  ]
+}

@@ -11,6 +11,7 @@
     "updater:default",
     "db-access",
     "http-raw",
+    "mcp-access",
     "mocker-java",
     "storage-access",
     "system-open-url",
