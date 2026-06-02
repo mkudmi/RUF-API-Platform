@@ -40,7 +40,7 @@ export function getAtlassianMcpServer(servers: McpServerSettings[]) {
 }
 
 export function isMcpServerConfigured(server: McpServerSettings | null) {
-  return Boolean(server?.enabled && server.command.trim() && server.args.length > 0)
+  return Boolean(server?.command.trim())
 }
 
 export async function listMcpServerTools(server: McpServerSettings): Promise<McpServerConnectionResult> {
@@ -171,7 +171,12 @@ export async function sendBugReportToAtlassianMcp(
     throw new Error('Atlassian MCP is not configured yet. Open Settings -> MCP and finish the template setup.')
   }
 
-  const { tools } = await startMcpServer(server)
+  const status = await getMcpServerStatus(server)
+  if (!status.running) {
+    throw new Error('Atlassian MCP server is not running. Start it in Settings → MCP first.')
+  }
+
+  const { tools } = await listMcpServerTools(server)
   const createIssueTool = findToolByName(tools, 'createJiraIssue')
   if (!createIssueTool) {
     throw new Error('The connected Atlassian MCP server does not expose createJiraIssue.')

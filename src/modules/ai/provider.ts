@@ -330,6 +330,93 @@ function parseJsonFromAiText<T>(text: string): T | null {
   return fallback && typeof fallback === 'object' ? fallback : null
 }
 
+function normalizeBugReportField(text: string): string {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/^[`"'“”]+|[`"'“”]+$/g, '')
+    .trim()
+}
+
+function isLowValueBugReportText(text: string): boolean {
+  const normalized = normalizeBugReportField(text).replace(/\s+/g, '')
+  if (!normalized) return true
+  return /^([.]{2,}|[…]{1,}|[-_]{2,})$/.test(normalized)
+}
+
+function extractLabeledBugReportSection(text: string, label: 'SUMMARY' | 'DESCRIPTION'): string {
+  const source = text.replace(/\r\n/g, '\n')
+  if (label === 'SUMMARY') {
+    const match = source.match(/(?:^|\n)\s*SUMMARY\s*:\s*([^\n]+)/i)
+    return normalizeBugReportField(match?.[1] ?? '')
+  }
+  const match = source.match(/(?:^|\n)\s*DESCRIPTION\s*:\s*([\s\S]*)$/i)
+  return normalizeBugReportField(match?.[1] ?? '')
+}
+
+function deriveBugReportSummary(description: string): string {
+  const line = description
+    .split('\n')
+    .map(item => item.trim())
+    .find(Boolean)
+
+  if (!line) return ''
+  const compact = line.replace(/\s+/g, ' ').trim()
+  if (compact.length <= 120) return compact
+  return `${compact.slice(0, 117).trimEnd()}...`
+}
+
+function parseEnhancedBugReportText(
+  content: string,
+  input: { summary: string, description: string },
+): AiEnhancedBugReport | null {
+  const normalizedContent = stripMarkdownCodeFence(content).trim()
+  if (isLowValueBugReportText(normalizedContent)) return null
+
+  const parsedJson = parseJsonFromAiText<Partial<AiEnhancedBugReport>>(normalizedContent)
+  const jsonSummary = typeof parsedJson?.summary === 'string' ? normalizeBugReportField(parsedJson.summary) : ''
+  const jsonDescription = typeof parsedJson?.description === 'string' ? normalizeBugReportField(parsedJson.description) : ''
+
+  const labeledSummary = extractLabeledBugReportSection(normalizedContent, 'SUMMARY')
+  const labeledDescription = extractLabeledBugReportSection(normalizedContent, 'DESCRIPTION')
+
+  let summary = labeledSummary || jsonSummary
+  let description = labeledDescription || jsonDescription
+
+  if (!summary || !description) {
+    const lines = normalizedContent
+      .split('\n')
+      .map(item => item.trimEnd())
+      .filter(Boolean)
+
+    if (!summary && lines.length >= 2) {
+      const firstLine = normalizeBugReportField(lines[0])
+      if (firstLine && firstLine.length <= 160 && !/^[A-Z\s]+:$/.test(firstLine)) {
+        summary = firstLine
+      }
+    }
+
+    if (!description && lines.length >= 2) {
+      description = normalizeBugReportField(lines.slice(1).join('\n'))
+    }
+  }
+
+  if (!description && normalizedContent && normalizedContent !== summary) {
+    description = normalizeBugReportField(normalizedContent)
+  }
+
+  if (isLowValueBugReportText(summary)) summary = ''
+  if (isLowValueBugReportText(description)) description = ''
+
+  const fallbackSummary = normalizeBugReportField(input.summary)
+  const fallbackDescription = normalizeBugReportField(input.description)
+
+  if (!summary) summary = fallbackSummary || deriveBugReportSummary(description || fallbackDescription)
+  if (!description) description = fallbackDescription
+
+  if (!summary || !description || isLowValueBugReportText(description)) return null
+  return { summary, description }
+}
+
 function ensureYandexSettings(settings: AiProviderSettings) {
   if (!settings.enabled) throw new Error('AI is disabled in Settings.')
   if (!settings.apiKey.trim()) throw new Error('Missing Yandex AI Studio API key.')
@@ -536,21 +623,12 @@ export async function enhanceBugReportWithYandex(
     throw new Error(buildEmptyAiResponseError('AI bug report enhancement returned an empty response.', text))
   }
 
-  const result = parseJsonFromAiText<Partial<AiEnhancedBugReport>>(content)
-  if (!result || typeof result !== 'object') {
-    throw new Error('AI bug report enhancement returned invalid JSON.')
+  const result = parseEnhancedBugReportText(content, input)
+  if (!result) {
+    throw new Error('AI bug report enhancement returned an unusable response.')
   }
 
-  const summary = typeof result.summary === 'string' ? result.summary.trim() : ''
-  const description = typeof result.description === 'string' ? result.description.trim() : ''
-  if (!summary) {
-    throw new Error('AI bug report enhancement did not return a summary.')
-  }
-  if (!description) {
-    throw new Error('AI bug report enhancement did not return a description.')
-  }
-
-  return { summary, description }
+  return result
 }
 
 export async function enhanceSqlWithYandex(

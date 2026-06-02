@@ -3,7 +3,7 @@ import { CloseIcon, StarIcon, TrashIcon } from '../../../shared/icons'
 import type { AiProviderSettings, McpServerSettings } from '../../../shared/utils/appSettings'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 import { enhanceBugReportWithYandex } from '../../ai/provider'
-import { getAtlassianMcpServer, getMcpServerStatus, isMcpServerConfigured, sendBugReportToAtlassianMcp, startMcpServer } from '../services/mcp'
+import { getAtlassianMcpServer, getMcpServerStatus, isMcpServerConfigured, sendBugReportToAtlassianMcp } from '../services/mcp'
 
 type Props = {
   open: boolean
@@ -70,8 +70,7 @@ export function BugReportDialog(props: Props) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [serverRunning, setServerRunning] = useState(false)
-  const [serverName, setServerName] = useState<string | null>(null)
-  const [serverBusy, setServerBusy] = useState(false)
+  const [sendHint, setSendHint] = useState<string | null>(null)
 
   useEffect(() => {
     setDescription(initialDescription)
@@ -102,9 +101,8 @@ export function BugReportDialog(props: Props) {
       setBusyMode(null)
       setError(null)
       setSuccess(null)
-      setServerBusy(false)
       setServerRunning(false)
-      setServerName(null)
+      setSendHint(null)
       if (!dialog.open) dialog.showModal()
       return
     }
@@ -113,29 +111,34 @@ export function BugReportDialog(props: Props) {
 
   useEffect(() => {
     if (!props.open) return
-    const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
-    if (!atlassianServer || !isMcpServerConfigured(atlassianServer)) {
-      setServerRunning(false)
-      setServerName(null)
-      return
-    }
-
     let cancelled = false
-    void (async () => {
+    let intervalId: number | null = null
+
+    async function refreshServerStatus() {
+      const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
+      if (!atlassianServer || !isMcpServerConfigured(atlassianServer)) {
+        if (!cancelled) setServerRunning(false)
+        return
+      }
+
       try {
         const status = await getMcpServerStatus(atlassianServer)
         if (cancelled) return
         setServerRunning(status.running)
-        setServerName(status.serverName ?? null)
       } catch {
         if (cancelled) return
         setServerRunning(false)
-        setServerName(null)
       }
-    })()
+    }
+
+    void refreshServerStatus()
+    intervalId = window.setInterval(() => {
+      void refreshServerStatus()
+    }, 2_000)
 
     return () => {
       cancelled = true
+      if (intervalId) window.clearInterval(intervalId)
     }
   }, [props.mcpSettings, props.open])
 
@@ -163,6 +166,7 @@ export function BugReportDialog(props: Props) {
     setBusyMode('mcp')
     setError(null)
     setSuccess(null)
+    setSendHint('Sending bug to Jira...')
     try {
       const message = await sendBugReportToAtlassianMcp(props.mcpSettings, {
         summary,
@@ -174,36 +178,35 @@ export function BugReportDialog(props: Props) {
       saveProjectKeyHistory(nextHistory)
       setProjectKey(projectKey.trim().toUpperCase())
       setSuccess(message)
-      setServerRunning(true)
+      setSendHint(message)
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
+      const nextMessage = nextError instanceof Error ? nextError.message : String(nextError)
+      setError(nextMessage)
+      setSendHint(nextMessage)
     } finally {
       setBusyMode(null)
     }
   }
 
-  async function handleStartServer() {
-    const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
-    if (!atlassianServer || !isMcpServerConfigured(atlassianServer) || serverBusy) return
-    setServerBusy(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      const result = await startMcpServer(atlassianServer)
-      setServerRunning(true)
-      setServerName(result.serverName)
-      setSuccess(`Connected to ${result.serverName}. ${result.tools.length} tool${result.tools.length === 1 ? '' : 's'} available.`)
-    } catch (nextError) {
-      setServerRunning(false)
-      setServerName(null)
-      setError(nextError instanceof Error ? nextError.message : String(nextError))
-    } finally {
-      setServerBusy(false)
-    }
-  }
-
   const atlassianServer = getAtlassianMcpServer(props.mcpSettings)
   const jiraConfigured = isMcpServerConfigured(atlassianServer)
+  const canSendToJira = Boolean(jiraConfigured && serverRunning && summary.trim() && description.trim() && projectKey.trim() && !busyMode)
+  const sendDisabledReason = !jiraConfigured
+    ? 'Configure Atlassian MCP command in Settings → MCP first.'
+    : !serverRunning
+      ? 'Start Atlassian MCP server in Settings → MCP first.'
+      : !summary.trim()
+        ? 'Fill in Summary first.'
+        : !description.trim()
+          ? 'Fill in Report Template first.'
+        : !projectKey.trim()
+            ? 'Fill in Project Key first.'
+            : (busyMode === 'mcp' ? 'Sending bug to Jira...' : busyMode === 'ai' ? 'Wait until AI enhancement finishes.' : 'Send bug to Jira')
+
+  function handleSendButtonAreaClick() {
+    if (canSendToJira) return
+    setSendHint(sendDisabledReason)
+  }
 
   function handleDeleteProjectKeyHistoryItem(item: string) {
     const nextHistory = removeProjectKeyHistoryItem(projectKeyHistory, item)
@@ -232,39 +235,6 @@ export function BugReportDialog(props: Props) {
         </div>
 
         <div style={{ display: 'grid', gap: 12 }}>
-          {jiraConfigured ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-                flexWrap: 'wrap',
-                padding: '10px 12px',
-                border: '1px solid rgba(255,255,255,.1)',
-                borderRadius: 10,
-                background: 'rgba(255,255,255,.03)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                <span className={`localMockStatusDot ${serverRunning ? 'localMockStatusDotRunning' : 'localMockStatusDotStopped'}`} aria-hidden="true" />
-                <span className="small">
-                  Atlassian MCP {serverRunning ? 'running' : 'stopped'}
-                </span>
-                {serverName ? (
-                  <span className="small mono" style={{ opacity: 0.72 }} title={serverName}>
-                    {serverName}
-                  </span>
-                ) : null}
-              </div>
-              {!serverRunning ? (
-                <button type="button" onClick={() => void handleStartServer()} disabled={serverBusy || !!busyMode}>
-                  {serverBusy ? 'Starting...' : 'Start MCP Server'}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
           <div className="formRow bugReportFormRow">
             <div className="formLabel">Summary</div>
             <input
@@ -374,22 +344,6 @@ export function BugReportDialog(props: Props) {
             />
           </div>
 
-          {!jiraConfigured ? (
-            <div
-              className="small"
-              style={{
-                color: '#ffcf7a',
-                whiteSpace: 'pre-wrap',
-                border: '1px solid rgba(255, 207, 122, 0.24)',
-                borderRadius: 10,
-                padding: '10px 12px',
-                background: 'rgba(255, 207, 122, 0.08)',
-              }}
-            >
-              To send a bug to Jira, configure the Atlassian MCP server in Settings → MCP.
-            </div>
-          ) : null}
-
           {success ? (
             <div
               className="small"
@@ -410,15 +364,18 @@ export function BugReportDialog(props: Props) {
         </div>
 
         <div className="modalActions" style={{ justifyContent: 'space-between', marginTop: 18 }}>
-          <button
-            type="button"
-            onClick={() => {
-              props.onClose()
-              props.openSettings('mcp')
-            }}
-          >
-            Open MCP Settings
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => {
+                props.onClose()
+                props.openSettings('mcp')
+              }}
+            >
+              Open MCP Settings
+            </button>
+            <span className={`localMockStatusDot ${serverRunning ? 'localMockStatusDotRunning' : 'localMockStatusDotStopped'}`} aria-hidden="true" />
+          </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button
               type="button"
@@ -431,13 +388,29 @@ export function BugReportDialog(props: Props) {
               </span>
               <span className="aiEnhanceBtnText">{busyMode === 'ai' ? 'Enhancing...' : 'Enhance with AI'}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void handleSendToJira()}
-              disabled={!!busyMode || serverBusy || !jiraConfigured || !summary.trim() || !description.trim() || !projectKey.trim()}
-            >
-              {busyMode === 'mcp' ? 'Sending...' : 'Send Bug to Jira'}
-            </button>
+            <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }} onClick={handleSendButtonAreaClick}>
+              <button
+                type="button"
+                onClick={() => void handleSendToJira()}
+                disabled={!canSendToJira}
+                title={sendDisabledReason}
+              >
+                {busyMode === 'mcp' ? 'Sending...' : 'Send Bug to Jira'}
+              </button>
+              {sendHint ? (
+                <div
+                  className="small"
+                  style={{
+                    maxWidth: 320,
+                    textAlign: 'right',
+                    color: error ? '#ff9a9a' : success ? '#7ee0a1' : 'rgba(255,255,255,.72)',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {sendHint}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
