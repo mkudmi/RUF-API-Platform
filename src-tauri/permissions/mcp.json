@@ -4,7 +4,14 @@
       "identifier": "mcp-access",
       "description": "Allows using built-in MCP bridge commands.",
       "commands": {
-        "allow": ["mcp_list_tools", "mcp_call_tool"]
+        "allow": [
+          "mcp_start_server",
+          "mcp_reconnect_server",
+          "mcp_stop_server",
+          "mcp_get_server_status",
+          "mcp_list_tools",
+          "mcp_call_tool"
+        ]
       }
     }
   ]

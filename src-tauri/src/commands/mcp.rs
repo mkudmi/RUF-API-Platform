@@ -2,17 +2,46 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::{Arc, OnceLock};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command as TokioCommand;
+use tokio::process::{Child, ChildStdin, ChildStdout, Command as TokioCommand};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
-#[derive(Debug, Deserialize)]
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+type McpStdoutLines = tokio::io::Lines<BufReader<ChildStdout>>;
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct McpCommandServer {
+    pub id: String,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+struct SanitizedMcpServer {
+    id: String,
+    command: String,
+    args: Vec<String>,
+    env: HashMap<String, String>,
+    signature: String,
+}
+
+struct McpSession {
+    signature: String,
+    server_name: String,
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout_lines: Option<McpStdoutLines>,
+    stderr_lines: Arc<Mutex<Vec<String>>>,
+    stderr_task: Option<JoinHandle<()>>,
+    next_request_id: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +56,11 @@ pub struct McpCallToolArgs {
     pub tool_name: String,
     #[serde(default)]
     pub arguments: Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpServerLifecycleArgs {
+    pub server: McpCommandServer,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,11 +79,25 @@ pub struct McpListToolsResult {
 }
 
 #[derive(Debug, Serialize)]
-pub struct McpCallToolResult {
+pub struct McpToolCallResult {
     pub text: String,
 }
 
-fn sanitize_server(server: &McpCommandServer) -> Result<(&str, Vec<&str>, HashMap<String, String>), String> {
+#[derive(Debug, Serialize)]
+pub struct McpServerStatusResult {
+    #[serde(rename = "serverId")]
+    pub server_id: String,
+    #[serde(rename = "serverName")]
+    pub server_name: Option<String>,
+    pub running: bool,
+}
+
+fn sanitize_server(server: &McpCommandServer) -> Result<SanitizedMcpServer, String> {
+    let id = server.id.trim();
+    if id.is_empty() {
+        return Err("MCP server id is empty.".to_string());
+    }
+
     let command = server.command.trim();
     if command.is_empty() {
         return Err("MCP command is empty.".to_string());
@@ -60,6 +108,7 @@ fn sanitize_server(server: &McpCommandServer) -> Result<(&str, Vec<&str>, HashMa
         .iter()
         .map(|arg| arg.trim())
         .filter(|arg| !arg.is_empty())
+        .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
 
     let env = server
@@ -75,20 +124,49 @@ fn sanitize_server(server: &McpCommandServer) -> Result<(&str, Vec<&str>, HashMa
         })
         .collect::<HashMap<_, _>>();
 
-    Ok((command, args, env))
+    let mut env_entries = env.iter().collect::<Vec<_>>();
+    env_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let signature = serde_json::to_string(&json!({
+        "command": command,
+        "args": args,
+        "env": env_entries
+            .into_iter()
+            .map(|(key, value)| json!({ "key": key, "value": value }))
+            .collect::<Vec<_>>(),
+    }))
+    .map_err(|e| e.to_string())?;
+
+    Ok(SanitizedMcpServer {
+        id: id.to_string(),
+        command: command.to_string(),
+        args,
+        env,
+        signature,
+    })
 }
 
-async fn send_json_line(stdin: &mut tokio::process::ChildStdin, value: Value) -> Result<(), String> {
+#[cfg(windows)]
+fn apply_hidden_window_tokio(cmd: &mut TokioCommand) {
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn apply_hidden_window_tokio(_cmd: &mut TokioCommand) {}
+
+fn session_registry() -> &'static Mutex<HashMap<String, Arc<Mutex<McpSession>>>> {
+    static SESSION_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<Mutex<McpSession>>>>> = OnceLock::new();
+    SESSION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+async fn send_json_line(stdin: &mut ChildStdin, value: Value) -> Result<(), String> {
     let raw = serde_json::to_vec(&value).map_err(|e| e.to_string())?;
     stdin.write_all(&raw).await.map_err(|e| e.to_string())?;
     stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
     stdin.flush().await.map_err(|e| e.to_string())
 }
 
-async fn read_response_line(
-    reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    request_id: i64,
-) -> Result<Value, String> {
+async fn read_response_line(reader: &mut McpStdoutLines, request_id: i64) -> Result<Value, String> {
     loop {
         let maybe_line = timeout(Duration::from_secs(60), reader.next_line())
             .await
@@ -179,117 +257,246 @@ fn stringify_tool_result(value: &Value) -> String {
     serde_json::to_string_pretty(result).unwrap_or_else(|_| "Tool call succeeded.".to_string())
 }
 
-async fn with_mcp_server<T>(
-    server: McpCommandServer,
-    operation: impl for<'a> FnOnce(
-        String,
-        &'a mut tokio::process::ChildStdin,
-        &'a mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>>,
-) -> Result<T, String> {
-    let (command, args, env) = sanitize_server(&server)?;
+async fn append_stderr_line(stderr_lines: &Arc<Mutex<Vec<String>>>, line: String) {
+    const MAX_STDERR_LINES: usize = 120;
+    let mut guard = stderr_lines.lock().await;
+    guard.push(line);
+    if guard.len() > MAX_STDERR_LINES {
+        let extra = guard.len() - MAX_STDERR_LINES;
+        guard.drain(0..extra);
+    }
+}
 
-    let mut child = TokioCommand::new(command)
-        .args(args)
-        .envs(env)
+async fn collect_stderr_text(stderr_lines: &Arc<Mutex<Vec<String>>>) -> String {
+    stderr_lines.lock().await.join("\n")
+}
+
+fn format_error_with_stderr(base_error: String, stderr_text: String) -> String {
+    if stderr_text.trim().is_empty() {
+        base_error
+    } else {
+        format!("{base_error}\n{stderr_text}")
+    }
+}
+
+async fn session_request(session: &mut McpSession, method: &str, params: Value) -> Result<Value, String> {
+    let request_id = session.next_request_id;
+    session.next_request_id += 1;
+
+    let stdin = session
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "MCP stdin is not available.".to_string())?;
+    send_json_line(
+        stdin,
+        json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        }),
+    )
+    .await?;
+
+    let stdout_lines = session
+        .stdout_lines
+        .as_mut()
+        .ok_or_else(|| "MCP stdout is not available.".to_string())?;
+    read_response_line(stdout_lines, request_id).await
+}
+
+async fn shutdown_session_locked(session: &mut McpSession) {
+    if let Some(mut stdin) = session.stdin.take() {
+        let _ = stdin.shutdown().await;
+    }
+
+    if timeout(Duration::from_secs(2), session.child.wait()).await.is_err() {
+        let _ = session.child.kill().await;
+        let _ = session.child.wait().await;
+    }
+
+    if let Some(stderr_task) = session.stderr_task.take() {
+        let _ = stderr_task.await;
+    }
+}
+
+async fn shutdown_session_handle(session_handle: Arc<Mutex<McpSession>>) {
+    let mut session = session_handle.lock().await;
+    shutdown_session_locked(&mut session).await;
+}
+
+async fn spawn_mcp_session(server: SanitizedMcpServer) -> Result<McpSession, String> {
+    let mut proc = TokioCommand::new(&server.command);
+    proc.args(&server.args)
+        .envs(&server.env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    apply_hidden_window_tokio(&mut proc);
+
+    let mut child = proc
         .spawn()
         .map_err(|e| format!("Failed to start MCP server: {e}"))?;
 
     let stderr = child.stderr.take().ok_or_else(|| "Failed to capture MCP stderr.".to_string())?;
+    let stderr_lines = Arc::new(Mutex::new(Vec::new()));
+    let stderr_lines_for_task = Arc::clone(&stderr_lines);
     let stderr_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
-        let mut parts: Vec<String> = Vec::new();
         while let Ok(Some(line)) = reader.next_line().await {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                parts.push(trimmed.to_string());
+                append_stderr_line(&stderr_lines_for_task, trimmed.to_string()).await;
             }
         }
-        parts.join("\n")
     });
 
-    let mut stdin = child.stdin.take().ok_or_else(|| "Failed to open MCP stdin.".to_string())?;
+    let stdin = child.stdin.take().ok_or_else(|| "Failed to open MCP stdin.".to_string())?;
     let stdout = child.stdout.take().ok_or_else(|| "Failed to open MCP stdout.".to_string())?;
-    let mut stdout_lines = BufReader::new(stdout).lines();
+    let mut session = McpSession {
+        signature: server.signature,
+        server_name: "MCP Server".to_string(),
+        child,
+        stdin: Some(stdin),
+        stdout_lines: Some(BufReader::new(stdout).lines()),
+        stderr_lines,
+        stderr_task: Some(stderr_task),
+        next_request_id: 1,
+    };
 
-    let result = async {
-        send_json_line(
-            &mut stdin,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "ruf-desktop",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }
-            }),
-        )
-        .await?;
+    let init_response = session_request(
+        &mut session,
+        "initialize",
+        json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "ruf-desktop",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        }),
+    )
+    .await;
 
-        let init_response = read_response_line(&mut stdout_lines, 1).await?;
-        let server_name = init_response
-            .get("result")
-            .and_then(|result| result.get("serverInfo"))
-            .and_then(|info| info.get("name"))
-            .and_then(Value::as_str)
-            .unwrap_or("MCP Server")
-            .to_string();
+    let init_response = match init_response {
+        Ok(response) => response,
+        Err(err) => {
+            let stderr_text = collect_stderr_text(&session.stderr_lines).await;
+            shutdown_session_locked(&mut session).await;
+            return Err(format_error_with_stderr(err, stderr_text));
+        }
+    };
 
-        send_json_line(
-            &mut stdin,
+    session.server_name = init_response
+        .get("result")
+        .and_then(|result| result.get("serverInfo"))
+        .and_then(|info| info.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("MCP Server")
+        .to_string();
+
+    if let Some(stdin) = session.stdin.as_mut() {
+        let initialized_result = send_json_line(
+            stdin,
             json!({
                 "jsonrpc": "2.0",
                 "method": "notifications/initialized"
             }),
         )
-        .await?;
+        .await;
 
-        operation(server_name, &mut stdin, &mut stdout_lines).await
+        if let Err(err) = initialized_result {
+            let stderr_text = collect_stderr_text(&session.stderr_lines).await;
+            shutdown_session_locked(&mut session).await;
+            return Err(format_error_with_stderr(err, stderr_text));
+        }
     }
-    .await;
 
-    let _ = stdin.shutdown().await;
-    if timeout(Duration::from_secs(2), child.wait()).await.is_err() {
-        let _ = child.kill().await;
-    }
-    let stderr_text = match stderr_task.await {
-        Ok(text) => text,
-        Err(_) => String::new(),
+    Ok(session)
+}
+
+async fn remove_session(server_id: &str) -> Option<Arc<Mutex<McpSession>>> {
+    let mut registry = session_registry().lock().await;
+    registry.remove(server_id)
+}
+
+async fn ensure_mcp_session(server: McpCommandServer, force_restart: bool) -> Result<Arc<Mutex<McpSession>>, String> {
+    let sanitized = sanitize_server(&server)?;
+    let server_id = sanitized.id.clone();
+    let signature = sanitized.signature.clone();
+
+    let existing = {
+        let registry = session_registry().lock().await;
+        registry.get(&server_id).cloned()
     };
+
+    if let Some(existing_handle) = existing {
+        let has_same_signature = {
+            let session = existing_handle.lock().await;
+            session.signature == signature
+        };
+
+        if !force_restart && has_same_signature {
+            return Ok(existing_handle);
+        }
+
+        if let Some(stale_handle) = remove_session(&server_id).await {
+            shutdown_session_handle(stale_handle).await;
+        }
+    }
+
+    let session_handle = Arc::new(Mutex::new(spawn_mcp_session(sanitized).await?));
+    let mut registry = session_registry().lock().await;
+    registry.insert(server_id, Arc::clone(&session_handle));
+    Ok(session_handle)
+}
+
+async fn with_session_request<T>(
+    server: McpCommandServer,
+    force_restart: bool,
+    operation: impl FnOnce(&mut McpSession) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
+) -> Result<T, String> {
+    let server_id = server.id.trim().to_string();
+    let session_handle = ensure_mcp_session(server, force_restart).await?;
+    let mut session = session_handle.lock().await;
+    let result = operation(&mut session).await;
+    if result.is_err() {
+        let stderr_text = collect_stderr_text(&session.stderr_lines).await;
+        if !stderr_text.trim().is_empty() {
+            return Err(format_error_with_stderr(result.err().unwrap_or_default(), stderr_text));
+        }
+    }
 
     match result {
         Ok(value) => Ok(value),
-        Err(err) if stderr_text.trim().is_empty() => Err(err),
-        Err(err) => Err(format!("{err}\n{stderr_text}")),
+        Err(err) => {
+            let should_drop = err.contains("closed stdout")
+                || err.contains("stdin is not available")
+                || err.contains("stdout is not available")
+                || err.contains("Timed out waiting for MCP server response");
+            drop(session);
+            if should_drop {
+                let current = {
+                    let registry = session_registry().lock().await;
+                    registry.get(&server_id).cloned()
+                };
+                if let Some(current_handle) = current {
+                    if Arc::ptr_eq(&current_handle, &session_handle) {
+                        let _ = remove_session(&server_id).await;
+                    }
+                }
+            }
+            Err(err)
+        }
     }
 }
 
-#[tauri::command]
-pub async fn mcp_list_tools(args: McpListToolsArgs) -> Result<McpListToolsResult, String> {
-    with_mcp_server(args.server, |server_name, stdin, stdout_lines| {
+async fn session_tools_result(server: McpCommandServer, force_restart: bool) -> Result<McpListToolsResult, String> {
+    with_session_request(server, force_restart, |session| {
         Box::pin(async move {
-            send_json_line(
-                stdin,
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/list",
-                    "params": {}
-                }),
-            )
-            .await?;
-
-            let response = read_response_line(stdout_lines, 2).await?;
+            let response = session_request(session, "tools/list", json!({})).await?;
             Ok(McpListToolsResult {
-                server_name,
+                server_name: session.server_name.clone(),
                 tools: extract_tools(&response),
             })
         })
@@ -298,30 +505,89 @@ pub async fn mcp_list_tools(args: McpListToolsArgs) -> Result<McpListToolsResult
 }
 
 #[tauri::command]
-pub async fn mcp_call_tool(args: McpCallToolArgs) -> Result<McpCallToolResult, String> {
-    with_mcp_server(args.server, |_server_name, stdin, stdout_lines| {
+pub async fn mcp_start_server(args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, false).await
+}
+
+#[tauri::command]
+pub async fn mcp_reconnect_server(args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, true).await
+}
+
+#[tauri::command]
+pub async fn mcp_stop_server(args: McpServerLifecycleArgs) -> Result<McpServerStatusResult, String> {
+    let server_id = sanitize_server(&args.server)?.id;
+    if let Some(session_handle) = remove_session(&server_id).await {
+        shutdown_session_handle(session_handle).await;
+    }
+
+    Ok(McpServerStatusResult {
+        server_id,
+        server_name: None,
+        running: false,
+    })
+}
+
+#[tauri::command]
+pub async fn mcp_get_server_status(args: McpServerLifecycleArgs) -> Result<McpServerStatusResult, String> {
+    let sanitized = sanitize_server(&args.server)?;
+    let session_handle = {
+        let registry = session_registry().lock().await;
+        registry.get(&sanitized.id).cloned()
+    };
+
+    if let Some(session_handle) = session_handle {
+        let session = session_handle.lock().await;
+        return Ok(McpServerStatusResult {
+            server_id: sanitized.id,
+            server_name: Some(session.server_name.clone()),
+            running: true,
+        });
+    }
+
+    Ok(McpServerStatusResult {
+        server_id: sanitized.id,
+        server_name: None,
+        running: false,
+    })
+}
+
+#[tauri::command]
+pub async fn mcp_list_tools(args: McpListToolsArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, false).await
+}
+
+#[tauri::command]
+pub async fn mcp_call_tool(args: McpCallToolArgs) -> Result<McpToolCallResult, String> {
+    with_session_request(args.server, false, |session| {
         let tool_name = args.tool_name.clone();
         let tool_args = args.arguments.clone();
         Box::pin(async move {
-            send_json_line(
-                stdin,
+            let response = session_request(
+                session,
+                "tools/call",
                 json!({
-                    "jsonrpc": "2.0",
-                    "id": 2,
-                    "method": "tools/call",
-                    "params": {
-                        "name": tool_name,
-                        "arguments": tool_args
-                    }
+                    "name": tool_name,
+                    "arguments": tool_args,
                 }),
             )
             .await?;
 
-            let response = read_response_line(stdout_lines, 2).await?;
-            Ok(McpCallToolResult {
+            Ok(McpToolCallResult {
                 text: stringify_tool_result(&response),
             })
         })
     })
     .await
+}
+
+pub async fn shutdown_mcp_runtime() {
+    let sessions = {
+        let mut registry = session_registry().lock().await;
+        registry.drain().map(|(_, session)| session).collect::<Vec<_>>()
+    };
+
+    for session in sessions {
+        shutdown_session_handle(session).await;
+    }
 }

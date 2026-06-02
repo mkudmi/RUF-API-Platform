@@ -708,6 +708,72 @@ button:hover { background: rgba(255,255,255,.10); }
   place-items: center;
   border-radius: var(--radius);
 }
+.mcpActionBtn {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+.mcpTextActionBtn {
+  min-width: 68px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+}
+.mcpEnvEditor {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+.mcpEnvRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+}
+.mcpEnvInput {
+  height: 36px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+.mcpEnvDeleteBtn {
+  width: 32px;
+  height: 36px;
+  align-self: stretch;
+}
+.mcpEnvActions {
+  display: flex;
+  justify-content: flex-start;
+}
+.mcpEnvAddBtn {
+  min-width: 96px;
+  height: 36px;
+}
+.mcpToolsSelect {
+  min-width: 220px;
+  max-width: 320px;
+  height: 32px;
+}
+.mcpActionBtnLoading {
+  color: #ffd976;
+  border-color: rgba(255,210,90,.72) !important;
+  background: rgba(255,210,90,.16) !important;
+  box-shadow: 0 0 0 1px rgba(255,210,90,.18), 0 0 18px rgba(255,210,90,.18);
+  animation: mcpActionPulse 900ms ease-in-out infinite;
+}
+.mcpActionBtnSuccess {
+  color: #8df0a5;
+  border-color: rgba(67,199,106,.78) !important;
+  background: rgba(67,199,106,.18) !important;
+  box-shadow: 0 0 0 1px rgba(67,199,106,.18), 0 0 18px rgba(67,199,106,.16);
+}
+.mcpActionBtnError {
+  color: #ff9f9f;
+  border-color: rgba(232,86,86,.8) !important;
+  background: rgba(232,86,86,.18) !important;
+  box-shadow: 0 0 0 1px rgba(232,86,86,.18), 0 0 18px rgba(232,86,86,.16);
+}
+.mcpActionBtn:disabled {
+  opacity: 1;
+  cursor: default;
+}
 .globalTestItemDeleteBtn {
   border-color: transparent !important;
   background: transparent !important;
@@ -866,6 +932,17 @@ button:hover { background: rgba(255,255,255,.10); }
   }
 }
 
+@keyframes mcpActionPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: .72;
+    transform: scale(.96);
+  }
+}
+
 .importMenuGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -900,7 +977,8 @@ button:hover { background: rgba(255,255,255,.10); }
 
 @media (prefers-reduced-motion: reduce) {
   .aiEnhanceBtn::before,
-  .aiEnhanceBtnSpark {
+  .aiEnhanceBtnSpark,
+  .mcpActionBtnLoading {
     animation: none;
   }
 

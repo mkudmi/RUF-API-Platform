@@ -37,6 +37,10 @@ fn main() {
             commands::db::db_test,
             commands::db::db_exec,
             commands::http::http_request,
+            commands::mcp::mcp_start_server,
+            commands::mcp::mcp_reconnect_server,
+            commands::mcp::mcp_stop_server,
+            commands::mcp::mcp_get_server_status,
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_call_tool,
             commands::mocker::mocker_run_java,
@@ -63,6 +67,7 @@ fn main() {
         .run(|_app_handle, event| {
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 let _ = commands::mocker::shutdown_local_mock_server_runtime();
+                tauri::async_runtime::block_on(commands::mcp::shutdown_mcp_runtime());
             }
         });
 }

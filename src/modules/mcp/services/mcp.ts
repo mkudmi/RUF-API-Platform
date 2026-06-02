@@ -1,8 +1,16 @@
 import type { McpServerSettings } from '../../../shared/utils/appSettings'
 import { tauriInvoke } from '../../../shared/utils/tauri'
-import type { McpServerConnectionResult, McpToolCallRequest, McpToolCallResult, McpToolDescriptor, SendBugReportInput } from '../types'
+import type {
+  McpServerConnectionResult,
+  McpServerStatusResult,
+  McpToolCallRequest,
+  McpToolCallResult,
+  McpToolDescriptor,
+  SendBugReportInput,
+} from '../types'
 
 type McpCommandServerPayload = {
+  id: string
   command: string
   args: string[]
   env: Record<string, string>
@@ -20,6 +28,7 @@ type McpToolCallArgs = {
 
 function toServerPayload(server: McpServerSettings): McpCommandServerPayload {
   return {
+    id: server.id,
     command: server.command.trim(),
     args: server.args,
     env: server.env,
@@ -42,14 +51,42 @@ export async function listMcpServerTools(server: McpServerSettings): Promise<Mcp
   })
 }
 
+export async function startMcpServer(server: McpServerSettings): Promise<McpServerConnectionResult> {
+  return tauriInvoke<McpServerConnectionResult>('mcp_start_server', {
+    args: {
+      server: toServerPayload(server),
+    } satisfies McpServerTestArgs,
+  })
+}
+
 export async function testMcpServerConnection(server: McpServerSettings) {
-  const result = await listMcpServerTools(server)
+  const result = await startMcpServer(server)
   return `Connected to ${result.serverName}. ${result.tools.length} tool${result.tools.length === 1 ? '' : 's'} available.`
 }
 
 export async function reconnectMcpServer(server: McpServerSettings) {
-  const result = await listMcpServerTools(server)
+  const result = await tauriInvoke<McpServerConnectionResult>('mcp_reconnect_server', {
+    args: {
+      server: toServerPayload(server),
+    } satisfies McpServerTestArgs,
+  })
   return `Reconnected to ${result.serverName}. ${result.tools.length} tool${result.tools.length === 1 ? '' : 's'} available.`
+}
+
+export async function stopMcpServer(server: McpServerSettings) {
+  return tauriInvoke<McpServerStatusResult>('mcp_stop_server', {
+    args: {
+      server: toServerPayload(server),
+    } satisfies McpServerTestArgs,
+  })
+}
+
+export async function getMcpServerStatus(server: McpServerSettings) {
+  return tauriInvoke<McpServerStatusResult>('mcp_get_server_status', {
+    args: {
+      server: toServerPayload(server),
+    } satisfies McpServerTestArgs,
+  })
 }
 
 export async function callMcpTool(request: McpToolCallRequest): Promise<McpToolCallResult> {

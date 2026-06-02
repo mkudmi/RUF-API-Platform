@@ -11,6 +11,12 @@ export type McpServerConnectionResult = {
   tools: McpToolDescriptor[]
 }
 
+export type McpServerStatusResult = {
+  serverId: string
+  serverName?: string | null
+  running: boolean
+}
+
 export type McpToolCallResult = {
   text: string
 }
