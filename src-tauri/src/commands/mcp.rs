@@ -9,9 +9,6 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
 type McpStdoutLines = tokio::io::Lines<BufReader<ChildStdout>>;
 
 #[derive(Debug, Clone, Deserialize)]
