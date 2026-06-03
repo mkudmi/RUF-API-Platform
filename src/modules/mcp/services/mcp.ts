@@ -106,6 +106,13 @@ function getSchemaPropertyNames(schema: unknown) {
   return Object.keys(properties as Record<string, unknown>)
 }
 
+function getSchemaProperties(schema: unknown) {
+  if (!schema || typeof schema !== 'object') return {}
+  const properties = (schema as { properties?: unknown }).properties
+  if (!properties || typeof properties !== 'object') return {}
+  return properties as Record<string, unknown>
+}
+
 function pickSchemaField(schema: unknown, candidates: string[]) {
   const propertyNames = new Set(getSchemaPropertyNames(schema))
   return candidates.find(candidate => propertyNames.has(candidate)) ?? null
@@ -116,6 +123,54 @@ function getSchemaRequiredNames(schema: unknown) {
   const required = (schema as { required?: unknown }).required
   if (!Array.isArray(required)) return []
   return required.filter((item): item is string => typeof item === 'string')
+}
+
+function normalizeSchemaFieldLabel(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\-\s/()]+/g, '')
+}
+
+function resolveCustomSchemaFieldKey(schema: unknown, rawKey: string) {
+  const cleanKey = rawKey.trim()
+  if (!cleanKey) return null
+
+  const properties = getSchemaProperties(schema)
+  if (cleanKey in properties) return cleanKey
+
+  const normalizedInput = normalizeSchemaFieldLabel(cleanKey)
+  if (!normalizedInput) return null
+
+  let bestMatch: { key: string, score: number } | null = null
+
+  for (const [propertyKey, propertySchema] of Object.entries(properties)) {
+    const propertyRecord = propertySchema && typeof propertySchema === 'object'
+      ? propertySchema as Record<string, unknown>
+      : {}
+
+    const candidates = [
+      propertyKey,
+      typeof propertyRecord.title === 'string' ? propertyRecord.title : '',
+      typeof propertyRecord.description === 'string' ? propertyRecord.description : '',
+    ].filter(Boolean)
+
+    for (const candidate of candidates) {
+      const normalizedCandidate = normalizeSchemaFieldLabel(candidate)
+      if (!normalizedCandidate) continue
+
+      let score = 0
+      if (normalizedCandidate === normalizedInput) score = 100
+      else if (normalizedCandidate.includes(normalizedInput) || normalizedInput.includes(normalizedCandidate)) score = 60
+
+      if (!score) continue
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { key: propertyKey, score }
+      }
+    }
+  }
+
+  return bestMatch?.key ?? null
 }
 
 function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unknown, input: SendBugReportInput) {
@@ -182,11 +237,23 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
     throw new Error('Jira stand type is required. Add it to MCP environment, for example JIRA_STAND_TYPE.')
   }
 
+  const unresolvedCustomFieldKeys: string[] = []
   for (const [key, value] of Object.entries(input.customFields ?? {})) {
     const cleanKey = key.trim()
     const cleanValue = value.trim()
     if (!cleanKey || !cleanValue) continue
-    args[cleanKey] = cleanValue
+    const resolvedKey = resolveCustomSchemaFieldKey(schema, cleanKey)
+    if (!resolvedKey) {
+      unresolvedCustomFieldKeys.push(cleanKey)
+      continue
+    }
+    args[resolvedKey] = cleanValue
+  }
+
+  if (unresolvedCustomFieldKeys.length) {
+    const availableFields = getSchemaPropertyNames(schema)
+    const fieldsSuffix = availableFields.length ? ` Available schema fields: ${availableFields.join(', ')}` : ''
+    throw new Error(`Custom Jira fields were not recognized: ${unresolvedCustomFieldKeys.join(', ')}.${fieldsSuffix}`)
   }
 
   return args
