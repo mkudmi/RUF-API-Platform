@@ -25,6 +25,7 @@ export type SendBugReportInput = {
   summary: string
   description: string
   projectKey?: string
+  customFields?: Record<string, string>
 }
 
 export type McpToolCallRequest = {

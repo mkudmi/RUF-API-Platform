@@ -182,6 +182,13 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
     throw new Error('Jira stand type is required. Add it to MCP environment, for example JIRA_STAND_TYPE.')
   }
 
+  for (const [key, value] of Object.entries(input.customFields ?? {})) {
+    const cleanKey = key.trim()
+    const cleanValue = value.trim()
+    if (!cleanKey || !cleanValue) continue
+    args[cleanKey] = cleanValue
+  }
+
   return args
 }
 

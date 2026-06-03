@@ -824,6 +824,30 @@ button:hover { background: rgba(255,255,255,.10); }
   align-items: start;
 }
 
+.bugReportCustomFields {
+  display: grid;
+  gap: 8px;
+}
+
+.bugReportCustomFieldRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.bugReportCustomFieldInput {
+  height: 36px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.bugReportCustomFieldDeleteBtn {
+  width: 32px;
+  height: 36px;
+  align-self: stretch;
+}
+
 .bugReportFormRowTop .formLabel {
   padding-top: 10px;
 }
