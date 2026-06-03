@@ -64,6 +64,7 @@ function syncEnv(entries: McpEnvEntry[]) {
 
 export function McpSettingsTab(props: Props) {
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({})
+  const [toolsMenuOpenById, setToolsMenuOpenById] = useState<Record<string, boolean>>({})
   const [busyActionById, setBusyActionById] = useState<Record<string, ServerAction | null>>({})
   const [messageById, setMessageById] = useState<Record<string, string | null>>({})
   const [errorById, setErrorById] = useState<Record<string, string | null>>({})
@@ -80,6 +81,15 @@ export function McpSettingsTab(props: Props) {
         window.clearTimeout(timerId)
       }
     }
+  }, [])
+
+  useEffect(() => {
+    function handlePointerDown() {
+      setToolsMenuOpenById({})
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
   }, [])
 
   useEffect(() => {
@@ -165,6 +175,14 @@ export function McpSettingsTab(props: Props) {
 
   function toggleExpanded(id: string) {
     setExpandedById(prev => ({ ...prev, [id]: !(prev[id] ?? false) }))
+  }
+
+  function toggleToolsMenu(id: string) {
+    setToolsMenuOpenById(prev => ({ ...prev, [id]: !(prev[id] ?? false) }))
+  }
+
+  function closeToolsMenu(id: string) {
+    setToolsMenuOpenById(prev => ({ ...prev, [id]: false }))
   }
 
   function updateEnvEntries(server: McpServerSettings, entries: McpEnvEntry[]) {
@@ -271,6 +289,8 @@ export function McpSettingsTab(props: Props) {
         const currentServerName = serverNameById[server.id]
         const tools = toolsById[server.id] ?? []
         const selectedTool = selectedToolById[server.id] ?? ''
+        const selectedToolLabel = tools.find(tool => tool.name === selectedTool)?.name ?? ''
+        const toolsMenuOpen = toolsMenuOpenById[server.id] ?? false
 
         return (
           <div
@@ -435,18 +455,55 @@ export function McpSettingsTab(props: Props) {
                   <div className="settingsTableRow">
                     <div className="settingsTableLabel">Tools</div>
                     <div className="settingsTableValue">
-                      <select
-                        className="selectMenuBtn mono mcpToolsSelect"
-                        value={selectedTool}
-                        disabled={!isRunning || !!busyActionById[server.id] || tools.length === 0}
-                        onChange={event => setSelectedToolById(prev => ({ ...prev, [server.id]: event.target.value }))}
-                        title={selectedTool || 'Server tools'}
-                      >
-                        <option value="">{tools.length === 0 ? 'No tools' : 'Select tool'}</option>
-                        {tools.map(tool => (
-                          <option key={tool.name} value={tool.name}>{tool.name}</option>
-                        ))}
-                      </select>
+                      <div className="selectMenuWrap mcpToolsMenuWrap">
+                        <button
+                          type="button"
+                          className="selectMenuBtn mono mcpToolsSelect"
+                          disabled={!isRunning || !!busyActionById[server.id] || tools.length === 0}
+                          onPointerDown={event => event.stopPropagation()}
+                          onClick={event => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            if (!isRunning || busyActionById[server.id] || tools.length === 0) return
+                            toggleToolsMenu(server.id)
+                          }}
+                          aria-haspopup="menu"
+                          aria-expanded={toolsMenuOpen}
+                          title={selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
+                        >
+                          {selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
+                        </button>
+                        {toolsMenuOpen ? (
+                          <div
+                            className="selectMenuPanel mcpToolsMenuPanel"
+                            role="menu"
+                            onPointerDown={event => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                            }}
+                            onClick={event => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                            }}
+                          >
+                            {tools.map(tool => (
+                              <button
+                                key={tool.name}
+                                type="button"
+                                className={`selectMenuItem ${selectedTool === tool.name ? 'selectMenuItemActive' : ''}`}
+                                role="menuitemradio"
+                                aria-checked={selectedTool === tool.name}
+                                onClick={() => {
+                                  setSelectedToolById(prev => ({ ...prev, [server.id]: tool.name }))
+                                  closeToolsMenu(server.id)
+                                }}
+                              >
+                                <span className="mono">{tool.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
