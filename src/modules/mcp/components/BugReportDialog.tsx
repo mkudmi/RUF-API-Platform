@@ -70,7 +70,6 @@ export function BugReportDialog(props: Props) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [serverRunning, setServerRunning] = useState(false)
-  const [sendHint, setSendHint] = useState<string | null>(null)
 
   useEffect(() => {
     setDescription(initialDescription)
@@ -102,7 +101,6 @@ export function BugReportDialog(props: Props) {
       setError(null)
       setSuccess(null)
       setServerRunning(false)
-      setSendHint(null)
       if (!dialog.open) dialog.showModal()
       return
     }
@@ -166,7 +164,6 @@ export function BugReportDialog(props: Props) {
     setBusyMode('mcp')
     setError(null)
     setSuccess(null)
-    setSendHint('Sending bug to Jira...')
     try {
       const message = await sendBugReportToAtlassianMcp(props.mcpSettings, {
         summary,
@@ -178,11 +175,8 @@ export function BugReportDialog(props: Props) {
       saveProjectKeyHistory(nextHistory)
       setProjectKey(projectKey.trim().toUpperCase())
       setSuccess(message)
-      setSendHint(message)
     } catch (nextError) {
-      const nextMessage = nextError instanceof Error ? nextError.message : String(nextError)
-      setError(nextMessage)
-      setSendHint(nextMessage)
+      setError(nextError instanceof Error ? nextError.message : String(nextError))
     } finally {
       setBusyMode(null)
     }
@@ -202,11 +196,6 @@ export function BugReportDialog(props: Props) {
         : !projectKey.trim()
             ? 'Fill in Project Key first.'
             : (busyMode === 'mcp' ? 'Sending bug to Jira...' : busyMode === 'ai' ? 'Wait until AI enhancement finishes.' : 'Send bug to Jira')
-
-  function handleSendButtonAreaClick() {
-    if (canSendToJira) return
-    setSendHint(sendDisabledReason)
-  }
 
   function handleDeleteProjectKeyHistoryItem(item: string) {
     const nextHistory = removeProjectKeyHistoryItem(projectKeyHistory, item)
@@ -388,29 +377,14 @@ export function BugReportDialog(props: Props) {
               </span>
               <span className="aiEnhanceBtnText">{busyMode === 'ai' ? 'Enhancing...' : 'Enhance with AI'}</span>
             </button>
-            <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }} onClick={handleSendButtonAreaClick}>
-              <button
-                type="button"
-                onClick={() => void handleSendToJira()}
-                disabled={!canSendToJira}
-                title={sendDisabledReason}
-              >
-                {busyMode === 'mcp' ? 'Sending...' : 'Send Bug to Jira'}
-              </button>
-              {sendHint ? (
-                <div
-                  className="small"
-                  style={{
-                    maxWidth: 320,
-                    textAlign: 'right',
-                    color: error ? '#ff9a9a' : success ? '#7ee0a1' : 'rgba(255,255,255,.72)',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {sendHint}
-                </div>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              onClick={() => void handleSendToJira()}
+              disabled={!canSendToJira}
+              title={sendDisabledReason}
+            >
+              {busyMode === 'mcp' ? 'Sending...' : 'Send Bug to Jira'}
+            </button>
           </div>
         </div>
       </div>

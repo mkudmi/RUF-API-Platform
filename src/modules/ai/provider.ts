@@ -343,6 +343,22 @@ function isLowValueBugReportText(text: string): boolean {
   return /^([.]{2,}|[…]{1,}|[-_]{2,})$/.test(normalized)
 }
 
+function looksLikeBugReportPromptLeak(text: string): boolean {
+  const normalized = text.toLowerCase()
+  return normalized.includes('<one concise line>')
+    || normalized.includes('<improved plain-text description>')
+    || normalized.includes('short bug title')
+    || normalized.includes('evaluate input summary')
+    || normalized.includes('evaluate input description')
+    || normalized.includes('the instruction says')
+    || normalized.includes('current summary:')
+    || normalized.includes('черновик описания:')
+    || normalized.includes('текущий summary:')
+    || normalized.includes('let\'s stick to')
+    || normalized.includes('i need to create')
+    || normalized.includes('reasoning')
+}
+
 function extractLabeledBugReportSection(text: string, label: 'SUMMARY' | 'DESCRIPTION'): string {
   const source = text.replace(/\r\n/g, '\n')
   if (label === 'SUMMARY') {
@@ -371,6 +387,7 @@ function parseEnhancedBugReportText(
 ): AiEnhancedBugReport | null {
   const normalizedContent = stripMarkdownCodeFence(content).trim()
   if (isLowValueBugReportText(normalizedContent)) return null
+  if (looksLikeReasoningLeak(normalizedContent) || looksLikeBugReportPromptLeak(normalizedContent)) return null
 
   const parsedJson = parseJsonFromAiText<Partial<AiEnhancedBugReport>>(normalizedContent)
   const jsonSummary = typeof parsedJson?.summary === 'string' ? normalizeBugReportField(parsedJson.summary) : ''
@@ -381,40 +398,56 @@ function parseEnhancedBugReportText(
 
   let summary = labeledSummary || jsonSummary
   let description = labeledDescription || jsonDescription
+  const fallbackSummary = normalizeBugReportField(input.summary)
+  const fallbackDescription = normalizeBugReportField(input.description)
 
-  if (!summary || !description) {
-    const lines = normalizedContent
-      .split('\n')
-      .map(item => item.trimEnd())
-      .filter(Boolean)
-
-    if (!summary && lines.length >= 2) {
-      const firstLine = normalizeBugReportField(lines[0])
-      if (firstLine && firstLine.length <= 160 && !/^[A-Z\s]+:$/.test(firstLine)) {
-        summary = firstLine
-      }
-    }
-
-    if (!description && lines.length >= 2) {
-      description = normalizeBugReportField(lines.slice(1).join('\n'))
-    }
-  }
-
-  if (!description && normalizedContent && normalizedContent !== summary) {
+  if (!description && normalizedContent) {
     description = normalizeBugReportField(normalizedContent)
   }
 
   if (isLowValueBugReportText(summary)) summary = ''
   if (isLowValueBugReportText(description)) description = ''
 
-  const fallbackSummary = normalizeBugReportField(input.summary)
-  const fallbackDescription = normalizeBugReportField(input.description)
-
   if (!summary) summary = fallbackSummary || deriveBugReportSummary(description || fallbackDescription)
   if (!description) description = fallbackDescription
 
   if (!summary || !description || isLowValueBugReportText(description)) return null
   return { summary, description }
+}
+
+async function requestBugReportEnhancement(
+  settings: AiProviderSettings,
+  input: { summary: string, description: string },
+  options?: { retry?: boolean },
+): Promise<string> {
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: 0,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: buildBugReportPrompt(input, options),
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`AI bug report enhancement failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError('AI bug report enhancement returned an empty response.', text))
+  }
+
+  return content
 }
 
 function ensureYandexSettings(settings: AiProviderSettings) {
@@ -595,40 +628,21 @@ export async function enhanceBugReportWithYandex(
   input: { summary: string, description: string },
 ): Promise<AiEnhancedBugReport> {
   ensureYandexSettings(settings)
+  const normalizedInputSummary = normalizeBugReportField(input.summary)
+  const normalizedInputDescription = normalizeBugReportField(input.description)
 
-  const body = {
-    model: buildYandexModelUri(settings),
-    temperature: 0.2,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
-    messages: buildBugReportPrompt(input),
+  const firstContent = await requestBugReportEnhancement(settings, input)
+  const firstResult = parseEnhancedBugReportText(firstContent, input)
+  if (firstResult) return firstResult
+
+  const retryContent = await requestBugReportEnhancement(settings, input, { retry: true })
+  const retryResult = parseEnhancedBugReportText(retryContent, input)
+  if (retryResult) return retryResult
+
+  return {
+    summary: normalizedInputSummary || deriveBugReportSummary(normalizedInputDescription),
+    description: normalizedInputDescription,
   }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
-  })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`AI bug report enhancement failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
-  if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError('AI bug report enhancement returned an empty response.', text))
-  }
-
-  const result = parseEnhancedBugReportText(content, input)
-  if (!result) {
-    throw new Error('AI bug report enhancement returned an unusable response.')
-  }
-
-  return result
 }
 
 export async function enhanceSqlWithYandex(

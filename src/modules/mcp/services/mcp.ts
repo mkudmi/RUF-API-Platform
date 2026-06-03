@@ -141,7 +141,7 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
   const cloudIdField = pickSchemaField(schema, ['cloudId', 'cloudUrl'])
 
   if (!summaryField || !descriptionField) {
-    throw new Error('Atlassian MCP createJiraIssue schema is missing expected fields.')
+    throw new Error('Atlassian MCP Jira issue tool schema is missing expected fields.')
   }
 
   args[summaryField] = summary
@@ -157,8 +157,49 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
   return args
 }
 
-function findToolByName(tools: McpToolDescriptor[], name: string) {
-  return tools.find(tool => tool.name === name) ?? null
+function normalizeToolText(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase()
+}
+
+function hasBugReportFields(schema: unknown) {
+  return Boolean(
+    pickSchemaField(schema, ['summary', 'title'])
+    && pickSchemaField(schema, ['description', 'body']),
+  )
+}
+
+function scoreAtlassianBugTool(tool: McpToolDescriptor) {
+  const name = normalizeToolText(tool.name)
+  const description = normalizeToolText(tool.description)
+  let score = 0
+
+  if (!name) return -1
+  if (name === 'createjiraissue') score += 100
+  if (name.includes('jira')) score += 30
+  if (name.includes('issue')) score += 20
+  if (name.includes('create')) score += 15
+  if (name.includes('bug')) score += 10
+
+  if (description.includes('jira')) score += 20
+  if (description.includes('issue')) score += 12
+  if (description.includes('create')) score += 8
+  if (description.includes('bug')) score += 6
+
+  if (hasBugReportFields(tool.inputSchema)) score += 25
+  if (pickSchemaField(tool.inputSchema, ['projectKey', 'project', 'projectIdOrKey'])) score += 8
+  if (pickSchemaField(tool.inputSchema, ['issueTypeName', 'issueType', 'type'])) score += 4
+
+  return score
+}
+
+function findAtlassianBugTool(tools: McpToolDescriptor[]) {
+  const ranked = tools
+    .map(tool => ({ tool, score: scoreAtlassianBugTool(tool) }))
+    .sort((left, right) => right.score - left.score)
+
+  const best = ranked[0]
+  if (!best || best.score < 40) return null
+  return best.tool
 }
 
 export async function sendBugReportToAtlassianMcp(
@@ -177,9 +218,11 @@ export async function sendBugReportToAtlassianMcp(
   }
 
   const { tools } = await listMcpServerTools(server)
-  const createIssueTool = findToolByName(tools, 'createJiraIssue')
+  const createIssueTool = findAtlassianBugTool(tools)
   if (!createIssueTool) {
-    throw new Error('The connected Atlassian MCP server does not expose createJiraIssue.')
+    const toolNames = tools.map(tool => tool.name).filter(Boolean)
+    const toolsSuffix = toolNames.length ? ` Available tools: ${toolNames.join(', ')}` : ' No tools were returned by the server.'
+    throw new Error(`The connected Atlassian MCP server does not expose a Jira issue creation tool.${toolsSuffix}`)
   }
 
   const result = await callMcpTool({
