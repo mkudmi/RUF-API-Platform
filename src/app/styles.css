@@ -2347,6 +2347,40 @@ html.platform-macos .bodyResizeHandle::before {
   overflow: hidden;
   background: rgba(255,255,255,.03);
 }
+.mcpSettingsTable {
+  overflow: visible;
+}
+.mcpToolsMenuWrap {
+  z-index: 20;
+}
+.mcpToolsFieldRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mcpToolsFieldRow > .mcpToolsMenuWrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.mcpToolsCount {
+  flex: 0 0 auto;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.78);
+}
+.mcpToolsMenuPanel {
+  z-index: 120;
+  max-height: min(260px, 36vh);
+  overflow-y: auto;
+}
 .settingsTableRow {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr);

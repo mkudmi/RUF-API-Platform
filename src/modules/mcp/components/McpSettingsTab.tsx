@@ -368,7 +368,7 @@ export function McpSettingsTab(props: Props) {
 
             {expandedById[server.id] ? (
               <>
-                <div className="settingsTable">
+                <div className="settingsTable mcpSettingsTable">
                   <div className="settingsTableRow">
                     <div className="settingsTableLabel">Enabled</div>
                     <div className="settingsTableValue">
@@ -455,54 +455,59 @@ export function McpSettingsTab(props: Props) {
                   <div className="settingsTableRow">
                     <div className="settingsTableLabel">Tools</div>
                     <div className="settingsTableValue">
-                      <div className="selectMenuWrap mcpToolsMenuWrap">
-                        <button
-                          type="button"
-                          className="selectMenuBtn mono mcpToolsSelect"
-                          disabled={!isRunning || !!busyActionById[server.id] || tools.length === 0}
-                          onPointerDown={event => event.stopPropagation()}
-                          onClick={event => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            if (!isRunning || busyActionById[server.id] || tools.length === 0) return
-                            toggleToolsMenu(server.id)
-                          }}
-                          aria-haspopup="menu"
-                          aria-expanded={toolsMenuOpen}
-                          title={selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
-                        >
-                          {selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
-                        </button>
-                        {toolsMenuOpen ? (
-                          <div
-                            className="selectMenuPanel mcpToolsMenuPanel"
-                            role="menu"
-                            onPointerDown={event => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                            }}
+                      <div className="mcpToolsFieldRow">
+                        <div className="selectMenuWrap mcpToolsMenuWrap">
+                          <button
+                            type="button"
+                            className="selectMenuBtn mono mcpToolsSelect"
+                            disabled={!isRunning || !!busyActionById[server.id] || tools.length === 0}
+                            onPointerDown={event => event.stopPropagation()}
                             onClick={event => {
                               event.preventDefault()
                               event.stopPropagation()
+                              if (!isRunning || busyActionById[server.id] || tools.length === 0) return
+                              toggleToolsMenu(server.id)
                             }}
+                            aria-haspopup="menu"
+                            aria-expanded={toolsMenuOpen}
+                            title={selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
                           >
-                            {tools.map(tool => (
-                              <button
-                                key={tool.name}
-                                type="button"
-                                className={`selectMenuItem ${selectedTool === tool.name ? 'selectMenuItemActive' : ''}`}
-                                role="menuitemradio"
-                                aria-checked={selectedTool === tool.name}
-                                onClick={() => {
-                                  setSelectedToolById(prev => ({ ...prev, [server.id]: tool.name }))
-                                  closeToolsMenu(server.id)
-                                }}
-                              >
-                                <span className="mono">{tool.name}</span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
+                            {selectedToolLabel || (tools.length === 0 ? 'No tools' : 'Select tool')}
+                          </button>
+                          {toolsMenuOpen ? (
+                            <div
+                              className="selectMenuPanel mcpToolsMenuPanel"
+                              role="menu"
+                              onPointerDown={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                              }}
+                              onClick={event => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                              }}
+                            >
+                              {tools.map(tool => (
+                                <button
+                                  key={tool.name}
+                                  type="button"
+                                  className={`selectMenuItem ${selectedTool === tool.name ? 'selectMenuItemActive' : ''}`}
+                                  role="menuitemradio"
+                                  aria-checked={selectedTool === tool.name}
+                                  onClick={() => {
+                                    setSelectedToolById(prev => ({ ...prev, [server.id]: tool.name }))
+                                    closeToolsMenu(server.id)
+                                  }}
+                                >
+                                  <span className="mono">{tool.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        <span className="small mcpToolsCount" title={`${tools.length} tool${tools.length === 1 ? '' : 's'} available`}>
+                          {tools.length}
+                        </span>
                       </div>
                     </div>
                   </div>

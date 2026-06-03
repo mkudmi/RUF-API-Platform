@@ -111,6 +111,13 @@ function pickSchemaField(schema: unknown, candidates: string[]) {
   return candidates.find(candidate => propertyNames.has(candidate)) ?? null
 }
 
+function getSchemaRequiredNames(schema: unknown) {
+  if (!schema || typeof schema !== 'object') return []
+  const required = (schema as { required?: unknown }).required
+  if (!Array.isArray(required)) return []
+  return required.filter((item): item is string => typeof item === 'string')
+}
+
 function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unknown, input: SendBugReportInput) {
   const summary = input.summary.trim()
   const description = input.description.trim()
@@ -128,17 +135,30 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
     || server.env.JIRA_URL
     || ''
   ).trim()
+  const standType = (
+    server.env.JIRA_STAND_TYPE
+    || server.env.JIRA_STAND
+    || server.env.STAND_TYPE
+    || server.env.JIRA_ENVIRONMENT_TYPE
+    || server.env.ENVIRONMENT_TYPE
+    || server.env.JIRA_TEST_ENVIRONMENT
+    || server.env.TEST_ENVIRONMENT
+    || server.env.ENVIRONMENT
+    || ''
+  ).trim()
 
   if (!summary) throw new Error('Bug summary is required.')
   if (!description) throw new Error('Bug description is required.')
   if (!projectKey) throw new Error('Project key is required to send the bug to Jira.')
 
   const args: Record<string, unknown> = {}
+  const requiredNames = new Set(getSchemaRequiredNames(schema))
   const summaryField = pickSchemaField(schema, ['summary', 'title'])
   const descriptionField = pickSchemaField(schema, ['description', 'body'])
   const projectField = pickSchemaField(schema, ['projectKey', 'project_key', 'project', 'projectIdOrKey', 'project_id_or_key'])
   const issueTypeField = pickSchemaField(schema, ['issueTypeName', 'issue_type_name', 'issueType', 'issue_type', 'type'])
   const cloudIdField = pickSchemaField(schema, ['cloudId', 'cloud_id', 'cloudUrl', 'cloud_url'])
+  const standTypeField = pickSchemaField(schema, ['standType', 'stand_type', 'stand', 'environmentType', 'environment_type', 'environment', 'testEnvironment', 'test_environment'])
 
   if (!summaryField || !descriptionField) {
     throw new Error('Atlassian MCP Jira issue tool schema is missing expected fields.')
@@ -152,6 +172,14 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
 
   if (cloudIdField && cloudId) {
     args[cloudIdField] = cloudId
+  }
+
+  if (standTypeField && standType) {
+    args[standTypeField] = standType
+  }
+
+  if (standTypeField && requiredNames.has(standTypeField) && !standType) {
+    throw new Error('Jira stand type is required. Add it to MCP environment, for example JIRA_STAND_TYPE.')
   }
 
   return args
