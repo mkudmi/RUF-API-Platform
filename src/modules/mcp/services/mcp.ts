@@ -136,9 +136,9 @@ function buildAtlassianBugToolArguments(server: McpServerSettings, schema: unkno
   const args: Record<string, unknown> = {}
   const summaryField = pickSchemaField(schema, ['summary', 'title'])
   const descriptionField = pickSchemaField(schema, ['description', 'body'])
-  const projectField = pickSchemaField(schema, ['projectKey', 'project', 'projectIdOrKey'])
-  const issueTypeField = pickSchemaField(schema, ['issueTypeName', 'issueType', 'type'])
-  const cloudIdField = pickSchemaField(schema, ['cloudId', 'cloudUrl'])
+  const projectField = pickSchemaField(schema, ['projectKey', 'project_key', 'project', 'projectIdOrKey', 'project_id_or_key'])
+  const issueTypeField = pickSchemaField(schema, ['issueTypeName', 'issue_type_name', 'issueType', 'issue_type', 'type'])
+  const cloudIdField = pickSchemaField(schema, ['cloudId', 'cloud_id', 'cloudUrl', 'cloud_url'])
 
   if (!summaryField || !descriptionField) {
     throw new Error('Atlassian MCP Jira issue tool schema is missing expected fields.')
