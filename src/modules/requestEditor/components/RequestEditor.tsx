@@ -3519,6 +3519,25 @@ export function RequestEditor(props: {
         return next
       })()
 
+      const resolvedPathParamsForHistory = Object.fromEntries(
+        Object.entries(effectivePathParamsForSend).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
+      )
+
+      const resolvedQueryParamsForHistory = Object.fromEntries(
+        Object.entries(effectiveQueryParamsForCommit).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
+      )
+
+      const resolvedHeadersForHistory = Object.fromEntries(
+        Object.entries(snapshot.effectiveHeadersForSend).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
+      )
+
+      const resolvedHeaderEntriesForHistory = snapshot.headerEntriesForSend.map(([name, value]) => ({
+        name,
+        value: applyVariablesForDisplay(value, effectiveVariables),
+      }))
+
+      const resolvedBodyTextForHistory = applyVariablesForDisplay(bodyText, effectiveVariables)
+
       props.onBeforeSend?.(props.request.id, {
         id: uid('hist'),
         createdAt: Date.now(),
@@ -3527,13 +3546,13 @@ export function RequestEditor(props: {
         runId,
         responseStatus: null,
         draft: {
-          pathParams: effectivePathParamsForSend,
-          queryParams: effectiveQueryParamsForCommit,
+          pathParams: resolvedPathParamsForHistory,
+          queryParams: resolvedQueryParamsForHistory,
           inactiveQueryParamNames: snapshot.nextInactiveQueryParamNamesForSend,
           queryParamKeyOverrides,
           disabledQueryParamNames: snapshot.effectiveDisabledQueryParamNamesForSend,
-          headers: snapshot.effectiveHeadersForSend,
-          headerEntries: snapshot.headerEntriesForSend.map(([name, value]) => ({ name, value })),
+          headers: resolvedHeadersForHistory,
+          headerEntries: resolvedHeaderEntriesForHistory,
           headerOverrides: snapshot.nextHeaderOverridesForSend,
           disabledHeaderNames: snapshot.nextDisabledHeaderNamesForSend,
           inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
@@ -3542,7 +3561,7 @@ export function RequestEditor(props: {
           preSqlScriptIsActive,
           postSqlScriptIsActive,
           sqlConnectionId: selectedSqlConnectionId ?? undefined,
-          bodyText,
+          bodyText: resolvedBodyTextForHistory,
           bodyFormat,
           fileFieldName: snapshot.fileFieldName,
           fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
