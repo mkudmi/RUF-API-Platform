@@ -7,7 +7,7 @@ import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { json } from '@codemirror/lang-json'
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
-import type { VariableSuggestion } from '../../../shared/utils/variables'
+import { getVariableCompletions, type VariableCompletion, type VariableSuggestion } from '../../../shared/utils/variables'
 import { logWarn } from '../../../shared/utils/logger'
 
 const jsonHighlightStyle = HighlightStyle.define([
@@ -89,6 +89,7 @@ type Props = {
   onChangeValue: (next: string) => void
   onSubmitShortcut?: () => void
   variableSuggestions: VariableSuggestion[]
+  variables?: Record<string, string>
 }
 
 const IS_MAC = typeof navigator !== 'undefined'
@@ -152,12 +153,12 @@ function getSuggestionSelectionRange(name: string, tokenStart: number, placehold
 }
 
 export function JsonCodeEditor(props: Props) {
-  const { value, onChangeValue, onSubmitShortcut, variableSuggestions } = props
+  const { value, onChangeValue, onSubmitShortcut, variableSuggestions, variables = {} } = props
   const rootRef = useRef<HTMLDivElement | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const menuPanelRef = useRef<HTMLDivElement | null>(null)
   const menuOpenRef = useRef(false)
-  const filteredRef = useRef<VariableSuggestion[]>([])
+  const filteredRef = useRef<VariableCompletion[]>([])
   const activeIndexRef = useRef(0)
   const caretPosRef = useRef(0)
   const [editorHeight, setEditorHeight] = useState(() => {
@@ -169,11 +170,11 @@ export function JsonCodeEditor(props: Props) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [anchor, setAnchor] = useState({ left: 0, top: 0, width: 320, caretTop: 0, caretBottom: 0 })
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return variableSuggestions
-    return variableSuggestions.filter(s => s.name.toLowerCase().includes(needle))
-  }, [query, variableSuggestions])
+  const filtered = useMemo<VariableCompletion[]>(() => {
+    const completions = getVariableCompletions(query, variables)
+    if (query.trim() || completions.length !== variableSuggestions.length) return completions
+    return variableSuggestions
+  }, [query, variableSuggestions, variables])
 
   useEffect(() => {
     menuOpenRef.current = menuOpen
@@ -516,12 +517,12 @@ export function JsonCodeEditor(props: Props) {
           {filtered.length ? (
             filtered.map((s, idx) => (
               <button
-                key={`${s.kind}:${s.name}`}
+                key={`${s.kind}:${s.insertName ?? s.name}`}
                 type="button"
                 className={`selectMenuItem ${idx === activeIndex ? 'selectMenuItemActive' : ''}`}
                 role="menuitem"
                 data-var-idx={idx}
-                onClick={() => applySuggestion(s.name)}
+                onClick={() => applySuggestion(s.insertName ?? s.name)}
               >
                 <div className="varMenuItem">
                   <div className="mono">{s.name}</div>

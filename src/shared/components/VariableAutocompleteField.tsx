@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
-import type { VariableSuggestion } from '../utils/variables'
+import { getVariableCompletions, type VariableCompletion, type VariableSuggestion } from '../utils/variables'
 import { useDismissibleLayer } from '../hooks/useDismissibleLayer'
 import { logWarn } from '../utils/logger'
 
@@ -7,6 +7,7 @@ type BaseProps = {
   value: string
   onChangeValue: (next: string) => void
   suggestions: VariableSuggestion[]
+  variables?: Record<string, string>
 }
 
 type InputProps = BaseProps & {
@@ -101,7 +102,7 @@ function getCaretAnchorRect(
 
 export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Props>(
   function VariableAutocompleteField(props, forwardedRef) {
-    const { as: asProp, value, onChangeValue, suggestions, onBlur, onKeyDown, onClick, onFocus, onKeyUp, ...rest } = props
+    const { as: asProp, value, onChangeValue, suggestions, variables = {}, onBlur, onKeyDown, onClick, onFocus, onKeyUp, ...rest } = props
     const as = asProp ?? 'input'
     const { className, style, ...restProps } = rest
 
@@ -128,13 +129,11 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
     const [query, setQuery] = useState('')
     const [activeIndex, setActiveIndex] = useState(0)
 
-    const filtered = useMemo(() => {
-      const needle = query.trim().toLowerCase()
-      const items = needle
-        ? suggestions.filter(s => s.name.toLowerCase().includes(needle))
-        : suggestions
-      return items
-    }, [query, suggestions])
+    const filtered = useMemo<VariableCompletion[]>(() => {
+      const completions = getVariableCompletions(query, variables)
+      if (query.trim() || completions.length !== suggestions.length) return completions
+      return suggestions
+    }, [query, suggestions, variables])
 
     function ensureMirrorEl(): HTMLDivElement {
       if (mirrorRef.current) return mirrorRef.current
@@ -392,12 +391,12 @@ export const VariableAutocompleteField = forwardRef<HTMLInputElement | HTMLTextA
             {filtered.length ? (
               filtered.map((s, idx) => (
                 <button
-                  key={`${s.kind}:${s.name}`}
+                  key={`${s.kind}:${s.insertName ?? s.name}`}
                   type="button"
                   className={`selectMenuItem ${idx === activeIndex ? 'selectMenuItemActive' : ''}`}
                   role="menuitem"
                   data-var-idx={idx}
-                  onClick={() => applySuggestion(s.name)}
+                  onClick={() => applySuggestion(s.insertName ?? s.name)}
                 >
                   <div className="varMenuItem">
                     <div className="mono">{s.name}</div>

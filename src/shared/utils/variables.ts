@@ -4,6 +4,10 @@ export type VariableSuggestion = {
   kind: 'environment' | 'builtin'
 }
 
+export type VariableCompletion = VariableSuggestion & {
+  insertName?: string
+}
+
 export type DataDrivenDatasetFormat = 'json' | 'csv'
 export type DataDrivenRow = Record<string, string>
 export type DataDrivenDatasetParseResult = {
@@ -38,6 +42,8 @@ function formatUtcTime(d: Date): string {
 function formatUtcDateTime(d: Date): string {
   return `${formatUtcDate(d)}T${formatUtcTime(d)}Z`
 }
+
+type RelativeDateUnit = 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year'
 
 type BuiltinVar = {
   name: string
@@ -86,6 +92,8 @@ function randomString(length: number): string {
 const BUILTIN_VARIABLES: BuiltinVar[] = [
   { name: 'uuid', description: 'Random UUID (v4)', get: () => randomUuid() },
   { name: 'random.string(length)', description: 'Random alphanumeric string with the given length' },
+  { name: 'localdate', description: 'Local date now, supports offsets like localdate+1d or localdate-2m' },
+  { name: 'localdatetime', description: 'Local date-time now, supports offsets like localdatetime+1d or localdatetime-2h' },
   { name: 'localdatetimenow', description: 'Local date-time (YYYY-MM-DDTHH:mm:ss)', get: () => formatLocalDateTime(new Date()) },
   { name: 'localdatenow', description: 'Local date (YYYY-MM-DD)', get: () => formatLocalDate(new Date()) },
   { name: 'localtimenow', description: 'Local time (HH:mm:ss)', get: () => formatLocalTime(new Date()) },
@@ -109,6 +117,32 @@ const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(
 function resolveDynamicBuiltinValue(name: string): string | undefined {
   const randomStringMatch = /^random\.string\(\s*(\d+)\s*\)$/.exec(name)
   if (randomStringMatch) return randomString(Number(randomStringMatch[1]))
+  if (name === 'localdate') return formatLocalDate(new Date())
+  if (name === 'localdatetime') return formatLocalDateTime(new Date())
+
+  const localDateOffsetMatch = /^localdate\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
+  if (localDateOffsetMatch) {
+    const sign = localDateOffsetMatch[1] === '-' ? -1 : 1
+    const amount = Number(localDateOffsetMatch[2])
+    const unit = parseRelativeDateUnit(localDateOffsetMatch[3])
+    if (
+      !Number.isFinite(amount)
+      || amount < 0
+      || !unit
+      || (unit !== 'day' && unit !== 'month' && unit !== 'year')
+    ) return undefined
+    return formatLocalDate(addToLocalDateTime(new Date(), sign * amount, unit))
+  }
+
+  const localDateTimeOffsetMatch = /^localdatetime\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
+  if (localDateTimeOffsetMatch) {
+    const sign = localDateTimeOffsetMatch[1] === '-' ? -1 : 1
+    const amount = Number(localDateTimeOffsetMatch[2])
+    const unit = parseRelativeDateUnit(localDateTimeOffsetMatch[3])
+    if (!Number.isFinite(amount) || amount < 0 || !unit) return undefined
+    return formatLocalDateTime(addToLocalDateTime(new Date(), sign * amount, unit))
+  }
+
   return undefined
 }
 
@@ -135,6 +169,74 @@ export function getVariableSuggestions(vars: Record<string, string>): VariableSu
   }
 
   return suggestions.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function parseRelativeDateUnit(raw: string): RelativeDateUnit | null {
+  const value = raw.trim().toLowerCase()
+  if (!value) return null
+  if (value === 's' || value === 'sec' || value === 'secs' || value === 'second' || value === 'seconds') return 'second'
+  if (value === 'min' || value === 'mins' || value === 'minute' || value === 'minutes' || value === 'mi' || value === 'mim') return 'minute'
+  if (value === 'h' || value === 'hr' || value === 'hrs' || value === 'hour' || value === 'hours') return 'hour'
+  if (value === 'd' || value === 'day' || value === 'days') return 'day'
+  if (value === 'm' || value === 'mon' || value === 'month' || value === 'months') return 'month'
+  if (value === 'y' || value === 'yr' || value === 'yrs' || value === 'year' || value === 'years') return 'year'
+  return null
+}
+
+function addToLocalDateTime(date: Date, amount: number, unit: RelativeDateUnit): Date {
+  const next = new Date(date)
+  if (unit === 'second') next.setSeconds(next.getSeconds() + amount)
+  else if (unit === 'minute') next.setMinutes(next.getMinutes() + amount)
+  else if (unit === 'hour') next.setHours(next.getHours() + amount)
+  else if (unit === 'day') next.setDate(next.getDate() + amount)
+  else if (unit === 'month') next.setMonth(next.getMonth() + amount)
+  else next.setFullYear(next.getFullYear() + amount)
+  return next
+}
+
+const LOCALDATETIME_OFFSET_UNITS: Array<{ suffix: string, description: string }> = [
+  { suffix: 's', description: 'seconds' },
+  { suffix: 'min', description: 'minutes' },
+  { suffix: 'h', description: 'hours' },
+  { suffix: 'd', description: 'days' },
+  { suffix: 'm', description: 'months' },
+  { suffix: 'y', description: 'years' },
+]
+
+const LOCALDATE_OFFSET_UNITS: Array<{ suffix: string, description: string }> = [
+  { suffix: 'd', description: 'days' },
+  { suffix: 'm', description: 'months' },
+  { suffix: 'y', description: 'years' },
+]
+
+export function getVariableCompletions(query: string, vars: Record<string, string>): VariableCompletion[] {
+  const rawQuery = query.trim()
+  const localDateOffsetMatch = /^(localdate)([+-])(\d+)$/i.exec(rawQuery)
+  if (localDateOffsetMatch) {
+    const [, base, sign, amount] = localDateOffsetMatch
+    return LOCALDATE_OFFSET_UNITS.map(unit => ({
+      kind: 'builtin' as const,
+      name: `${base}${sign}${amount}${unit.suffix}`,
+      insertName: `${base}${sign}${amount}${unit.suffix}`,
+      description: `Local date ${sign === '+' ? 'plus' : 'minus'} ${amount} ${unit.description}`,
+    }))
+  }
+
+  const localDateTimeOffsetMatch = /^(localdatetime)([+-])(\d+)$/i.exec(rawQuery)
+  if (localDateTimeOffsetMatch) {
+    const [, base, sign, amount] = localDateTimeOffsetMatch
+    return LOCALDATETIME_OFFSET_UNITS.map(unit => ({
+      kind: 'builtin' as const,
+      name: `${base}${sign}${amount}${unit.suffix}`,
+      insertName: `${base}${sign}${amount}${unit.suffix}`,
+      description: `Local date-time ${sign === '+' ? 'plus' : 'minus'} ${amount} ${unit.description}`,
+    }))
+  }
+
+  const suggestions = getVariableSuggestions(vars)
+  const needle = rawQuery.toLowerCase()
+  if (!needle) return suggestions
+  return suggestions.filter(s => s.name.toLowerCase().includes(needle))
 }
 
 function normalizeDataRowRecord(value: unknown): DataDrivenRow {
