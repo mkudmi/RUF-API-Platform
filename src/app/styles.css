@@ -164,6 +164,18 @@ input[type="password"]::-ms-clear {
   outline-offset: 2px;
 }
 
+.windowMachineClock {
+  flex: 0 0 auto;
+  min-width: 104px;
+  padding: 0 2px;
+  color: rgba(255,255,255,.82);
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  user-select: none;
+}
+
 .windowControls {
   display: flex;
   align-items: center;

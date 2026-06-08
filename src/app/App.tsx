@@ -141,6 +141,19 @@ function utf8ByteLength(value: string) {
   }
 }
 
+function padTimePart(value: number, size = 2) {
+  return String(value).padStart(size, '0')
+}
+
+function formatMachineClock(value: number) {
+  const date = new Date(value)
+  return [
+    padTimePart(date.getHours()),
+    padTimePart(date.getMinutes()),
+    padTimePart(date.getSeconds()),
+  ].join(':') + `.${padTimePart(date.getMilliseconds(), 3)}`
+}
+
 function getLocalStorageCacheSizeBytes() {
   let total = 0
   const seen = new Set<string>()
@@ -397,6 +410,7 @@ export default function App() {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : ''
   const platform = typeof navigator !== 'undefined' ? (navigator.platform || '').toLowerCase() : ''
   const isMac = platform.includes('mac') || ua.includes('mac os')
+  const [machineClockNow, setMachineClockNow] = useState(() => Date.now())
 
   const settingsDialogRef = useRef<HTMLDialogElement | null>(null)
   const caCertDialogRef = useRef<HTMLDialogElement | null>(null)
@@ -595,6 +609,16 @@ export default function App() {
     onRestartToUpdate,
     onUpdateLater,
   } = useAppUpdater()
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => {
+      setMachineClockNow(Date.now())
+    }, 50)
+
+    return () => {
+      window.clearInterval(timerId)
+    }
+  }, [])
 
   const primaryGlobalSqlSettings = useMemo<GlobalSqlConnectionSettings | null>(
     () => getPrimaryGlobalSqlSettings(globalSqlConnections),
@@ -3765,6 +3789,9 @@ export default function App() {
               Swagger
             </button>
           ) : null}
+          <div className="windowMachineClock" title="System time on this machine">
+            {formatMachineClock(machineClockNow)}
+          </div>
         </div>
         {!isMac ? windowControls : null}
       </header>
