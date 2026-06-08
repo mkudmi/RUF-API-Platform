@@ -92,10 +92,8 @@ function randomString(length: number): string {
 const BUILTIN_VARIABLES: BuiltinVar[] = [
   { name: 'uuid', description: 'Random UUID (v4)', get: () => randomUuid() },
   { name: 'random.string(length)', description: 'Random alphanumeric string with the given length' },
-  { name: 'localdate', description: 'Local date now, supports offsets like localdate+1d or localdate-2m' },
-  { name: 'localdatetime', description: 'Local date-time now, supports offsets like localdatetime+1d or localdatetime-2h' },
-  { name: 'localdatetimenow', description: 'Local date-time (YYYY-MM-DDTHH:mm:ss)', get: () => formatLocalDateTime(new Date()) },
-  { name: 'localdatenow', description: 'Local date (YYYY-MM-DD)', get: () => formatLocalDate(new Date()) },
+  { name: 'localdatetimenow', description: 'Local date-time (YYYY-MM-DDTHH:mm:ss), supports offsets like localdatetimenow+1d or localdatetimenow-2h', get: () => formatLocalDateTime(new Date()) },
+  { name: 'localdatenow', description: 'Local date (YYYY-MM-DD), supports offsets like localdatenow+1d or localdatenow-2m', get: () => formatLocalDate(new Date()) },
   { name: 'localtimenow', description: 'Local time (HH:mm:ss)', get: () => formatLocalTime(new Date()) },
   { name: 'utcdatetimenow', description: 'UTC date-time (YYYY-MM-DDTHH:mm:ssZ)', get: () => formatUtcDateTime(new Date()) },
   { name: 'utcdatenow', description: 'UTC date (YYYY-MM-DD)', get: () => formatUtcDate(new Date()) },
@@ -117,10 +115,8 @@ const BUILTIN_INDEX: Record<string, BuiltinVar> = Object.fromEntries(
 function resolveDynamicBuiltinValue(name: string): string | undefined {
   const randomStringMatch = /^random\.string\(\s*(\d+)\s*\)$/.exec(name)
   if (randomStringMatch) return randomString(Number(randomStringMatch[1]))
-  if (name === 'localdate') return formatLocalDate(new Date())
-  if (name === 'localdatetime') return formatLocalDateTime(new Date())
 
-  const localDateOffsetMatch = /^localdate\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
+  const localDateOffsetMatch = /^localdatenow\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
   if (localDateOffsetMatch) {
     const sign = localDateOffsetMatch[1] === '-' ? -1 : 1
     const amount = Number(localDateOffsetMatch[2])
@@ -134,7 +130,7 @@ function resolveDynamicBuiltinValue(name: string): string | undefined {
     return formatLocalDate(addToLocalDateTime(new Date(), sign * amount, unit))
   }
 
-  const localDateTimeOffsetMatch = /^localdatetime\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
+  const localDateTimeOffsetMatch = /^localdatetimenow\s*([+-])\s*(\d+)\s*([a-z]+)\s*$/i.exec(name)
   if (localDateTimeOffsetMatch) {
     const sign = localDateTimeOffsetMatch[1] === '-' ? -1 : 1
     const amount = Number(localDateTimeOffsetMatch[2])
@@ -211,7 +207,7 @@ const LOCALDATE_OFFSET_UNITS: Array<{ suffix: string, description: string }> = [
 
 export function getVariableCompletions(query: string, vars: Record<string, string>): VariableCompletion[] {
   const rawQuery = query.trim()
-  const localDateOffsetMatch = /^(localdate)([+-])(\d+)$/i.exec(rawQuery)
+  const localDateOffsetMatch = /^(localdatenow)([+-])(\d+)$/i.exec(rawQuery)
   if (localDateOffsetMatch) {
     const [, base, sign, amount] = localDateOffsetMatch
     return LOCALDATE_OFFSET_UNITS.map(unit => ({
@@ -222,7 +218,7 @@ export function getVariableCompletions(query: string, vars: Record<string, strin
     }))
   }
 
-  const localDateTimeOffsetMatch = /^(localdatetime)([+-])(\d+)$/i.exec(rawQuery)
+  const localDateTimeOffsetMatch = /^(localdatetimenow)([+-])(\d+)$/i.exec(rawQuery)
   if (localDateTimeOffsetMatch) {
     const [, base, sign, amount] = localDateTimeOffsetMatch
     return LOCALDATETIME_OFFSET_UNITS.map(unit => ({
