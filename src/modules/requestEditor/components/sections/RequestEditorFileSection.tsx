@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
-import { CloseIcon } from '../../../../shared/icons'
+import { CloseIcon, PencilIcon } from '../../../../shared/icons'
 import { ConfirmIconButton } from '../../../../shared/components/ConfirmIconButton'
 import type { FileRow } from '../../types'
 
@@ -8,6 +8,9 @@ export function RequestEditorFilePicker(props: {
   activeFileRowIdRef: RefObject<string | null>
   fileRows: FileRow[]
   setFileRows: Dispatch<SetStateAction<FileRow[]>>
+  onChooseFile: (rowId: string) => void
+  onEditFile: (rowId: string) => void
+  canEditFile: (row: FileRow) => boolean
 }) {
   const bodyFileInputRef = props.bodyFileInputRef
   const activeFileRowIdRef = props.activeFileRowIdRef
@@ -30,7 +33,7 @@ export function RequestEditorFilePicker(props: {
           if (!targetRowId) return
           if (!next) return
 
-          props.setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next, fileName: next.name } : r)))
+          props.setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next, fileHandle: null, fileName: next.name } : r)))
         }}
       />
 
@@ -49,15 +52,28 @@ export function RequestEditorFilePicker(props: {
               className={`chooseFileBtn ${row.isActive ? '' : 'rowInactive'}`.trim()}
               title={row.file ? row.file.name : row.fileName || 'Choose file'}
               style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              onClick={() => {
-                activeFileRowIdRef.current = row.id
-                bodyFileInputRef.current?.click()
-              }}
+              onClick={() => props.onChooseFile(row.id)}
             >
               <span className="chooseFileBtnLabel">{row.file ? row.file.name : row.fileName || 'Choose file'}</span>
             </button>
 
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="iconBtn"
+                disabled={!props.canEditFile(row)}
+                aria-label="Edit file"
+                title={
+                  !row.file
+                    ? 'Choose file first'
+                    : props.canEditFile(row)
+                      ? 'Edit file'
+                      : 'Only text files can be edited'
+                }
+                onClick={() => props.onEditFile(row.id)}
+              >
+                <PencilIcon size={16} />
+              </button>
               <label className="checkRow rowCheck" title={row.isActive ? 'Active' : 'Inactive'}>
                 <input
                   type="checkbox"
@@ -74,7 +90,7 @@ export function RequestEditorFilePicker(props: {
                 disabled={false}
                 onConfirm={() => {
                   if (row.file) {
-                    props.setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null, fileName: '' } : r)))
+                    props.setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null, fileHandle: null, fileName: '' } : r)))
                     return
                   }
                   if (canDeleteRow) {

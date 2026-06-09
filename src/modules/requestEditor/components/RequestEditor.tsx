@@ -19,6 +19,7 @@ import {
 import { DataDrivenInputEditorSheet } from './sheets/DataDrivenInputEditorSheet'
 import { DataDrivenReportSheet, type DataDrivenRunItem, type DataDrivenRunReport } from './sheets/DataDrivenReportSheet'
 import { RequestEditorBodyFileSection } from './body/RequestEditorBodyFileSection'
+import { RequestEditorFileEditDialog } from './dialogs/RequestEditorFileEditDialog'
 import { RequestEditorToolbar } from './layout/RequestEditorToolbar'
 import type { MenuAnchor } from './rows/RequestEditorRows'
 import { RequestEditorDataSection, RequestEditorTestsSection } from './sections/RequestEditorAuxSections'
@@ -51,9 +52,12 @@ import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type Req
 import { useRequestEditorSend } from '../hooks/useRequestEditorSend'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
 import { contentTypeForBodyFormat, inferBodyFormatFromBodyText, inferBodyFormatFromContentType, labelForBodyFormat, templateForBodyFormat, type BodyFormat } from '../utils/bodyFormat'
+import { buildEditedFile, inferEditableFileFormat, isEditableTextFile, openSingleFileWithHandle, saveTextToFileHandle } from '../utils/fileEditing'
 import { applyPathParamsForDisplay, applySchemeIfHostLike, applyVariablesForDisplay, extractPathParamNamesFromTemplate, normalizeMockRoutePath, parseUrlInput, shouldDefaultOpenFileTab } from '../utils/requestUrl'
 import { buildRequestEditorSqlConnections } from '../utils/sqlConnections'
 import type { TestFunctionRef } from '../../tests'
+
+//TODO: auto режим для тела запроса только через ИИ, если ии не настроено, то кнопку auto не показывать, по умолчанию json
 
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 const requestEditorFileRows = createFileRowsRestorer()
@@ -136,6 +140,11 @@ export function RequestEditor(props: {
   const [isAddingMethod, setIsAddingMethod] = useState(false)
   const [methodAddDraft, setMethodAddDraft] = useState('')
   const [activeTabId, setActiveTabId] = useState('headers')
+  const [fileEditorOpen, setFileEditorOpen] = useState(false)
+  const [fileEditorRowId, setFileEditorRowId] = useState<string | null>(null)
+  const [fileEditorText, setFileEditorText] = useState('')
+  const [fileEditorError, setFileEditorError] = useState('')
+  const [fileEditorBusy, setFileEditorBusy] = useState(false)
 
   function normalizeMethodOption(raw: string) {
     return raw.trim().toUpperCase()
@@ -179,6 +188,120 @@ export function RequestEditor(props: {
       props.onChangeMethod?.('GET')
     }
     setCustomMethodOptions(prev => prev.filter(m => m !== method))
+  }
+
+  const activeFileEditorRow = useMemo(
+    () => fileRows.find(row => row.id === fileEditorRowId) ?? null,
+    [fileEditorRowId, fileRows],
+  )
+  const activeFileEditorFormat = useMemo(
+    () => activeFileEditorRow?.file ? inferEditableFileFormat(activeFileEditorRow.file) : null,
+    [activeFileEditorRow],
+  )
+
+  function closeFileEditor() {
+    setFileEditorOpen(false)
+    setFileEditorRowId(null)
+    setFileEditorText('')
+    setFileEditorError('')
+    setFileEditorBusy(false)
+  }
+
+  function canEditFileRow(row: FileRow) {
+    return !!row.file && isEditableTextFile(row.file)
+  }
+
+  async function chooseFileForRow(rowId: string) {
+    try {
+      const picked = await openSingleFileWithHandle()
+      if (!picked) {
+        activeFileRowIdRef.current = rowId
+        bodyFileInputRef.current?.click()
+        return
+      }
+
+      setFileRows(prev => prev.map(row => (
+        row.id === rowId
+          ? { ...row, file: picked.file, fileHandle: picked.handle, fileName: picked.file.name }
+          : row
+      )))
+    } catch (error) {
+      if ((error as Error | null)?.name === 'AbortError') return
+      logWarn('RequestEditor.chooseFileForRow', 'File picker failed, falling back to input', { error, rowId })
+      activeFileRowIdRef.current = rowId
+      bodyFileInputRef.current?.click()
+    }
+  }
+
+  async function openFileEditor(rowId: string) {
+    const row = fileRows.find(item => item.id === rowId)
+    if (!row?.file || !canEditFileRow(row)) return
+
+    try {
+      const text = await row.file.text()
+      setFileEditorRowId(rowId)
+      setFileEditorText(text)
+      setFileEditorError('')
+      setFileEditorBusy(false)
+      setFileEditorOpen(true)
+    } catch (error) {
+      logWarn('RequestEditor.openFileEditor', 'Failed to read file for editing', { error, rowId, fileName: row.file.name })
+    }
+  }
+
+  async function saveEditedFile() {
+    if (!activeFileEditorRow?.file) return
+
+    const rowId = activeFileEditorRow.id
+    const nextFile = buildEditedFile(activeFileEditorRow.file, fileEditorText)
+    const fileHandle = activeFileEditorRow.fileHandle ?? null
+
+    setFileEditorBusy(true)
+    setFileEditorError('')
+    setFileRows(prev => prev.map(row => (
+      row.id === rowId
+        ? { ...row, file: nextFile, fileName: nextFile.name }
+        : row
+    )))
+
+    try {
+      if (fileHandle) {
+        await saveTextToFileHandle(fileHandle, fileEditorText)
+        const refreshedFile = await fileHandle.getFile()
+        setFileRows(prev => prev.map(row => (
+          row.id === rowId
+            ? { ...row, file: refreshedFile, fileHandle, fileName: refreshedFile.name }
+            : row
+        )))
+      }
+
+      closeFileEditor()
+    } catch (error) {
+      logWarn('RequestEditor.saveEditedFile', 'Failed to save edited file back to source', {
+        error,
+        rowId,
+        fileName: activeFileEditorRow.file.name,
+      })
+      setFileEditorBusy(false)
+      setFileEditorError('Failed to save back to the original file. The edited copy is still attached to this request.')
+    }
+  }
+
+  function beautifyEditedFileText() {
+    if (!activeFileEditorFormat) return
+
+    try {
+      const next = beautifyBody(fileEditorText, activeFileEditorFormat)
+      setFileEditorText(next)
+      setFileEditorError('')
+    } catch (error) {
+      logWarn('RequestEditor.beautifyEditedFileText', 'Failed to beautify edited file text', {
+        error,
+        fileName: activeFileEditorRow?.file?.name,
+        format: activeFileEditorFormat,
+      })
+      setFileEditorError(`Failed to beautify ${activeFileEditorFormat.toUpperCase()} content. Check file syntax and try again.`)
+    }
   }
 
   const headerValueHistoryItems = useMemo(() => getHeaderValueHistoryItems(valueHistory, 10), [valueHistory])
@@ -829,6 +952,7 @@ export function RequestEditor(props: {
     setDataDrivenRunReport(null)
     setDataDrivenRunning(false)
     setDataDrivenReportSheetOpen(false)
+    closeFileEditor()
     dataDrivenAbortRef.current?.abort()
     dataDrivenAbortRef.current = null
     setLoadedRequestId(props.request.id)
@@ -1634,6 +1758,9 @@ export function RequestEditor(props: {
         activeFileRowIdRef={activeFileRowIdRef}
         fileRows={fileRows}
         setFileRows={setFileRows}
+        onChooseFile={chooseFileForRow}
+        onEditFile={openFileEditor}
+        canEditFile={canEditFileRow}
       />
     )
   }
@@ -2271,6 +2398,20 @@ export function RequestEditor(props: {
         onChange={setDataDrivenInputEditorText}
         onSave={saveDataDrivenInputFromEditor}
         onCloseAndSave={closeDataDrivenInputEditorAndSave}
+      />
+      <RequestEditorFileEditDialog
+        open={fileEditorOpen}
+        fileName={activeFileEditorRow?.file?.name ?? activeFileEditorRow?.fileName ?? ''}
+        value={fileEditorText}
+        format={activeFileEditorFormat}
+        errorMessage={fileEditorError}
+        saveScopeLabel={activeFileEditorRow?.fileHandle ? 'the original file on disk and the request' : 'the file copy attached to this request'}
+        busy={fileEditorBusy}
+        canBeautify={!!activeFileEditorFormat}
+        onChange={setFileEditorText}
+        onBeautify={beautifyEditedFileText}
+        onSave={() => { void saveEditedFile() }}
+        onClose={closeFileEditor}
       />
     </div>
   )

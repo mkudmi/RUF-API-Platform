@@ -95,7 +95,7 @@ export function normalizeDraftFileRows(raw: unknown): DraftFileRow[] {
 }
 
 export function createFileRowsRestorer() {
-  const fileRowsByRequestId = new Map<string, Array<{ fieldName: string, file: File | null, fileName: string, isActive: boolean }>>()
+  const fileRowsByRequestId = new Map<string, Array<{ fieldName: string, file: File | null, fileHandle?: FileRow['fileHandle'], fileName: string, isActive: boolean }>>()
 
   return {
     restore(requestId: string, storedRows: DraftFileRow[], fallbackFieldNames: string[]): FileRow[] {
@@ -112,6 +112,7 @@ export function createFileRowsRestorer() {
           id: uid('frow'),
           fieldName: row.fieldName,
           file,
+          fileHandle: cached?.fileHandle ?? null,
           fileName,
           isActive: row.isActive,
         }
@@ -123,6 +124,7 @@ export function createFileRowsRestorer() {
         rows.map(row => ({
           fieldName: row.fieldName,
           file: row.file,
+          fileHandle: row.fileHandle ?? null,
           fileName: row.file?.name ?? row.fileName,
           isActive: row.isActive,
         })),
