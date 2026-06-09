@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { CloseIcon, CopyIcon } from '../../../shared/icons'
-import { copyText } from '../../../shared/utils/clipboard'
-import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
+import { CloseIcon, CopyIcon } from '../../../../shared/icons'
+import { copyText } from '../../../../shared/utils/clipboard'
+import { ConfirmIconButton } from '../../../../shared/components/ConfirmIconButton'
 
 type SqlConnectionOption = {
   id: string

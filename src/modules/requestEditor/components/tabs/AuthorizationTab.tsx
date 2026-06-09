@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
-import type { VariableSuggestion } from '../../../shared/utils/variables'
-import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
-import { logWarn } from '../../../shared/utils/logger'
+import { VariableAutocompleteField } from '../../../../shared/components/VariableAutocompleteField'
+import type { VariableSuggestion } from '../../../../shared/utils/variables'
+import { useDismissibleLayer } from '../../../../shared/hooks/useDismissibleLayer'
+import { logWarn } from '../../../../shared/utils/logger'
 
 type AuthType = 'none' | 'basic' | 'bearer'
 

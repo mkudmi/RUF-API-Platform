@@ -1,4 +1,4 @@
-import { safeParseJson } from './json'
+import { safeParseJson } from '../../utils/json'
 
 const VALUE_HISTORY_KEY = 'ruf_value_history_v1'
 const HEADER_HISTORY_KEY = '*'

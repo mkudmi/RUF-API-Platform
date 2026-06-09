@@ -2,7 +2,7 @@ import type { Collection, Folder, RequestItem } from '../collectionTree'
 import { walkCollection } from '../collectionTree/utils/collectionTraversal'
 import type { Environment } from '../../shared/types/environment'
 import type { RequestDraft } from '../../shared/types/requestHistory'
-import { loadRequestDraft } from '../requestEditor/utils/draftStorage'
+import { loadRequestDraft } from '../requestEditor/state/draft/draftStorage'
 import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { runRequest, type RunResult } from './runRequest'
 

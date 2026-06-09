@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { VariableSuggestion } from '../../../shared/utils/variables'
-import { ValueHistorySelect } from '../../../shared/components/ValueHistorySelect'
-import { JsonCodeEditor } from './JsonCodeEditor'
+import type { VariableSuggestion } from '../../../../shared/utils/variables'
+import { ValueHistorySelect } from '../../../../shared/components/ValueHistorySelect'
+import { JsonCodeEditor } from '../editors/JsonCodeEditor'
 import {
   addPreparedLocalMockRoute,
   getLocalMockServerBaseUrl,
@@ -16,7 +16,7 @@ import {
   onLocalMockServerUpdated,
   setLocalMockTargetOrigin,
   setLocalMockRoute,
-} from '../utils/localMockServer'
+} from '../../utils/localMockServer'
 
 const EMPTY_VARIABLE_SUGGESTIONS: VariableSuggestion[] = []
 

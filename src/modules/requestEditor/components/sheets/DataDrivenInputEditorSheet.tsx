@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { CloseIcon } from '../../../shared/icons'
+import { CloseIcon } from '../../../../shared/icons'
 
 type Props = {
   open: boolean

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { BroomIcon, CloseIcon } from '../../../shared/icons'
-import type { DataDrivenDatasetFormat, DataDrivenRow } from '../../../shared/utils/variables'
+import { BroomIcon, CloseIcon } from '../../../../shared/icons'
+import type { DataDrivenDatasetFormat, DataDrivenRow } from '../../../../shared/utils/variables'
 
 export type DataDrivenRunItem = {
   rowNumber: number

@@ -7,8 +7,8 @@ import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { json } from '@codemirror/lang-json'
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
-import { getVariableCompletions, type VariableCompletion, type VariableSuggestion } from '../../../shared/utils/variables'
-import { logWarn } from '../../../shared/utils/logger'
+import { getVariableCompletions, type VariableCompletion, type VariableSuggestion } from '../../../../shared/utils/variables'
+import { logWarn } from '../../../../shared/utils/logger'
 
 const jsonHighlightStyle = HighlightStyle.define([
   { tag: tags.propertyName, class: 'cm-json-key' },

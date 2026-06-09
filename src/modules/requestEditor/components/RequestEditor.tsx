@@ -1,1546 +1,67 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Collection, HttpMethod, RequestItem, RequestParam } from '../../collectionTree'
-import type { Environment } from '../../../shared/types/environment'
-import type { GlobalSqlConnectionItem } from '../../../shared/types/environment'
+import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import type { RequestDraft, RequestHistoryItem } from '../../../shared/types/requestHistory'
-import { CloseIcon, CopyIcon, OpenInNewIcon, PlusIcon, ReloadIcon, StarIcon } from '../../../shared/icons'
 import { copyText } from '../../../shared/utils/clipboard'
-import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../../shared/utils/url'
 import { uid } from '../../../shared/utils/id'
-import { runRequest, type RunResult } from '../../requestRunner/runRequest'
+import { logWarn } from '../../../shared/utils/logger'
+import { computeEffectiveBaseUrl, isAbsoluteUrl, joinUrlParts } from '../../../shared/utils/url'
+import type { RunResult } from '../../requestRunner/runRequest'
 import { buildCurlCommand } from '../../requestRunner/buildCurl'
-import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
-import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, runDbSql } from '../../environment'
+import { runDbSql } from '../../environment'
 import {
   getVariableSuggestions,
   parseDataDrivenDataset,
-  resolveVariableValue,
   type DataDrivenDatasetFormat,
   type DataDrivenRow,
   type VariableSuggestion,
 } from '../../../shared/utils/variables'
-import { VariableAutocompleteField } from '../../../shared/components/VariableAutocompleteField'
-import { JsonCodeEditor } from './JsonCodeEditor'
-import { DataDrivenReportSheet, type DataDrivenRunItem, type DataDrivenRunReport } from './DataDrivenReportSheet'
-import { DataDrivenInputEditorSheet } from './DataDrivenInputEditorSheet'
-import { loadRequestDraft, saveRequestDraft } from '../utils/draftStorage'
-import { addValueHistoryEntry, getHeaderValueHistoryItems, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../utils/valueHistory'
+import { DataDrivenInputEditorSheet } from './sheets/DataDrivenInputEditorSheet'
+import { DataDrivenReportSheet, type DataDrivenRunItem, type DataDrivenRunReport } from './sheets/DataDrivenReportSheet'
+import { RequestEditorBodyFileSection } from './body/RequestEditorBodyFileSection'
+import { RequestEditorToolbar } from './layout/RequestEditorToolbar'
+import type { MenuAnchor } from './rows/RequestEditorRows'
+import { RequestEditorDataSection, RequestEditorTestsSection } from './sections/RequestEditorAuxSections'
+import { RequestEditorFilePicker } from './sections/RequestEditorFileSection'
+import { RequestEditorHeadersTab, RequestEditorParamsTab } from './sections/RequestEditorTabSections'
+import { loadRequestDraft, saveRequestDraft } from '../state/draft/draftStorage'
+import {
+  buildHeaderDraftState,
+  createFileRowsRestorer,
+  hydrateRequestEditorDraft,
+  toRequestDraft,
+} from '../state/draft/draftState'
+import { renameFlagKey, renameStoreKey, replaceKeyInOrder, setFlagForKey } from '../state/params/keyState'
+import {
+  deleteHeaderCaseInsensitive,
+  findHeaderKeyCaseInsensitive,
+  findKeyIndexCaseInsensitive,
+  getHeaderCaseInsensitive,
+  headerIsInactive,
+  mergeHeadersCaseInsensitive,
+  normalizeHeaderParams,
+  removeInactiveHeaders,
+  replaceKeyInOrderCaseInsensitive,
+  setFlagForHeaderName,
+  setHeaderCaseInsensitive,
+} from '../state/headers/headerState'
+import { addValueHistoryEntry, getHeaderValueHistoryItems, loadValueHistory, removeValueHistoryEntry, saveValueHistory, type ValueHistoryKind, type ValueHistoryStore } from '../state/headers/valueHistory'
+import type { FileRow, HeaderDraftRowState, HeaderDraftState, QueryDraftRowState } from '../types'
 import { buildRequestEditorTabExtensions, type RequestEditorTabContext, type RequestEditorTabExtension } from '../extensions'
-import { ConfirmIconButton } from '../../../shared/components/ConfirmIconButton'
-import { JsCodeEditor } from '../../../shared/components/JsCodeEditor'
-import { logWarn } from '../../../shared/utils/logger'
-import { getLocalMockServerStatus } from '../utils/localMockServer'
-import { executeResponseTests, type TestFunctionRef } from '../../tests'
+import { useRequestEditorSend } from '../hooks/useRequestEditorSend'
+import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
+import { contentTypeForBodyFormat, inferBodyFormatFromBodyText, inferBodyFormatFromContentType, labelForBodyFormat, templateForBodyFormat, type BodyFormat } from '../utils/bodyFormat'
+import { applyPathParamsForDisplay, applySchemeIfHostLike, applyVariablesForDisplay, extractPathParamNamesFromTemplate, normalizeMockRoutePath, parseUrlInput, shouldDefaultOpenFileTab } from '../utils/requestUrl'
+import { buildRequestEditorSqlConnections } from '../utils/sqlConnections'
+import type { TestFunctionRef } from '../../tests'
 
-type BodyFormat = NonNullable<RequestDraft['bodyFormat']>
 const DEFAULT_METHOD_OPTIONS: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+const requestEditorFileRows = createFileRowsRestorer()
 const IS_MAC = typeof navigator !== 'undefined'
   && (
     (navigator.platform || '').toLowerCase().includes('mac')
     || navigator.userAgent.toLowerCase().includes('mac os')
   )
-
-function normalizeBodyFormat(raw: unknown): BodyFormat {
-  if (raw === 'auto' || raw === 'json' || raw === 'xml' || raw === 'yaml' || raw === 'text') return raw
-  return 'auto'
-}
-
-function labelForBodyFormat(format: BodyFormat) {
-  switch (format) {
-    case 'json': return 'JSON'
-    case 'xml': return 'XML'
-    case 'yaml': return 'YAML'
-    case 'text': return 'Plain Text'
-    case 'auto': return 'Auto'
-  }
-}
-
-function contentTypeForBodyFormat(format: Exclude<BodyFormat, 'auto'>) {
-  switch (format) {
-    case 'json': return 'application/json'
-    case 'xml': return 'application/xml'
-    case 'yaml': return 'application/yaml'
-    case 'text': return 'text/plain'
-  }
-}
-
-function inferBodyFormatFromContentType(contentType: string): BeautifyBodyFormat {
-  const ct = (contentType || '').toLowerCase()
-  if (ct.includes('json')) return 'json'
-  if (ct.includes('yaml') || ct.includes('yml')) return 'yaml'
-  if (ct.includes('xml')) return 'xml'
-  if (ct.includes('text/plain')) return 'text'
-  return 'text'
-}
-
-function inferBodyFormatFromBodyText(bodyText: string): Exclude<BodyFormat, 'auto'> | null {
-  const raw = (bodyText || '').trim()
-  if (!raw) return null
-
-  if ((raw.startsWith('{') || raw.startsWith('['))) {
-    try {
-      JSON.parse(raw)
-      return 'json'
-    } catch (error) {
-      logWarn('inferBodyFormatFromBodyText.json', 'JSON parse failed during format inference', { error })
-    }
-  }
-
-  if (raw.startsWith('<')) {
-    try {
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(raw, 'application/xml')
-      if (!doc.getElementsByTagName('parsererror')?.length) return 'xml'
-    } catch (error) {
-      logWarn('inferBodyFormatFromBodyText.xml', 'XML parse failed during format inference', { error })
-    }
-  }
-
-  const looksLikeYaml =
-    raw.startsWith('---') ||
-    /^[\t ]*[^#\s][^:\n]*:[^\n]*$/m.test(raw) ||
-    /^[\t ]*-\s+\S+/m.test(raw)
-
-  if (looksLikeYaml) {
-    try {
-      beautifyBody(raw, 'yaml')
-      return 'yaml'
-    } catch (error) {
-      logWarn('inferBodyFormatFromBodyText.yaml', 'YAML parse failed during format inference', { error })
-    }
-  }
-
-  return null
-}
-
-function shouldDefaultOpenFileTab(method: HttpMethod, contentType: string | undefined): boolean {
-  if (method === 'GET' || method === 'HEAD') return false
-  const ct = (contentType || '').toLowerCase()
-  return ct.includes('multipart/form-data') || ct.includes('application/octet-stream')
-}
-
-function applyPathParamsForDisplay(url: string, values: Record<string, string>) {
-  let out = ''
-  for (let i = 0; i < url.length; i++) {
-    const ch = url[i]
-    if (ch !== '{') {
-      out += ch
-      continue
-    }
-
-    const next = url[i + 1] ?? ''
-    if (next === '{') {
-      const close = url.indexOf('}}', i + 2)
-      if (close >= 0) {
-        out += url.slice(i, close + 2)
-        i = close + 1
-        continue
-      }
-      out += ch
-      continue
-    }
-
-    const close = url.indexOf('}', i + 1)
-    if (close < 0) {
-      out += ch
-      continue
-    }
-
-    const key = url.slice(i + 1, close).trim()
-    i = close
-
-    const v = (values[key] ?? '').trim()
-    out += v ? v : `{${key}}`
-  }
-
-  return out
-}
-
-function applyVariablesForDisplay(text: string, vars: Record<string, string>) {
-  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
-}
-
-function extractPathParamNamesFromTemplate(template: string): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-
-  for (let i = 0; i < template.length; i++) {
-    const ch = template[i]
-    if (ch !== '{') continue
-
-    const next = template[i + 1] ?? ''
-    if (next === '{') {
-      // Skip {{variables}}
-      const close = template.indexOf('}}', i + 2)
-      if (close >= 0) i = close + 1
-      continue
-    }
-
-    const close = template.indexOf('}', i + 1)
-    if (close < 0) continue
-    if (template[close + 1] === '}') continue // ignore "}}"
-
-    const name = template.slice(i + 1, close).trim()
-    i = close
-
-    if (!name) continue
-    if (name.includes('{') || name.includes('}')) continue
-    if (name.includes('/') || name.includes('?') || name.includes('#')) continue
-
-    if (seen.has(name)) continue
-    seen.add(name)
-    out.push(name)
-  }
-
-  return out
-}
-
-function applySchemeIfHostLike(url: string, scheme: 'http' | 'https') {
-  const raw = url.trim().replace(/\/+$/, '')
-  if (!raw) return ''
-  if (isAbsoluteUrl(raw) || raw.startsWith('/') || raw.startsWith('//')) return raw
-
-  const looksLikeHost =
-    /^localhost(?::\d+)?(?:\/.*)?$/i.test(raw) ||
-    /^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:\/.*)?$/.test(raw) ||
-    /^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(?:\/.*)?$/i.test(raw)
-
-  if (!looksLikeHost) return raw
-  return `${scheme}://${raw}`.replace(/\/+$/, '')
-}
-
-function defaultQueryParamsFromSpec(_params: RequestParam[]) {
-  // Imported query params should render as editable fields with placeholder hints,
-  // without automatically pre-filling values from examples.
-  return {}
-}
-
-type DraftRow = { id: string, name: string, value: string, isActive: boolean }
-
-function normalizeDraftRows(raw: unknown, prefix: 'qrow' | 'hrow'): DraftRow[] {
-  if (!Array.isArray(raw)) return []
-  const out: DraftRow[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const row = item as { id?: unknown, name?: unknown, value?: unknown, isActive?: unknown }
-    const name = typeof row.name === 'string' ? row.name : ''
-    const value = typeof row.value === 'string' ? row.value : ''
-    const isActive = typeof row.isActive === 'boolean' ? row.isActive : true
-    const id = typeof row.id === 'string' && row.id ? row.id : uid(prefix)
-    out.push({ id, name, value, isActive })
-  }
-  return out
-}
-
-type FileRow = { id: string, fieldName: string, file: File | null, fileName: string, isActive: boolean }
-type DraftFileRow = { fieldName: string, fileName: string, isActive: boolean }
-type HeaderDraftRow = { id: string, name: string, value: string, isActive: boolean }
-type HeaderDraftState = {
-  headerOverrides: Record<string, string>
-  headerDraftRows: HeaderDraftRow[]
-  headerKeyOrder: string[]
-  disabledHeaderNames: Record<string, true>
-  inactiveHeaderNames: Record<string, true>
-}
-
-const fileRowsByRequestId = new Map<string, Array<{ fieldName: string, file: File | null, fileName: string, isActive: boolean }>>()
-
-function normalizeDraftFileRows(raw: unknown): DraftFileRow[] {
-  if (!Array.isArray(raw)) return []
-  const out: DraftFileRow[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const row = item as { fieldName?: unknown, fileName?: unknown, isActive?: unknown }
-    const fieldName = typeof row.fieldName === 'string' ? row.fieldName : ''
-    const fileName = typeof row.fileName === 'string' ? row.fileName : ''
-    const isActive = typeof row.isActive === 'boolean' ? row.isActive : true
-    out.push({ fieldName, fileName, isActive })
-  }
-  return out
-}
-
-function restoreFileRowsForRequest(requestId: string, storedRows: DraftFileRow[], fallbackFieldNames: string[]): FileRow[] {
-  const cachedRows = fileRowsByRequestId.get(requestId) ?? []
-  const sourceRows = storedRows.length
-    ? storedRows
-    : (fallbackFieldNames.length ? fallbackFieldNames : ['']).map(fieldName => ({ fieldName, fileName: '', isActive: true }))
-
-  return sourceRows.map((row, index) => {
-    const cached = cachedRows[index]
-    const file = cached?.file ?? null
-    const fileName = file?.name ?? row.fileName ?? cached?.fileName ?? ''
-    return {
-      id: uid('frow'),
-      fieldName: row.fieldName,
-      file,
-      fileName,
-      isActive: row.isActive,
-    }
-  })
-}
-
-function setFlagForKey(prev: Record<string, true>, keyRaw: string, active: boolean): Record<string, true> {
-  const key = keyRaw.trim()
-  if (!key) return prev
-  if (active) {
-    if (!(key in prev)) return prev
-    const next = { ...prev }
-    delete next[key]
-    return next
-  }
-  if (key in prev) return prev
-  return { ...prev, [key]: true }
-}
-
-function renameFlagKey(prev: Record<string, true>, fromKey: string, toKey: string): Record<string, true> {
-  const from = fromKey.trim()
-  const to = toKey.trim()
-  if (!from || !to || from === to) return prev
-  if (!(from in prev)) return prev
-  if (to in prev) {
-    const next = { ...prev }
-    delete next[from]
-    return next
-  }
-  const next = { ...prev }
-  delete next[from]
-  next[to] = true
-  return next
-}
-
-function setFlagForHeaderName(prev: Record<string, true>, headerNameRaw: string, active: boolean): Record<string, true> {
-  const headerName = headerNameRaw.trim()
-  if (!headerName) return prev
-  const needle = headerName.toLowerCase()
-
-  let changed = false
-  const next: Record<string, true> = {}
-  for (const k of Object.keys(prev)) {
-    if (k.toLowerCase() === needle) {
-      changed = true
-      continue
-    }
-    next[k] = true
-  }
-
-  if (!active) {
-    if (!(headerName in next)) {
-      next[headerName] = true
-      changed = true
-    }
-  }
-
-  return changed ? next : prev
-}
-
-function headerIsInactive(inactiveHeaderNames: Record<string, true>, headerName: string): boolean {
-  const needle = headerName.toLowerCase()
-  for (const k of Object.keys(inactiveHeaderNames)) {
-    if (k.toLowerCase() === needle) return true
-  }
-  return false
-}
-
-function headerNameExistsCaseInsensitive(headers: Record<string, string>, name: string): boolean {
-  const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) return true
-  }
-  return false
-}
-
-function findHeaderKeyCaseInsensitive(headers: Record<string, unknown>, name: string): string | undefined {
-  const needle = name.toLowerCase()
-  for (const k of Object.keys(headers)) {
-    if (k.toLowerCase() === needle) return k
-  }
-  return undefined
-}
-
-function getHeaderCaseInsensitive(headers: Record<string, string>, name: string): string | undefined {
-  const key = findHeaderKeyCaseInsensitive(headers, name)
-  return key ? headers[key] : undefined
-}
-
-function setHeaderCaseInsensitive(headers: Record<string, string>, name: string, value: string) {
-  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
-  if (existingKey && existingKey !== name) delete headers[existingKey]
-  headers[name] = value
-}
-
-function deleteHeaderCaseInsensitive(headers: Record<string, unknown>, name: string): boolean {
-  const existingKey = findHeaderKeyCaseInsensitive(headers, name)
-  if (!existingKey) return false
-  delete headers[existingKey]
-  return true
-}
-
-function mergeHeadersCaseInsensitive(...sources: Array<Record<string, string>>): Record<string, string> {
-  const next: Record<string, string> = {}
-  for (const source of sources) {
-    for (const [k, v] of Object.entries(source)) setHeaderCaseInsensitive(next, k, v)
-  }
-  return next
-}
-
-function defaultInactiveQueryParamNamesFromSpec(params: RequestParam[]): Record<string, true> {
-  const out: Record<string, true> = {}
-  for (const p of params) {
-    if (!p || p.in !== 'query') continue
-    if (p.required !== false) continue
-    const name = (p.name || '').trim()
-    if (!name) continue
-    out[name] = true
-  }
-  return out
-}
-
-function defaultInactiveHeaderNamesFromSpec(params: RequestParam[], requestBaseHeaders: Record<string, string>): Record<string, true> {
-  const out: Record<string, true> = {}
-  for (const p of params) {
-    if (!p || p.in !== 'header') continue
-    if (p.required !== false) continue
-    const name = (p.name || '').trim()
-    if (!name) continue
-    const lower = name.toLowerCase()
-    if (lower === 'authorization') continue
-    if (headerNameExistsCaseInsensitive(requestBaseHeaders, name)) continue
-    out[name] = true
-  }
-  return out
-}
-
-function removeInactiveHeaders(headers: Record<string, string>, inactiveHeaderNames: Record<string, true>): Record<string, string> {
-  const needles = new Set(Object.keys(inactiveHeaderNames).map(k => k.toLowerCase()).filter(Boolean))
-  if (!needles.size) return headers
-  const next: Record<string, string> = {}
-  for (const [k, v] of Object.entries(headers)) {
-    if (needles.has(k.toLowerCase())) continue
-    next[k] = v
-  }
-  return next
-}
-
-function normalizeEnumOptions(enumValues: Array<string | number | boolean> | undefined): string[] {
-  if (!Array.isArray(enumValues) || enumValues.length === 0) return []
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const v of enumValues) {
-    const s = String(v ?? '').trim()
-    if (!s) continue
-    if (seen.has(s)) continue
-    seen.add(s)
-    out.push(s)
-  }
-  return out
-}
-
-function EnumMenuPanel(props: {
-  values: string[]
-  currentValue: string
-  anchor: { left: number, top: number, width: number }
-  panelRef: RefObject<HTMLDivElement | null>
-  onPick: (value: string) => void
-}) {
-  return (
-    <div
-      className="selectMenuPanel enumMenuPanel"
-      ref={props.panelRef}
-      role="listbox"
-      style={{ position: 'fixed', left: props.anchor.left, top: props.anchor.top, width: props.anchor.width, zIndex: 210 }}
-      onPointerDown={e => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
-      onClick={e => {
-        e.preventDefault()
-        e.stopPropagation()
-      }}
-    >
-      {props.values.length ? (
-        props.values.map(v => (
-          <button
-            key={v}
-            type="button"
-            className={`selectMenuItem ${v === props.currentValue ? 'selectMenuItemActive' : ''}`}
-            role="option"
-            aria-selected={v === props.currentValue}
-            onClick={() => props.onPick(v)}
-          >
-            <div className="mono">{v}</div>
-          </button>
-        ))
-      ) : (
-        <div className="enumMenuEmpty small">No values</div>
-      )}
-    </div>
-  )
-}
-
-function ParamRow(props: { 
-  param: RequestParam 
-  store: Record<string, string> 
-  setStore: Dispatch<SetStateAction<Record<string, string>>> 
-  onClear?: () => void 
-  variableSuggestions: VariableSuggestion[] 
-  enumMenuOpenId?: string | null
-  enumMenuId?: string
-  enumMenuAnchor?: { left: number, top: number, width: number } | null
-  onToggleEnumMenu?: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseEnumMenu?: () => void
-  enumMenuPanelRef?: RefObject<HTMLDivElement | null>
-  historyItems?: string[] 
-  onRecordHistory?: (value: string) => void 
-  onPickHistory?: (value: string) => void 
-  onDeleteHistoryItem?: (value: string) => void 
-  onClearAllHistory?: () => void 
-  historyMenuId?: string 
-  historyMenuOpenId?: string | null 
-  historyMenuAnchor?: { left: number, top: number, width: number } | null 
-  onToggleHistoryMenu?: (menuId: string, anchorEl: HTMLElement) => void 
-  onCloseHistoryMenu?: () => void 
-  historyMenuPanelRef?: RefObject<HTMLDivElement | null> 
-}) { 
-  const value = props.store[props.param.name] ?? '' 
-  const hint =
-    typeof props.param.example === 'string' || typeof props.param.example === 'number'
-      ? String(props.param.example)
-      : props.param.schemaType || ''
-
-  const enumOptions = normalizeEnumOptions(props.param.enumValues)
-  const hasEnumMenu =
-    enumOptions.length > 1 &&
-    !!props.enumMenuId &&
-    props.enumMenuOpenId !== undefined &&
-    !!props.enumMenuPanelRef &&
-    !!props.onToggleEnumMenu &&
-    !!props.onCloseEnumMenu
-
-  return (
-    <div className="formRow">
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}> 
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}> 
-          <input 
-            className="mono keyInput" 
-            style={{ width: '100%', pointerEvents: 'none', opacity: 0.75 }} 
-            value={props.param.name}
-            readOnly
-            aria-readonly="true"
-            tabIndex={-1}
-          />
-          {props.param.required ? <span className="reqStar keyReqStar">*</span> : null} 
-        </div> 
-      </div> 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', minWidth: 0 }}> 
-      <div 
-        style={{ position: 'relative', flex: 1, minWidth: 0 }} 
-        data-value-history-anchor 
-        data-enum-anchor
-        data-commit-kind="path" 
-        data-commit-key={props.param.name} 
-      > 
-        <VariableAutocompleteField
-          className={`valueHistoryInput ${props.historyMenuId ? 'mono' : ''}`.trim()}
-          value={value}
-          placeholder={hint}
-          suggestions={props.variableSuggestions}
-          onBlur={
-            props.onRecordHistory
-              ? e => props.onRecordHistory!((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? value)
-              : undefined
-          }
-          onClick={
-            hasEnumMenu
-              ? e => {
-                const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
-                props.onToggleEnumMenu?.(props.enumMenuId!, anchorEl)
-              }
-              : undefined
-          }
-          onChangeValue={nextValue => {
-            props.setStore(prev => {
-              if (nextValue !== '') return { ...prev, [props.param.name]: nextValue }
-              if (!(props.param.name in prev)) return prev
-              const next = { ...prev }
-              delete next[props.param.name]
-              return next
-            })
-          }}
-        />
-
-        {props.historyMenuId && props.onToggleHistoryMenu && props.historyMenuOpenId !== undefined ? (
-          <>
-            <button
-              type="button"
-              className="valueHistoryBtn"
-              data-value-history-btn
-              aria-label="Value history"
-              title="Value history"
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
-                props.onToggleHistoryMenu?.(props.historyMenuId!, anchorEl)
-              }}
-            >
-              ▾
-            </button>
-            {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor && props.historyMenuPanelRef ? (
-              <div
-                className="selectMenuPanel valueHistoryPanel"
-                ref={props.historyMenuPanelRef}
-                role="menu"
-                style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
-                onPointerDown={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-              >
-                {(props.historyItems ?? []).length ? (
-                  (props.historyItems ?? []).map(v => (
-                    <div key={v} className="valueHistoryItemRow">
-                      <button
-                        type="button"
-                        className="selectMenuItem valueHistoryPickBtn"
-                        role="menuitem"
-                        onClick={() => {
-                          props.onPickHistory?.(v)
-                          props.onCloseHistoryMenu?.()
-                        }}
-                      >
-                        <div className="mono valueHistoryText">{v}</div>
-                      </button>
-                      <button
-                        type="button"
-                        className="valueHistoryDeleteBtn"
-                        aria-label="Remove from history"
-                        onClick={e => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          props.onDeleteHistoryItem?.(v)
-                        }}
-                      >
-                        <CloseIcon size={14} />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="valueHistoryEmpty small">No history</div>
-                )}
-                <div className="valueHistoryFooterRow">
-                  <button
-                    type="button"
-                    className="valueHistoryClearBtn"
-                    onClick={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      props.onClearAllHistory?.()
-                    }}
-                  >
-                    Clear History
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </> 
-           ) : null} 
-
-        {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor && props.enumMenuPanelRef ? (
-          <EnumMenuPanel
-            values={enumOptions}
-            currentValue={value}
-            anchor={props.enumMenuAnchor}
-            panelRef={props.enumMenuPanelRef}
-            onPick={picked => {
-              props.setStore(prev => ({ ...prev, [props.param.name]: picked }))
-              props.onCloseEnumMenu?.()
-            }}
-          />
-        ) : null}
-      </div> 
-      {props.onClear ? ( 
-        <ConfirmIconButton
-          className="rowDeleteBtn"
-          onConfirm={() => props.onClear?.()}
-          disabled={!value}
-          ariaLabel={`Clear path param ${props.param.name}`}
-          confirmAriaLabel={`Confirm clear path param ${props.param.name}`}
-          title={value ? 'Clear' : 'Empty'}
-          confirmTitle="Confirm clear"
-          icon={<CloseIcon size={18} />}
-        />
-      ) : null} 
-      </div> 
-    </div> 
-  ) 
-} 
-
-function findKeyIndexCaseInsensitive(list: string[], needle: string): number {
-  const n = needle.toLowerCase()
-  for (let i = 0; i < list.length; i++) {
-    if ((list[i] ?? '').toLowerCase() === n) return i
-  }
-  return -1
-}
-
-function replaceKeyInOrder(prev: string[], fromKey: string, toKey: string): string[] {
-  const from = fromKey.trim()
-  const to = toKey.trim()
-  if (!from || !to || from === to) return prev
-  const fromIdx = prev.indexOf(from)
-  if (fromIdx < 0) {
-    return prev.includes(to) ? prev : [...prev, to]
-  }
-  const withoutTo = prev.filter(k => k !== to)
-  const next = [...withoutTo]
-  const idx = next.indexOf(from)
-  next[idx] = to
-  return next
-}
-
-function replaceKeyInOrderCaseInsensitive(prev: string[], fromKey: string, toKey: string): string[] {
-  const from = fromKey.trim()
-  const to = toKey.trim()
-  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return prev
-  const fromIdx = findKeyIndexCaseInsensitive(prev, from)
-  if (fromIdx < 0) {
-    return findKeyIndexCaseInsensitive(prev, to) >= 0 ? prev : [...prev, to]
-  }
-  const next = prev.filter(k => (k ?? '').toLowerCase() !== to.toLowerCase())
-  const idx = findKeyIndexCaseInsensitive(next, from)
-  next[idx] = to
-  return next
-}
-
-function normalizeHeaderParams(
-  requestHeaders: RequestParam[],
-  headersStore: Record<string, string>,
-  keyOrder: string[],
-) {
-  const spec = requestHeaders.filter(Boolean)
-  const out: RequestParam[] = [...spec]
-  for (const k of Object.keys(headersStore)) {
-    if (spec.some(x => x.name === k)) continue
-    out.push({ name: k, in: 'header', required: false })
-  }
-  const byLower = new Map<string, RequestParam>()
-  for (const p of out) {
-    const lower = (p.name ?? '').toLowerCase()
-    if (!lower || byLower.has(lower)) continue
-    byLower.set(lower, p)
-  }
-  const ordered: RequestParam[] = []
-  const seen = new Set<string>()
-
-  for (const key of keyOrder) {
-    const lower = (key ?? '').toLowerCase()
-    const param = byLower.get(lower)
-    if (!param || seen.has(lower)) continue
-    seen.add(lower)
-    ordered.push(param)
-  }
-
-  for (const p of out) {
-    const lower = (p.name ?? '').toLowerCase()
-    if (!lower || seen.has(lower)) continue
-    seen.add(lower)
-    ordered.push(p)
-  }
-
-  return ordered
-}
-
-function renameStoreKey(
-  prev: Record<string, string>,
-  fromKey: string,
-  toKey: string,
-) {
-  const from = fromKey.trim()
-  const to = toKey.trim()
-  if (!from || !to || to === from) return prev
-  const value = prev[from]
-  if (value === undefined) return prev
-  if (Object.prototype.hasOwnProperty.call(prev, to)) return prev
-  const next: Record<string, string> = { ...prev }
-  delete next[from]
-  next[to] = value
-  return next
-}
-
-function HeaderRow(props: {
-  name: string
-  value: string
-  readOnlyName: boolean
-  required?: boolean
-  isActive: boolean
-  onToggleActive: (isActive: boolean) => void
-  onChangeValue: (value: string) => void
-  onRename?: (nextName: string) => void
-  onDelete?: () => void
-  variableSuggestions: VariableSuggestion[]
-  historyItems: string[]
-  onRecordHistory: (value: string) => void
-  onPickHistory: (value: string) => void
-  onDeleteHistoryItem: (value: string) => void
-  onClearAllHistory: () => void
-  historyMenuId: string
-  historyMenuOpenId: string | null
-  historyMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseHistoryMenu: () => void
-  historyMenuPanelRef: RefObject<HTMLDivElement | null>
-  enumValues?: Array<string | number | boolean>
-  enumMenuId?: string
-  enumMenuOpenId: string | null
-  enumMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleEnumMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseEnumMenu: () => void
-  enumMenuPanelRef: RefObject<HTMLDivElement | null>
-}) {
-  const [draftName, setDraftName] = useState(props.name)
-  const nameInputRef = useRef<HTMLInputElement | null>(null)
-  const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
-  const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
-  const keyIsLocked = props.readOnlyName || !!props.required
-  const clearValueOnly = !!props.required
-
-  useEffect(() => {
-    setDraftName(props.name)
-  }, [props.name])
-
-  function commitRename(nextRaw?: string) {
-    if (!props.onRename) return
-    const next = (nextRaw ?? nameInputRef.current?.value ?? draftName).trim()
-    if (next === props.name) {
-      setDraftName(props.name)
-      return
-    }
-    props.onRename(next)
-  }
-
-  return (
-    <div className="formRow">
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-          {keyIsLocked ? (
-            <input
-              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-              style={clearValueOnly ? { width: '100%', pointerEvents: 'none', opacity: 0.75 } : { width: '100%' }}
-              value={props.name}
-              readOnly
-              aria-readonly="true"
-              tabIndex={-1}
-            />
-          ) : (
-            <input
-              ref={nameInputRef}
-              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-              style={{ width: '100%' }}
-              value={draftName}
-              data-commit-on-blur="1"
-              onChange={e => setDraftName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitRename((e.currentTarget as HTMLInputElement).value)
-                if (e.key === 'Escape') setDraftName(props.name)
-              }}
-              onBlur={e => commitRename(e.currentTarget.value)}
-              placeholder="Key"
-            />
-          )}
-          {props.required ? <span className="reqStar keyReqStar">*</span> : null}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div
-          style={{ position: 'relative', flex: 1, minWidth: 0 }}
-          data-value-history-anchor
-          data-enum-anchor
-          data-commit-kind="header"
-          data-commit-key={props.name}
-        >
-          <VariableAutocompleteField
-            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-            value={props.value}
-            suggestions={props.variableSuggestions}
-            onChangeValue={props.onChangeValue}
-            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
-            onClick={
-              hasEnumMenu
-                ? e => {
-                  const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
-                  props.onToggleEnumMenu(props.enumMenuId!, anchorEl)
-                }
-                : undefined
-            }
-            placeholder="Value"
-          />
-          <button
-            type="button"
-            className="valueHistoryBtn"
-            data-value-history-btn
-            aria-label="Value history"
-            title="Value history"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
-              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
-            }}
-          >
-            ▾
-          </button>
-          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
-            <div
-              className="selectMenuPanel valueHistoryPanel"
-              ref={props.historyMenuPanelRef}
-              role="menu"
-              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
-              onPointerDown={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-            >
-              {props.historyItems.length ? (
-                props.historyItems.map(v => (
-                  <div key={v} className="valueHistoryItemRow">
-                    <button
-                      type="button"
-                      className="selectMenuItem valueHistoryPickBtn"
-                      role="menuitem"
-                      onClick={() => {
-                        props.onPickHistory(v)
-                        props.onCloseHistoryMenu()
-                      }}
-                    >
-                      <div className="mono valueHistoryText">{v}</div>
-                    </button>
-                    <button
-                      type="button"
-                      className="valueHistoryDeleteBtn"
-                      aria-label="Remove from history"
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        props.onDeleteHistoryItem(v)
-                      }}
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="valueHistoryEmpty small">No history</div>
-              )}
-              <div className="valueHistoryFooterRow">
-                <button
-                  type="button"
-                  className="valueHistoryClearBtn"
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    props.onClearAllHistory()
-                  }}
-                >
-                  Clear History
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor ? (
-            <EnumMenuPanel
-              values={enumOptions}
-              currentValue={props.value}
-              anchor={props.enumMenuAnchor}
-              panelRef={props.enumMenuPanelRef}
-              onPick={picked => {
-                props.onChangeValue(picked)
-                props.onCloseEnumMenu()
-              }}
-            />
-          ) : null}
-        </div>
-        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
-          <input
-            type="checkbox"
-            className="checkInput"
-            checked={props.isActive}
-            aria-label={`Toggle ${props.name}`}
-            onChange={e => props.onToggleActive(e.target.checked)}
-            onClick={e => e.stopPropagation()}
-          />
-          <span className="checkBox" aria-hidden="true" />
-        </label>
-        {props.onDelete ? (
-          <ConfirmIconButton
-            className="headerDeleteBtn"
-            onConfirm={props.onDelete}
-            ariaLabel={clearValueOnly ? `Clear header value ${props.name}` : `Delete header ${props.name}`}
-            confirmAriaLabel={clearValueOnly ? `Confirm clear header value ${props.name}` : `Confirm delete header ${props.name}`}
-            title={clearValueOnly ? 'Clear value' : 'Delete'}
-            confirmTitle={clearValueOnly ? 'Confirm clear value' : 'Confirm delete'}
-            icon={<CloseIcon size={18} />}
-          />
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function QueryRow(props: {
-  name: string
-  rawName?: string
-  isSpec?: boolean
-  value: string
-  hint?: string
-  enumValues?: Array<string | number | boolean>
-  required?: boolean
-  readOnlyName?: boolean
-  isActive: boolean
-  onToggleActive: (isActive: boolean) => void
-  onChangeValue: (value: string) => void
-  onRename?: (nextName: string) => void
-  onDelete?: () => void
-  variableSuggestions: VariableSuggestion[]
-  historyItems: string[]
-  onRecordHistory: (value: string) => void
-  onPickHistory: (value: string) => void
-  onDeleteHistoryItem: (value: string) => void
-  onClearAllHistory: () => void
-  historyMenuId: string
-  historyMenuOpenId: string | null
-  historyMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseHistoryMenu: () => void
-  historyMenuPanelRef: RefObject<HTMLDivElement | null>
-  enumMenuId?: string
-  enumMenuOpenId: string | null
-  enumMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleEnumMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseEnumMenu: () => void
-  enumMenuPanelRef: RefObject<HTMLDivElement | null>
-}) {
-  const [draftName, setDraftName] = useState(props.name)
-  const nameInputRef = useRef<HTMLInputElement | null>(null)
-  const enumOptions = useMemo(() => normalizeEnumOptions(props.enumValues), [props.enumValues])
-  const hasEnumMenu = enumOptions.length > 1 && !!props.enumMenuId
-  const keyIsLocked = !!props.readOnlyName || !!props.required
-  const clearValueOnly = !!props.required
-
-  useEffect(() => {
-    setDraftName(props.name)
-  }, [props.name])
-
-  function commitRename(nextRaw?: string) {
-    if (!props.onRename) return
-    const next = (nextRaw ?? nameInputRef.current?.value ?? draftName).trim()
-    if (next === props.name) {
-      setDraftName(props.name)
-      return
-    }
-    props.onRename(next)
-  }
-
-  return (
-    <div className="formRow">
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 0 }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-          {keyIsLocked ? (
-            <input
-              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-              style={clearValueOnly ? { width: '100%', pointerEvents: 'none', opacity: 0.75 } : { width: '100%' }}
-              value={props.name}
-              readOnly
-              aria-readonly="true"
-              tabIndex={-1}
-            />
-          ) : (
-            <input
-              ref={nameInputRef}
-              className={`mono keyInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-              style={{ width: '100%' }}
-              value={draftName}
-              data-commit-on-blur="1"
-              onChange={e => setDraftName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') commitRename((e.currentTarget as HTMLInputElement).value)
-                if (e.key === 'Escape') setDraftName(props.name)
-              }}
-              onBlur={e => commitRename(e.currentTarget.value)}
-              placeholder="Key"
-            />
-          )}
-          {props.required ? <span className="reqStar keyReqStar">*</span> : null}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div
-          style={{ position: 'relative', flex: 1, minWidth: 0 }}
-          data-value-history-anchor
-          data-enum-anchor
-          data-commit-kind="query"
-          data-commit-key={props.name}
-          data-commit-raw={props.rawName ?? props.name}
-          data-commit-spec={props.isSpec ? '1' : '0'}
-        >
-          <VariableAutocompleteField
-            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-            value={props.value}
-            suggestions={props.variableSuggestions}
-            onChangeValue={props.onChangeValue}
-            onBlur={e => props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)}
-            onClick={
-              hasEnumMenu
-                ? e => {
-                  const anchorEl = (e.currentTarget.closest('[data-enum-anchor]') as HTMLElement | null) ?? e.currentTarget
-                  props.onToggleEnumMenu(props.enumMenuId!, anchorEl)
-                }
-                : undefined
-            }
-            placeholder={props.hint || 'Value'}
-          />
-          <button
-            type="button"
-            className="valueHistoryBtn"
-            data-value-history-btn
-            aria-label="Value history"
-            title="Value history"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
-              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
-            }}
-          >
-            ▾
-          </button>
-          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
-            <div
-              className="selectMenuPanel valueHistoryPanel"
-              ref={props.historyMenuPanelRef}
-              role="menu"
-              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
-              onPointerDown={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-            >
-              {props.historyItems.length ? (
-                props.historyItems.map(v => (
-                  <div key={v} className="valueHistoryItemRow">
-                    <button
-                      type="button"
-                      className="selectMenuItem valueHistoryPickBtn"
-                      role="menuitem"
-                      onClick={() => {
-                        props.onPickHistory(v)
-                        props.onCloseHistoryMenu()
-                      }}
-                    >
-                      <div className="mono valueHistoryText">{v}</div>
-                    </button>
-                    <button
-                      type="button"
-                      className="valueHistoryDeleteBtn"
-                      aria-label="Remove from history"
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        props.onDeleteHistoryItem(v)
-                      }}
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="valueHistoryEmpty small">No history</div>
-              )}
-              <div className="valueHistoryFooterRow">
-                <button
-                  type="button"
-                  className="valueHistoryClearBtn"
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    props.onClearAllHistory()
-                  }}
-                >
-                  Clear History
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {hasEnumMenu && props.enumMenuOpenId === props.enumMenuId && props.enumMenuAnchor ? (
-            <EnumMenuPanel
-              values={enumOptions}
-              currentValue={props.value}
-              anchor={props.enumMenuAnchor}
-              panelRef={props.enumMenuPanelRef}
-              onPick={picked => {
-                props.onChangeValue(picked)
-                props.onCloseEnumMenu()
-              }}
-            />
-          ) : null}
-        </div>
-        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
-          <input
-            type="checkbox"
-            className="checkInput"
-            checked={props.isActive}
-            aria-label={`Toggle ${props.name}`}
-            onChange={e => props.onToggleActive(e.target.checked)}
-            onClick={e => e.stopPropagation()}
-          />
-          <span className="checkBox" aria-hidden="true" />
-        </label>
-        {props.onDelete ? (
-          <ConfirmIconButton
-            className="rowDeleteBtn"
-            onConfirm={props.onDelete}
-            ariaLabel={clearValueOnly ? `Clear query value ${props.name}` : `Delete query param ${props.name}`}
-            confirmAriaLabel={clearValueOnly ? `Confirm clear query value ${props.name}` : `Confirm delete query param ${props.name}`}
-            title={clearValueOnly ? 'Clear value' : 'Delete'}
-            confirmTitle={clearValueOnly ? 'Confirm clear value' : 'Confirm delete'}
-            icon={<CloseIcon size={18} />}
-          />
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function QueryDraftRow(props: {
-  rowId: string
-  name: string
-  value: string
-  isActive: boolean
-  onToggleActive: (isActive: boolean) => void
-  onChangeName: (nextName: string) => void
-  onChangeValue: (nextValue: string) => void
-  onDelete: () => void
-  canDelete?: boolean
-  onCommit?: () => void
-  variableSuggestions: VariableSuggestion[]
-  historyItems: string[]
-  onRecordHistory: (value: string) => void
-  onPickHistory: (value: string) => void
-  onDeleteHistoryItem: (value: string) => void
-  onClearAllHistory: () => void
-  historyMenuId: string
-  historyMenuOpenId: string | null
-  historyMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseHistoryMenu: () => void
-  historyMenuPanelRef: RefObject<HTMLDivElement | null>
-}) {
-  const canDelete = props.canDelete ?? true
-  return (
-    <div className="formRow">
-      <input
-        className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
-        value={props.name}
-        onChange={e => props.onChangeName(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            props.onCommit?.()
-          }
-        }}
-        placeholder="Key"
-      />
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div
-          style={{ position: 'relative', flex: 1, minWidth: 0 }}
-          data-value-history-anchor
-          data-commit-kind="queryDraft"
-          data-commit-rowid={props.rowId}
-        >
-          <VariableAutocompleteField
-            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-            value={props.value}
-            suggestions={props.variableSuggestions}
-            onChangeValue={props.onChangeValue}
-            onBlur={e => {
-              props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)
-              props.onCommit?.()
-            }}
-            placeholder="Value"
-          />
-          <button
-            type="button"
-            className="valueHistoryBtn"
-            data-value-history-btn
-            aria-label="Value history"
-            title="Value history"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
-              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
-            }}
-          >
-            ▾
-          </button>
-          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
-            <div
-              className="selectMenuPanel valueHistoryPanel"
-              ref={props.historyMenuPanelRef}
-              role="menu"
-              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
-              onPointerDown={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-            >
-              {props.historyItems.length ? (
-                props.historyItems.map(v => (
-                  <div key={v} className="valueHistoryItemRow">
-                    <button
-                      type="button"
-                      className="selectMenuItem valueHistoryPickBtn"
-                      role="menuitem"
-                      onClick={() => {
-                        props.onPickHistory(v)
-                        props.onCloseHistoryMenu()
-                      }}
-                    >
-                      <div className="mono valueHistoryText">{v}</div>
-                    </button>
-                    <button
-                      type="button"
-                      className="valueHistoryDeleteBtn"
-                      aria-label="Remove from history"
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        props.onDeleteHistoryItem(v)
-                      }}
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="valueHistoryEmpty small">No history</div>
-              )}
-              <div className="valueHistoryFooterRow">
-                <button
-                  type="button"
-                  className="valueHistoryClearBtn"
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    props.onClearAllHistory()
-                  }}
-                >
-                  Clear History
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
-          <input
-            type="checkbox"
-            className="checkInput"
-            checked={props.isActive}
-            aria-label={`Toggle ${props.name || 'query param'}`}
-            onChange={e => props.onToggleActive(e.target.checked)}
-            onClick={e => e.stopPropagation()}
-          />
-          <span className="checkBox" aria-hidden="true" />
-        </label>
-        <ConfirmIconButton
-          className="rowDeleteBtn"
-          onConfirm={props.onDelete}
-          disabled={!canDelete}
-          ariaLabel="Delete query param"
-          confirmAriaLabel="Confirm delete query param"
-          title={canDelete ? 'Delete' : 'Cannot delete'}
-          confirmTitle="Confirm delete"
-          icon={<CloseIcon size={18} />}
-        />
-      </div>
-    </div>
-  )
-}
-
-function HeaderDraftRow(props: {
-  rowId: string
-  name: string
-  value: string
-  isActive: boolean
-  onToggleActive: (isActive: boolean) => void
-  onChangeName: (nextName: string) => void
-  onChangeValue: (nextValue: string) => void
-  onDelete: () => void
-  canDelete?: boolean
-  onCommit?: () => void
-  variableSuggestions: VariableSuggestion[]
-  historyItems: string[]
-  onRecordHistory: (value: string) => void
-  onPickHistory: (value: string) => void
-  onDeleteHistoryItem: (value: string) => void
-  onClearAllHistory: () => void
-  historyMenuId: string
-  historyMenuOpenId: string | null
-  historyMenuAnchor: { left: number, top: number, width: number } | null
-  onToggleHistoryMenu: (menuId: string, anchorEl: HTMLElement) => void
-  onCloseHistoryMenu: () => void
-  historyMenuPanelRef: RefObject<HTMLDivElement | null>
-}) {
-  const canDelete = props.canDelete ?? true
-  return (
-    <div className="formRow">
-      <input
-        className={`mono ${props.isActive ? '' : 'rowInactive'}`.trim()}
-        value={props.name}
-        onChange={e => props.onChangeName(e.target.value)}
-        onKeyDown={e => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            props.onCommit?.()
-          }
-        }}
-        placeholder="Key"
-      />
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <div
-          style={{ position: 'relative', flex: 1, minWidth: 0 }}
-          data-value-history-anchor
-          data-commit-kind="headerDraft"
-          data-commit-rowid={props.rowId}
-        >
-          <VariableAutocompleteField
-            className={`mono valueHistoryInput ${props.isActive ? '' : 'rowInactive'}`.trim()}
-            value={props.value}
-            suggestions={props.variableSuggestions}
-            onChangeValue={props.onChangeValue}
-            onBlur={e => {
-              props.onRecordHistory((e.target as HTMLInputElement | HTMLTextAreaElement).value ?? props.value)
-              props.onCommit?.()
-            }}
-            placeholder="Value"
-          />
-          <button
-            type="button"
-            className="valueHistoryBtn"
-            data-value-history-btn
-            aria-label="Value history"
-            title="Value history"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              const anchorEl = (e.currentTarget.closest('[data-value-history-anchor]') as HTMLElement | null) ?? e.currentTarget
-              props.onToggleHistoryMenu(props.historyMenuId, anchorEl)
-            }}
-          >
-            ▾
-          </button>
-          {props.historyMenuOpenId === props.historyMenuId && props.historyMenuAnchor ? (
-            <div
-              className="selectMenuPanel valueHistoryPanel"
-              ref={props.historyMenuPanelRef}
-              role="menu"
-              style={{ position: 'fixed', left: props.historyMenuAnchor.left, top: props.historyMenuAnchor.top, width: props.historyMenuAnchor.width, zIndex: 220 }}
-              onPointerDown={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-              }}
-            >
-              {props.historyItems.length ? (
-                props.historyItems.map(v => (
-                  <div key={v} className="valueHistoryItemRow">
-                    <button
-                      type="button"
-                      className="selectMenuItem valueHistoryPickBtn"
-                      role="menuitem"
-                      onClick={() => {
-                        props.onPickHistory(v)
-                        props.onCloseHistoryMenu()
-                      }}
-                    >
-                      <div className="mono valueHistoryText">{v}</div>
-                    </button>
-                    <button
-                      type="button"
-                      className="valueHistoryDeleteBtn"
-                      aria-label="Remove from history"
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        props.onDeleteHistoryItem(v)
-                      }}
-                    >
-                      <CloseIcon size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="valueHistoryEmpty small">No history</div>
-              )}
-              <div className="valueHistoryFooterRow">
-                <button
-                  type="button"
-                  className="valueHistoryClearBtn"
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    props.onClearAllHistory()
-                  }}
-                >
-                  Clear History
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <label className="checkRow rowCheck" title={props.isActive ? 'Active' : 'Inactive'}>
-          <input
-            type="checkbox"
-            className="checkInput"
-            checked={props.isActive}
-            aria-label={`Toggle ${props.name || 'header'}`}
-            onChange={e => props.onToggleActive(e.target.checked)}
-            onClick={e => e.stopPropagation()}
-          />
-          <span className="checkBox" aria-hidden="true" />
-        </label>
-        <ConfirmIconButton
-          className="headerDeleteBtn"
-          onConfirm={props.onDelete}
-          disabled={!canDelete}
-          ariaLabel="Delete header"
-          confirmAriaLabel="Confirm delete header"
-          title={canDelete ? 'Delete' : 'Cannot delete'}
-          confirmTitle="Confirm delete"
-          icon={<CloseIcon size={18} />}
-        />
-      </div>
-    </div>
-  )
-}
 
 export function RequestEditor(props: {
   environment?: Environment
@@ -1569,7 +90,7 @@ export function RequestEditor(props: {
 
   const [pathParams, setPathParams] = useState<Record<string, string>>({})
   const [queryParams, setQueryParams] = useState<Record<string, string>>({})
-  const [queryDraftRows, setQueryDraftRows] = useState<Array<{ id: string, name: string, value: string, isActive: boolean }>>([])
+  const [queryDraftRows, setQueryDraftRows] = useState<QueryDraftRowState[]>([])
   const [queryKeyOrder, setQueryKeyOrder] = useState<string[]>([])
   const [queryParamKeyOverrides, setQueryParamKeyOverrides] = useState<Record<string, string>>({})
   const [disabledQueryParamNames, setDisabledQueryParamNames] = useState<Record<string, true>>({})
@@ -1577,7 +98,7 @@ export function RequestEditor(props: {
   const [headerOverrides, setHeaderOverrides] = useState<Record<string, string>>({})
   const [disabledHeaderNames, setDisabledHeaderNames] = useState<Record<string, true>>({})
   const [inactiveHeaderNames, setInactiveHeaderNames] = useState<Record<string, true>>({})
-  const [headerDraftRows, setHeaderDraftRows] = useState<HeaderDraftRow[]>([])
+  const [headerDraftRows, setHeaderDraftRows] = useState<HeaderDraftRowState[]>([])
   const [headerKeyOrder, setHeaderKeyOrder] = useState<string[]>([])
   const headerDraftSaveRef = useRef<HeaderDraftState>({
     headerOverrides: {},
@@ -1587,18 +108,18 @@ export function RequestEditor(props: {
     inactiveHeaderNames: {},
   })
 
-  headerDraftSaveRef.current = {
+  headerDraftSaveRef.current = buildHeaderDraftState({
     headerOverrides,
     headerDraftRows,
     headerKeyOrder,
     disabledHeaderNames,
     inactiveHeaderNames,
-  }
+  })
   const [valueHistory, setValueHistory] = useState<ValueHistoryStore>(() => loadValueHistory())
   const [valueHistoryMenuOpenId, setValueHistoryMenuOpenId] = useState<string | null>(null)
-  const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
+  const [valueHistoryMenuAnchor, setValueHistoryMenuAnchor] = useState<MenuAnchor | null>(null)
   const [enumMenuOpenId, setEnumMenuOpenId] = useState<string | null>(null)
-  const [enumMenuAnchor, setEnumMenuAnchor] = useState<{ left: number, top: number, width: number } | null>(null)
+  const [enumMenuAnchor, setEnumMenuAnchor] = useState<MenuAnchor | null>(null)
   const [fileRows, setFileRows] = useState<FileRow[]>(() => (
     [{ id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }]
   ))
@@ -1701,7 +222,7 @@ export function RequestEditor(props: {
     })
   }
 
-  function setHeaderDraftRowsAndPersist(updater: (prev: HeaderDraftRow[]) => HeaderDraftRow[]) {
+  function setHeaderDraftRowsAndPersist(updater: (prev: HeaderDraftRowState[]) => HeaderDraftRowState[]) {
     const next = updater(headerDraftSaveRef.current.headerDraftRows)
     headerDraftSaveRef.current = { ...headerDraftSaveRef.current, headerDraftRows: next }
     setHeaderDraftRows(next)
@@ -1894,47 +415,14 @@ export function RequestEditor(props: {
   const [postSqlScriptIsActive, setPostSqlScriptIsActive] = useState(true)
   const [selectedSqlConnectionId, setSelectedSqlConnectionId] = useState<string | null>(null)
 
-  const sqlConnections = useMemo(() => {
-    const out: Array<{
-      id: string
-      label: string
-      type: 'postgres' | 'mysql'
-      connectionString: string
-      connectionPreview: string
-    }> = []
-
-    const env = props.environment
-    if (env) {
-      const rawType = env.variables?.[DB_ENV_KEYS.type]
-      const type = rawType === 'mysql' ? 'mysql' : 'postgres'
-      const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
-      const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
-      if (connectionString) {
-        out.push({
-          id: `collection:${props.collection.id}`,
-          label: `Collection - ${props.collection.name || props.collection.id}`,
-          type,
-          connectionString,
-          connectionPreview: getDbConnectionStringPreview(connectionString),
-        })
-      }
-    }
-
-    for (const conn of props.globalSqlConnections ?? []) {
-      if (!conn) continue
-      const connectionString = buildDbConnectionString(conn)
-      if (!connectionString) continue
-      out.push({
-        id: `app:${conn.id}`,
-        label: `App - ${conn.name || 'Connection'}`,
-        type: conn.type,
-        connectionString,
-        connectionPreview: getDbConnectionStringPreview(connectionString),
-      })
-    }
-
-    return out.sort((a, b) => a.label.localeCompare(b.label))
-  }, [props.collection.id, props.collection.name, props.environment, props.globalSqlConnections])
+  const sqlConnections = useMemo(
+    () => buildRequestEditorSqlConnections({
+      collection: props.collection,
+      environment: props.environment,
+      globalSqlConnections: props.globalSqlConnections,
+    }),
+    [props.collection, props.environment, props.globalSqlConnections],
+  )
 
   const selectedSqlConnection = useMemo(
     () => sqlConnections.find(x => x.id === selectedSqlConnectionId) ?? null,
@@ -1947,26 +435,6 @@ export function RequestEditor(props: {
       return sqlConnections[0]?.id ?? null
     })
   }, [sqlConnections])
-
-  function parseUrlInput(raw: string) {
-    const trimmed = raw.trim()
-    if (!trimmed) return { template: '', hasQuery: false, query: {} as Record<string, string> }
-
-    const hashIdx = trimmed.indexOf('#')
-    const withoutHash = hashIdx >= 0 ? trimmed.slice(0, hashIdx) : trimmed
-    const qIdx = withoutHash.indexOf('?')
-
-    const template = (qIdx >= 0 ? withoutHash.slice(0, qIdx) : withoutHash).trim()
-    const qs = qIdx >= 0 ? withoutHash.slice(qIdx + 1) : ''
-    if (!qs) return { template, hasQuery: false, query: {} as Record<string, string> }
-
-    const usp = new URLSearchParams(qs)
-    const query: Record<string, string> = {}
-    usp.forEach((v, k) => {
-      query[k] = v
-    })
-    return { template, hasQuery: true, query }
-  }
 
   const baseUrl = useMemo(() => {
     const envVars = props.environment?.variables ?? {}
@@ -2309,7 +777,7 @@ export function RequestEditor(props: {
   const bodyFormatMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [bodyFormatMenuOpen, setBodyFormatMenuOpen] = useState(false)
   const bodyFormatMenuPanelRef = useRef<HTMLDivElement | null>(null)
-  const [bodyFormatMenuAnchor, setBodyFormatMenuAnchor] = useState<{ left: number, top: number, width: number }>({
+  const [bodyFormatMenuAnchor, setBodyFormatMenuAnchor] = useState<MenuAnchor>({
     left: 0,
     top: 0,
     width: 120,
@@ -2317,20 +785,55 @@ export function RequestEditor(props: {
   const inFlightCount = props.inFlightCount ?? 0
   const isSending = inFlightCount > 0
   const sendRef = useRef<(() => void) | null>(null)
-  const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
-
-  function cancelInFlightSend(requestId: string = props.request.id) {
-    const controller = abortControllersRef.current.get(requestId)
-    if (!controller) return
-    controller.abort()
-    abortControllersRef.current.delete(requestId)
-  }
 
   function requestDefaultBodyText() {
     const b = props.request.body?.example
     if (b === undefined) return ''
     if (typeof b === 'string') return b
     return JSON.stringify(b, null, 2)
+  }
+
+  function applyHydratedDraftState(nextState: ReturnType<typeof hydrateRequestEditorDraft>, persist = false) {
+    setPathParams(nextState.pathParams)
+    setQueryParams(nextState.queryParams)
+    setQueryDraftRows(nextState.queryDraftRows)
+    setQueryParamKeyOverrides(nextState.queryParamKeyOverrides)
+    setDisabledQueryParamNames(nextState.disabledQueryParamNames)
+    setInactiveQueryParamNames(nextState.inactiveQueryParamNames)
+    setQueryKeyOrder(nextState.queryKeyOrder)
+    setHeaderOverrides(nextState.headerOverrides)
+    setDisabledHeaderNames(nextState.disabledHeaderNames)
+    setInactiveHeaderNames(nextState.inactiveHeaderNames)
+    setHeaderDraftRows(nextState.headerDraftRows)
+    setHeaderKeyOrder(nextState.headerKeyOrder)
+    setBaseUrlKey(nextState.baseUrlKey)
+    setBodyText(nextState.bodyText)
+    setIsBodyOpen(!!props.request.body)
+    setBodyFormat(nextState.bodyFormat)
+    setAutoDetectedBodyFormat(null)
+    setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
+    setUrlTemplateOverride(nextState.urlTemplateOverride)
+    setIsEditingUrl(false)
+    setUrlDraftText('')
+    setFileRows(nextState.fileRows)
+    setPreSqlScript(nextState.preSqlScript)
+    setPostSqlScript(nextState.postSqlScript)
+    setPreSqlScriptIsActive(nextState.preSqlScriptIsActive)
+    setPostSqlScriptIsActive(nextState.postSqlScriptIsActive)
+    setSelectedSqlConnectionId(nextState.selectedSqlConnectionId)
+    setDataDrivenInput(nextState.dataDrivenInput)
+    setSelectedTestFunction(nextState.selectedTestFunction)
+    setRequestTestScript(nextState.requestTestScript)
+    setDataDrivenInputEditorText('')
+    setDataDrivenInputEditorOpen(false)
+    setDataDrivenRunReport(null)
+    setDataDrivenRunning(false)
+    setDataDrivenReportSheetOpen(false)
+    dataDrivenAbortRef.current?.abort()
+    dataDrivenAbortRef.current = null
+    setLoadedRequestId(props.request.id)
+
+    if (persist) saveRequestDraft(props.request.id, toRequestDraft(nextState))
   }
 
   const hasExampleBody = props.request.body?.example !== undefined
@@ -2342,146 +845,16 @@ export function RequestEditor(props: {
   }
 
   useLayoutEffect(() => {
-    const draft = loadRequestDraft(props.request.id)
-    const nextPathParams = draft?.pathParams ?? {}
-    const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
-    const nextQueryDraftRows = normalizeDraftRows(draft?.queryDraftRows, 'qrow')
-    const nextDisabledQueryParamNames =
-      draft?.disabledQueryParamNames && typeof draft.disabledQueryParamNames === 'object' ? draft.disabledQueryParamNames : {}
-    const nextInactiveQueryParamNames =
-      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object'
-        ? draft.inactiveQueryParamNames
-        : (draft ? {} : defaultInactiveQueryParamNamesFromSpec(props.request.params))
-
-    const env = props.environment?.headers ?? {}
-    const base = props.request.headers ?? {}
-
-    const nextHeaderOverrides = (() => {
-      if (draft?.headerOverrides && typeof draft.headerOverrides === 'object') return draft.headerOverrides
-      const legacy = draft?.headers && typeof draft.headers === 'object' ? draft.headers : null
-      if (!legacy) return {}
-      const overrides: Record<string, string> = {}
-      for (const [k, v] of Object.entries(legacy)) {
-        const baseValue = getHeaderCaseInsensitive(base, k)
-        const envValue = getHeaderCaseInsensitive(env, k)
-        if (baseValue === undefined && envValue !== undefined && envValue === v) continue
-        if (baseValue === undefined || baseValue !== v) setHeaderCaseInsensitive(overrides, k, v)
-      }
-      return overrides
-    })()
-
-    const nextDisabledHeaderNames =
-      draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object' ? draft.disabledHeaderNames : {}
-
-    const nextInactiveHeaderNames =
-      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object'
-        ? draft.inactiveHeaderNames
-        : (draft ? {} : defaultInactiveHeaderNamesFromSpec(props.request.params, base))
-    const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
-
-    const headersForSeedCheck = (() => {
-      const next = mergeHeadersCaseInsensitive(env, base, nextHeaderOverrides)
-      for (const key of Object.keys(nextDisabledHeaderNames)) deleteHeaderCaseInsensitive(next, key)
-      return next
-    })()
-
-    const nextQueryKeyOrder = (() => {
-      const raw = Array.isArray(draft?.queryKeyOrder) ? draft?.queryKeyOrder : null
-      const stored = (raw ?? []).filter(x => typeof x === 'string')
-      if (stored.length) return stored
-
-      const overrides = (draft?.queryParamKeyOverrides && typeof draft.queryParamKeyOverrides === 'object')
-        ? draft.queryParamKeyOverrides as Record<string, string>
-        : {}
-      const overriddenKeys = new Set(Object.values(overrides).filter(Boolean))
-      const specRaw = props.request.params.filter(p => p.in === 'query').map(p => p.name).filter(Boolean)
-      const disabledSpec = new Set(Object.keys(nextDisabledQueryParamNames).filter(Boolean))
-      const specEffective = specRaw
-        .filter(n => !disabledSpec.has(n))
-        .map(n => (overrides[n] ?? n))
-        .filter(Boolean)
-
-      const specRawSet = new Set(specRaw)
-      const extras = Object.keys(nextQueryParams).filter(k => !specRawSet.has(k) && !overriddenKeys.has(k))
-      return [...specEffective, ...extras]
-    })()
-
-    const nextHeaderKeyOrder = (() => {
-      const raw = Array.isArray(draft?.headerKeyOrder) ? draft?.headerKeyOrder : null
-      const stored = (raw ?? []).filter(x => typeof x === 'string')
-      if (stored.length) return stored
-
-      const spec = props.request.params
-        .filter(p => p.in === 'header')
-        .map(p => p.name)
-        .filter(n => typeof n === 'string' && n && n.toLowerCase() !== 'authorization')
-
-      const combinedKeys = Object.keys(headersForSeedCheck).filter(k => k.toLowerCase() !== 'authorization')
-      const out: string[] = []
-      for (const k of spec) {
-        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
-        out.push(k)
-      }
-      for (const k of combinedKeys) {
-        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
-        out.push(k)
-      }
-      return out
-    })()
-
-    const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
-    const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
-    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore && nextQueryDraftRows.length === 0
-
-    const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
-    const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
-    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore && nextHeaderDraftRows.length === 0
-
-    setPathParams(nextPathParams)
-    setQueryParams(nextQueryParams)
-    setQueryDraftRows(nextQueryDraftRows.length ? nextQueryDraftRows : (shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : []))
-    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(nextDisabledQueryParamNames)
-    setInactiveQueryParamNames(nextInactiveQueryParamNames)
-    setQueryKeyOrder(nextQueryKeyOrder)
-    setHeaderOverrides(nextHeaderOverrides)
-    setDisabledHeaderNames(nextDisabledHeaderNames)
-    setInactiveHeaderNames(nextInactiveHeaderNames)
-    setHeaderDraftRows(nextHeaderDraftRows.length ? nextHeaderDraftRows : (shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : []))
-    setHeaderKeyOrder(nextHeaderKeyOrder)
-    setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
-    const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
-    setBodyText(nextBodyText)
-    setIsBodyOpen(!!props.request.body)
-    const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
-    setBodyFormat(nextBodyFormat)
-    setAutoDetectedBodyFormat(null)
-    setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
-    setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
-    setIsEditingUrl(false)
-    setUrlDraftText('')
-    setFileRows(() => {
-      const storedRows = normalizeDraftFileRows(draft?.fileRows)
-      const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
-      const names = (rawList ?? []).filter(x => typeof x === 'string')
-      return restoreFileRowsForRequest(props.request.id, storedRows, names)
+    const nextState = hydrateRequestEditorDraft({
+      draft: loadRequestDraft(props.request.id),
+      request: props.request,
+      environmentHeaders: props.environment?.headers,
+      environmentBaseUrlKey: props.environment?.baseUrlKey,
+      mode: 'load',
+      requestDefaultBodyText: requestDefaultBodyText(),
+      restoreFileRows: (storedRows, fallbackFieldNames) => requestEditorFileRows.restore(props.request.id, storedRows, fallbackFieldNames),
     })
-    setPreSqlScript(draft?.preSqlScript ?? '')
-    setPostSqlScript(draft?.postSqlScript ?? '')
-    setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
-    setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
-    setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
-    setDataDrivenInput(draft?.dataDrivenInput ?? '')
-    setSelectedTestFunction(typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '')
-    setRequestTestScript(typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '')
-    setDataDrivenInputEditorText('')
-    setDataDrivenInputEditorOpen(false)
-    setDataDrivenRunReport(null)
-    setDataDrivenRunning(false)
-    setDataDrivenReportSheetOpen(false)
-    dataDrivenAbortRef.current?.abort()
-    dataDrivenAbortRef.current = null
-    setLoadedRequestId(props.request.id)
+    applyHydratedDraftState(nextState)
   }, [props.request.body, props.request.headers, props.request.id, props.request.params])
 
   const applyDraftToken = props.applyDraft?.token ?? null
@@ -2493,221 +866,48 @@ export function RequestEditor(props: {
   useEffect(() => {
     const draft = applyDraftRef.current
     if (!applyDraftToken || !draft) return
-
-    const nextPathParams = draft?.pathParams ?? {}
-    const nextQueryParams = draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params)
-    const nextQueryDraftRows = normalizeDraftRows(draft?.queryDraftRows, 'qrow')
-    const nextDisabledQueryParamNames =
-      draft?.disabledQueryParamNames && typeof draft.disabledQueryParamNames === 'object' ? (draft.disabledQueryParamNames as Record<string, true>) : {}
-    const nextInactiveQueryParamNames =
-      draft?.inactiveQueryParamNames && typeof draft.inactiveQueryParamNames === 'object' ? draft.inactiveQueryParamNames : {}
-
-    const env = props.environment?.headers ?? {}
-    const base = props.request.headers ?? {}
-
-    const target = (draft?.headers && typeof draft.headers === 'object') ? draft.headers : {}
-
-    const nextHeaderOverrides = (() => {
-      if (draft?.headerOverrides && typeof draft.headerOverrides === 'object') return draft.headerOverrides as Record<string, string>
-      const overrides: Record<string, string> = {}
-      for (const [k, v] of Object.entries(target)) {
-        const baseValue = getHeaderCaseInsensitive(base, k)
-        const envValue = getHeaderCaseInsensitive(env, k)
-        if (baseValue === undefined && envValue !== undefined && envValue === v) continue
-        if (baseValue === undefined || baseValue !== v) setHeaderCaseInsensitive(overrides, k, v)
-      }
-      return overrides
-    })()
-
-    const nextDisabledHeaderNames = (() => {
-      if (draft?.disabledHeaderNames && typeof draft.disabledHeaderNames === 'object') return draft.disabledHeaderNames as Record<string, true>
-      const disabled: Record<string, true> = {}
-      for (const key of Object.keys(mergeHeadersCaseInsensitive(env, base))) {
-        if (!findHeaderKeyCaseInsensitive(target, key)) disabled[key] = true
-      }
-      return disabled
-    })()
-
-    const nextInactiveHeaderNames =
-      draft?.inactiveHeaderNames && typeof draft.inactiveHeaderNames === 'object' ? (draft.inactiveHeaderNames as Record<string, true>) : {}
-    const nextHeaderDraftRows = normalizeDraftRows(draft?.headerDraftRows, 'hrow')
-
-    const headersForSeedCheck = (() => {
-      const next = mergeHeadersCaseInsensitive(env, base, nextHeaderOverrides)
-      for (const key of Object.keys(nextDisabledHeaderNames)) deleteHeaderCaseInsensitive(next, key)
-      return next
-    })()
-
-    const nextQueryKeyOrder = (() => {
-      const raw = Array.isArray(draft?.queryKeyOrder) ? draft?.queryKeyOrder : null
-      const stored = (raw ?? []).filter(x => typeof x === 'string')
-      if (stored.length) return stored
-
-      const overrides = (draft?.queryParamKeyOverrides && typeof draft.queryParamKeyOverrides === 'object')
-        ? (draft.queryParamKeyOverrides as Record<string, string>)
-        : {}
-      const overriddenKeys = new Set(Object.values(overrides).filter(Boolean))
-      const specRaw = props.request.params.filter(p => p.in === 'query').map(p => p.name).filter(Boolean)
-      const disabledSpec = new Set(Object.keys(nextDisabledQueryParamNames).filter(Boolean))
-      const specEffective = specRaw
-        .filter(n => !disabledSpec.has(n))
-        .map(n => (overrides[n] ?? n))
-        .filter(Boolean)
-
-      const specRawSet = new Set(specRaw)
-      const extras = Object.keys(nextQueryParams).filter(k => !specRawSet.has(k) && !overriddenKeys.has(k))
-      return [...specEffective, ...extras]
-    })()
-
-    const nextHeaderKeyOrder = (() => {
-      const raw = Array.isArray(draft?.headerKeyOrder) ? draft?.headerKeyOrder : null
-      const stored = (raw ?? []).filter(x => typeof x === 'string')
-      if (stored.length) return stored
-
-      const spec = props.request.params
-        .filter(p => p.in === 'header')
-        .map(p => p.name)
-        .filter(n => typeof n === 'string' && n && n.toLowerCase() !== 'authorization')
-
-      const combinedKeys = Object.keys(headersForSeedCheck).filter(k => k.toLowerCase() !== 'authorization')
-      const out: string[] = []
-      for (const k of spec) {
-        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
-        out.push(k)
-      }
-      for (const k of combinedKeys) {
-        if (findKeyIndexCaseInsensitive(out, k) >= 0) continue
-        out.push(k)
-      }
-      return out
-    })()
-
-    const hasQueryParamsSpec = props.request.params.some(p => p.in === 'query')
-    const hasQueryParamsStore = Object.keys(nextQueryParams).length > 0
-    const shouldSeedQueryDraft = !hasQueryParamsSpec && !hasQueryParamsStore && nextQueryDraftRows.length === 0
-
-    const hasHeadersSpec = props.request.params.some(p => p.in === 'header' && p.name.toLowerCase() !== 'authorization')
-    const hasHeadersStore = Object.keys(headersForSeedCheck).some(k => k.toLowerCase() !== 'authorization')
-    const shouldSeedHeaderDraft = !hasHeadersSpec && !hasHeadersStore && nextHeaderDraftRows.length === 0
-
-    setPathParams(nextPathParams)
-    setQueryParams(nextQueryParams)
-    setQueryDraftRows(nextQueryDraftRows.length ? nextQueryDraftRows : (shouldSeedQueryDraft ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : []))
-    setQueryParamKeyOverrides(draft?.queryParamKeyOverrides ?? {})
-    setDisabledQueryParamNames(nextDisabledQueryParamNames)
-    setInactiveQueryParamNames(nextInactiveQueryParamNames)
-    setQueryKeyOrder(nextQueryKeyOrder)
-    setHeaderOverrides(nextHeaderOverrides)
-    setDisabledHeaderNames(nextDisabledHeaderNames)
-    setInactiveHeaderNames(nextInactiveHeaderNames)
-    setHeaderDraftRows(nextHeaderDraftRows.length ? nextHeaderDraftRows : (shouldSeedHeaderDraft ? [{ id: uid('hrow'), name: '', value: '', isActive: true }] : []))
-    setHeaderKeyOrder(nextHeaderKeyOrder)
-    setBaseUrlKey(draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl')
-    const nextBodyText = draft?.bodyText ?? requestDefaultBodyText()
-    setBodyText(nextBodyText)
-    setIsBodyOpen(!!props.request.body)
-    const nextBodyFormat = normalizeBodyFormat(draft?.bodyFormat)
-    setBodyFormat(nextBodyFormat)
-    setAutoDetectedBodyFormat(null)
-    setIsFileOpen(shouldDefaultOpenFileTab(props.request.method, props.request.body?.contentType))
-    setUrlTemplateOverride(draft?.urlTemplateOverride ?? '')
-    setIsEditingUrl(false)
-    setUrlDraftText('')
-    setFileRows(() => {
-      const storedRows = normalizeDraftFileRows(draft?.fileRows)
-      const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
-      const names = (rawList ?? []).filter(x => typeof x === 'string')
-      return restoreFileRowsForRequest(props.request.id, storedRows, names)
+    const nextState = hydrateRequestEditorDraft({
+      draft,
+      request: props.request,
+      environmentHeaders: props.environment?.headers,
+      environmentBaseUrlKey: props.environment?.baseUrlKey,
+      mode: 'apply',
+      requestDefaultBodyText: requestDefaultBodyText(),
+      restoreFileRows: (storedRows, fallbackFieldNames) => requestEditorFileRows.restore(props.request.id, storedRows, fallbackFieldNames),
     })
-    setPreSqlScript(draft?.preSqlScript ?? '')
-    setPostSqlScript(draft?.postSqlScript ?? '')
-    setPreSqlScriptIsActive(draft?.preSqlScriptIsActive !== false)
-    setPostSqlScriptIsActive(draft?.postSqlScriptIsActive !== false)
-    setSelectedSqlConnectionId(draft?.sqlConnectionId ?? null)
-    setDataDrivenInput(draft?.dataDrivenInput ?? '')
-    setSelectedTestFunction(typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '')
-    setRequestTestScript(typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '')
-    setDataDrivenInputEditorText('')
-    setDataDrivenInputEditorOpen(false)
-    setDataDrivenRunReport(null)
-    setDataDrivenRunning(false)
-    setDataDrivenReportSheetOpen(false)
-    dataDrivenAbortRef.current?.abort()
-    dataDrivenAbortRef.current = null
-    setLoadedRequestId(props.request.id)
-
-    saveRequestDraft(props.request.id, {
-      pathParams: draft?.pathParams ?? {},
-      queryParams: draft?.queryParams ?? defaultQueryParamsFromSpec(props.request.params),
-      queryDraftRows: nextQueryDraftRows,
-      queryKeyOrder: nextQueryKeyOrder,
-      inactiveQueryParamNames: nextInactiveQueryParamNames,
-      queryParamKeyOverrides: draft?.queryParamKeyOverrides ?? {},
-      disabledQueryParamNames: nextDisabledQueryParamNames,
-      preSqlScript: draft?.preSqlScript ?? '',
-      postSqlScript: draft?.postSqlScript ?? '',
-      preSqlScriptIsActive: draft?.preSqlScriptIsActive !== false,
-      postSqlScriptIsActive: draft?.postSqlScriptIsActive !== false,
-      sqlConnectionId: draft?.sqlConnectionId ?? undefined,
-      headerOverrides: nextHeaderOverrides,
-      headerDraftRows: nextHeaderDraftRows,
-      headerKeyOrder: nextHeaderKeyOrder,
-      disabledHeaderNames: nextDisabledHeaderNames,
-      inactiveHeaderNames: nextInactiveHeaderNames,
-      bodyText: nextBodyText,
-      bodyFormat: normalizeBodyFormat(draft?.bodyFormat),
-      fileFieldName: (draft?.fileFieldName || 'file').trim() || 'file',
-      fileFieldNames: Array.isArray(draft?.fileFieldNames)
-        ? draft!.fileFieldNames!.filter(x => typeof x === 'string')
-        : undefined,
-      fileRows: (() => {
-        const stored = normalizeDraftFileRows(draft?.fileRows)
-        if (stored.length) return stored
-        const rawList = Array.isArray(draft?.fileFieldNames) ? draft?.fileFieldNames : null
-        const names = (rawList ?? []).filter(x => typeof x === 'string')
-        const seed = names.length ? names : ['']
-        return seed.map(fieldName => ({ fieldName, fileName: '', isActive: true }))
-      })(),
-      baseUrlKey: draft?.baseUrlKey || props.environment?.baseUrlKey || 'baseUrl',
-      urlTemplateOverride: draft?.urlTemplateOverride ?? '',
-      dataDrivenInput: draft?.dataDrivenInput ?? '',
-      selectedTestFunction: typeof draft?.selectedTestFunction === 'string' ? draft.selectedTestFunction : '',
-      requestTestScript: typeof draft?.requestTestScript === 'string' ? draft.requestTestScript : '',
-    })
+    applyHydratedDraftState(nextState, true)
   }, [applyDraftToken])
 
   useEffect(() => {
     if (!props.request.id) return
     if (loadedRequestId !== props.request.id) return
-    saveRequestDraft(props.request.id, {
+    saveRequestDraft(props.request.id, toRequestDraft({
       pathParams,
       queryParams,
       queryDraftRows,
       queryKeyOrder,
-      inactiveQueryParamNames,
       queryParamKeyOverrides,
       disabledQueryParamNames,
+      inactiveQueryParamNames,
+      headerOverrides,
+      disabledHeaderNames,
+      inactiveHeaderNames,
+      headerDraftRows,
+      headerKeyOrder,
+      bodyText,
+      bodyFormat,
+      baseUrlKey,
+      urlTemplateOverride,
+      fileRows,
       preSqlScript,
       postSqlScript,
       preSqlScriptIsActive,
       postSqlScriptIsActive,
-      sqlConnectionId: selectedSqlConnectionId ?? undefined,
-      headerOverrides,
-      headerDraftRows,
-      headerKeyOrder,
-      disabledHeaderNames,
-      inactiveHeaderNames,
-      bodyText,
-      bodyFormat,
-      fileFieldName: (fileRows[0]?.fieldName || 'file').trim() || 'file',
-      fileFieldNames: fileRows.map(r => r.fieldName),
-      fileRows: fileRows.map(r => ({ fieldName: r.fieldName, fileName: r.file?.name ?? r.fileName, isActive: r.isActive })),
-      baseUrlKey,
-      urlTemplateOverride,
+      selectedSqlConnectionId,
       dataDrivenInput,
       selectedTestFunction,
       requestTestScript,
-    })
+    }))
   }, [
     baseUrlKey,
     bodyText,
@@ -2741,15 +941,7 @@ export function RequestEditor(props: {
   useEffect(() => {
     if (!props.request.id) return
     if (loadedRequestId !== props.request.id) return
-    fileRowsByRequestId.set(
-      props.request.id,
-      fileRows.map(row => ({
-        fieldName: row.fieldName,
-        file: row.file,
-        fileName: row.file?.name ?? row.fileName,
-        isActive: row.isActive,
-      })),
-    )
+    requestEditorFileRows.remember(props.request.id, fileRows)
   }, [fileRows, loadedRequestId, props.request.id])
 
   const grouped = useMemo(() => {
@@ -2957,17 +1149,6 @@ export function RequestEditor(props: {
     [requestTestScript, selectedTestFunction],
   )
 
-  function normalizeMockRoutePath(pathRaw: string): string {
-    const cleaned = (pathRaw || '').trim()
-      .replaceAll(/%7B/ig, '{')
-      .replaceAll(/%7D/ig, '}')
-    if (!cleaned) return '/'
-
-    const withLeadingSlash = cleaned.startsWith('/') ? cleaned : `/${cleaned}`
-    const withoutPathPlaceholders = withLeadingSlash.replaceAll(/\/\{[^/{}]+\}(?=\/|$)/g, '/')
-    return withoutPathPlaceholders || '/'
-  }
-
   const mockRoutePathDefault = useMemo(() => {
     const raw = (isEditingUrl ? urlDraftText : urlEditorText).trim()
     const parsed = parseUrlInput(raw)
@@ -3152,16 +1333,6 @@ export function RequestEditor(props: {
   }, [activeTabId, tabs])
   const useJsonBodyEditor = bodyFormatForDisplay === 'json'
 
-  function templateForBodyFormat(format: BodyFormat): string {
-    switch (format) {
-      case 'json': return '{\n  \n}'
-      case 'xml': return '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  \n</root>'
-      case 'yaml': return '---\nkey: value\n'
-      case 'text': return ''
-      case 'auto': return ''
-    }
-  }
-
   function pickBodyFormat(nextFormat: BodyFormat) {
     setBodyFormatMenuOpen(false)
     setIsBodyOpen(true)
@@ -3225,558 +1396,6 @@ export function RequestEditor(props: {
     setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value: '', isActive: true }])
   }
 
-  function parseFormFieldsFromBodyText(text: string): Record<string, string> {
-    const raw = text.trim()
-    if (!raw) return {}
-    try {
-      const parsed = JSON.parse(raw)
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-      const out: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (!k.trim()) continue
-        if (v === null || v === undefined) continue
-        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[k] = String(v)
-      }
-      return out
-    } catch (error) {
-      logWarn('parseFormFieldsFromBodyText', 'Failed to parse multipart helper JSON body', { error })
-      return {}
-    }
-  }
-
-  function buildSendSnapshot() {
-    const headerDraftRowsToCommit = headerDraftRows.filter(r => r.name.trim() && r.value !== '')
-    const hasDraftHeadersToCommit = headerDraftRowsToCommit.length > 0
-    const activeCommittedHeaderNeedlesForSend = new Set(
-      Object.keys(removeInactiveHeaders(committedHeaders, inactiveHeaderNames)).map(k => k.toLowerCase()),
-    )
-    const activeDraftHeaderNeedlesForSend = new Set(
-      headerDraftRowsToCommit
-        .filter(row => row.isActive)
-        .map(row => row.name.trim().toLowerCase())
-        .filter(Boolean),
-    )
-    const headerDraftRowsToApply = headerDraftRowsToCommit.filter(row => {
-      if (row.isActive) return true
-      const needle = row.name.trim().toLowerCase()
-      if (!needle) return false
-      return !activeDraftHeaderNeedlesForSend.has(needle) && !activeCommittedHeaderNeedlesForSend.has(needle)
-    })
-
-    const nextHeaderOverridesForSend = hasDraftHeadersToCommit
-      ? (() => {
-        const next = { ...headerOverrides }
-        for (const row of headerDraftRowsToApply) {
-          const key = row.name.trim()
-          if (!key) continue
-          setHeaderCaseInsensitive(next, key, row.value)
-        }
-        return next
-      })()
-      : headerOverrides
-
-    const nextDisabledHeaderNamesForSend = hasDraftHeadersToCommit
-      ? (() => {
-        let changed = false
-        const next = { ...disabledHeaderNames }
-        for (const row of headerDraftRowsToApply) {
-          const key = row.name.trim()
-          if (!key) continue
-          const existingKey = findHeaderKeyCaseInsensitive(next, key)
-          if (existingKey) {
-            delete next[existingKey]
-            changed = true
-          }
-        }
-        return changed ? next : disabledHeaderNames
-      })()
-      : disabledHeaderNames
-
-    const nextInactiveHeaderNamesForSend = hasDraftHeadersToCommit
-      ? (() => {
-        let next = inactiveHeaderNames
-        for (const row of headerDraftRowsToApply) {
-          const key = row.name.trim()
-          if (!key) continue
-          next = setFlagForHeaderName(next, key, row.isActive)
-        }
-        return next
-      })()
-      : inactiveHeaderNames
-
-    const baseHeadersForSend = (() => {
-      const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, nextHeaderOverridesForSend)
-      for (const key of Object.keys(nextDisabledHeaderNamesForSend)) deleteHeaderCaseInsensitive(merged, key)
-      return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
-    })()
-
-    const activeFileRows = fileRows.filter(r => r.isActive)
-    const hasAnyFileInput = supportsFileSend && activeFileRows.some(r => !!r.file)
-    const hasAnyBodyInput =
-      !!bodyText.trim() ||
-      hasAnyFileInput ||
-      !!(methodAllowsBody && isMultipartForm && Object.keys(parseFormFieldsFromBodyText(bodyText)).length)
-    const effectiveHeadersForSend = (() => {
-      if (!hasAnyBodyInput) return baseHeadersForSend
-      if (bodyFormat === 'auto') {
-        if (bodyFormatForDisplay !== 'json') return baseHeadersForSend
-        const next = { ...baseHeadersForSend }
-        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', 'application/json')
-        return next
-      }
-      const next = { ...baseHeadersForSend }
-      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
-      return next
-    })()
-    const committedHeadersForSendWithoutDraftRows = (() => {
-      const merged = mergeHeadersCaseInsensitive(envHeaders, requestBaseHeaders, headerOverrides)
-      for (const key of Object.keys(disabledHeaderNames)) deleteHeaderCaseInsensitive(merged, key)
-      return removeInactiveHeaders(merged, nextInactiveHeaderNamesForSend)
-    })()
-    const draftHeaderNeedlesForSend = new Set(headerDraftRowsToApply.map(row => row.name.trim().toLowerCase()).filter(Boolean))
-    const committedHeaderEntriesForSend = (() => {
-      const withoutDraftRows = (entries: Array<[string, string]>) =>
-        entries.filter(([name]) => !draftHeaderNeedlesForSend.has(name.toLowerCase()))
-      if (!hasAnyBodyInput) return withoutDraftRows(Object.entries(committedHeadersForSendWithoutDraftRows))
-      if (bodyFormat === 'auto') {
-        if (bodyFormatForDisplay !== 'json') return withoutDraftRows(Object.entries(committedHeadersForSendWithoutDraftRows))
-        const next = { ...committedHeadersForSendWithoutDraftRows }
-        if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', 'application/json')
-        return withoutDraftRows(Object.entries(next))
-      }
-      const next = { ...committedHeadersForSendWithoutDraftRows }
-      if (!headerIsInactive(nextInactiveHeaderNamesForSend, 'Content-Type')) setHeaderCaseInsensitive(next, 'Content-Type', contentTypeForBodyFormat(bodyFormat))
-      return withoutDraftRows(Object.entries(next))
-    })()
-    const activeDraftHeaderEntriesForSend = headerDraftRowsToApply
-      .filter(row => row.isActive)
-      .map(row => [row.name.trim(), row.value] as [string, string])
-    const headerEntriesForSend = [...committedHeaderEntriesForSend, ...activeDraftHeaderEntriesForSend]
-
-    const queryDraftRowsToCommit = queryDraftRows.filter(r => r.name.trim() && r.value !== '')
-    const hasDraftQueryToCommit = queryDraftRowsToCommit.length > 0
-    const effectiveQueryParamsForCommit = hasDraftQueryToCommit ? effectiveQueryParams : queryParams
-    const nextInactiveQueryParamNamesForSend = hasDraftQueryToCommit
-      ? (() => {
-        let next = inactiveQueryParamNames
-        for (const row of queryDraftRowsToCommit) {
-          const key = row.name.trim()
-          if (!key) continue
-          next = setFlagForKey(next, key, row.isActive)
-        }
-        return next
-      })()
-      : inactiveQueryParamNames
-    const effectiveQueryParamsForSend = (() => {
-      const out: Record<string, string> = {}
-      for (const [k, v] of Object.entries(effectiveQueryParamsForCommit)) {
-        if (nextInactiveQueryParamNamesForSend[k]) continue
-        out[k] = v
-      }
-      return out
-    })()
-    const effectiveDisabledQueryParamNamesForSend = hasDraftQueryToCommit
-      ? (() => {
-        let changed = false
-        const next = { ...disabledQueryParamNames }
-        for (const row of queryDraftRows) {
-          const key = row.name.trim()
-          if (!key) continue
-          if (row.value === '') continue
-          if (!querySpecNames.has(key)) continue
-          if (key in next) {
-            delete next[key]
-            changed = true
-          }
-        }
-        return changed ? next : disabledQueryParamNames
-      })()
-      : disabledQueryParamNames
-
-    const formFields = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-      ? parseFormFieldsFromBodyText(bodyText)
-      : undefined
-
-    const filesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-      ? activeFileRows
-        .map(r => ({ fieldName: r.fieldName.trim() || 'file', file: r.file }))
-        .filter((x): x is { fieldName: string, file: File } => !!x.file)
-      : undefined
-    const emptyFileFieldNamesForMultipart = supportsFileSend && effectiveContentType.toLowerCase().includes('multipart/form-data')
-      ? activeFileRows
-        .filter(r => !r.file && !!r.fieldName.trim())
-        .map(r => r.fieldName.trim())
-      : undefined
-    const firstFileForOctetStream = activeFileRows.find(r => r.file)?.file ?? null
-    const fileForOctetStream = supportsFileSend ? firstFileForOctetStream : undefined
-
-    const fileFieldName = (activeFileRows[0]?.fieldName || fileRows[0]?.fieldName || 'file').trim() || 'file'
-
-    return {
-      nextHeaderOverridesForSend,
-      nextDisabledHeaderNamesForSend,
-      nextInactiveHeaderNamesForSend,
-      effectiveHeadersForSend,
-      headerEntriesForSend,
-      effectiveQueryParamsForCommit,
-      nextInactiveQueryParamNamesForSend,
-      effectiveQueryParamsForSend,
-      effectiveDisabledQueryParamNamesForSend,
-      formFields,
-      filesForMultipart,
-      emptyFileFieldNamesForMultipart,
-      fileForOctetStream,
-      fileFieldName,
-    }
-  }
-
-  const getSqlErrorResult = useCallback((statusText: string, message: string): RunResult => ({
-    ok: false,
-    status: 0,
-    statusText,
-    timeMs: 0,
-    requestHeadersBytes: 0,
-    requestBodyBytes: 0,
-    requestBytes: 0,
-    responseHeadersBytes: 0,
-    responseBodyBytes: 0,
-    responseBytes: 0,
-    requestHeaders: {},
-    responseHeaders: {},
-    bodyText: message,
-  }), [])
-
-  const getCanceledResult = useCallback((): RunResult => ({
-    ok: false,
-    status: 0,
-    statusText: 'Canceled',
-    timeMs: 0,
-    requestHeadersBytes: 0,
-    requestBodyBytes: 0,
-    requestBytes: 0,
-    responseHeadersBytes: 0,
-    responseBodyBytes: 0,
-    responseBytes: 0,
-    requestHeaders: {},
-    responseHeaders: {},
-    bodyText: 'Request was canceled.',
-  }), [])
-
-  const sendWithVariables = useCallback(async (args?: {
-    variablesOverride?: Record<string, string>
-    abortController?: AbortController
-    requestIdKey?: string
-    dataRow?: DataDrivenRow
-  }) => {
-    const effectiveVariables = args?.variablesOverride ?? variables
-    const dataRow = args?.dataRow ?? null
-    const requestIdKey = args?.requestIdKey ?? props.request.id
-    const abortController = args?.abortController ?? new AbortController()
-    const isExternalAbortController = !!args?.abortController
-    if (!isExternalAbortController) {
-      abortControllersRef.current.set(requestIdKey, abortController)
-    }
-
-    const runId = uid('run')
-    props.onSendStart?.(props.request.id, runId)
-    try {
-      const snapshot = buildSendSnapshot()
-      const effectivePathParamsForSend = (() => {
-        if (!dataRow) return pathParams
-        const knownPathKeys = new Set(pathParamsList.map(p => p.name).filter(Boolean))
-        const next = { ...pathParams }
-        for (const [k, v] of Object.entries(dataRow)) {
-          if (!knownPathKeys.has(k)) continue
-          next[k] = v
-        }
-        return next
-      })()
-
-      const knownQueryKeys = new Set<string>([
-        ...Object.keys(snapshot.effectiveQueryParamsForCommit),
-        ...Object.keys(snapshot.effectiveQueryParamsForSend),
-        ...grouped.query.map(p => p.name).filter(Boolean),
-        ...queryDraftRows.map(r => r.name.trim()).filter(Boolean),
-      ])
-
-      const effectiveQueryParamsForCommit = (() => {
-        if (!dataRow) return snapshot.effectiveQueryParamsForCommit
-        const next = { ...snapshot.effectiveQueryParamsForCommit }
-        for (const [k, v] of Object.entries(dataRow)) {
-          if (!knownQueryKeys.has(k)) continue
-          next[k] = v
-        }
-        return next
-      })()
-
-      const effectiveQueryParamsForSend = (() => {
-        if (!dataRow) return snapshot.effectiveQueryParamsForSend
-        const next = { ...snapshot.effectiveQueryParamsForSend }
-        for (const [k, v] of Object.entries(dataRow)) {
-          if (!knownQueryKeys.has(k)) continue
-          next[k] = v
-        }
-        return next
-      })()
-
-      const resolvedPathParamsForHistory = Object.fromEntries(
-        Object.entries(effectivePathParamsForSend).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
-      )
-
-      const resolvedQueryParamsForHistory = Object.fromEntries(
-        Object.entries(effectiveQueryParamsForCommit).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
-      )
-
-      const resolvedHeadersForHistory = Object.fromEntries(
-        Object.entries(snapshot.effectiveHeadersForSend).map(([key, value]) => [key, applyVariablesForDisplay(value, effectiveVariables)]),
-      )
-
-      const resolvedHeaderEntriesForHistory = snapshot.headerEntriesForSend.map(([name, value]) => ({
-        name,
-        value: applyVariablesForDisplay(value, effectiveVariables),
-      }))
-
-      const resolvedBodyTextForHistory = applyVariablesForDisplay(bodyText, effectiveVariables)
-
-      props.onBeforeSend?.(props.request.id, {
-        id: uid('hist'),
-        createdAt: Date.now(),
-        method: props.request.method,
-        url: applyVariablesForDisplay(displayUrl, effectiveVariables),
-        runId,
-        responseStatus: null,
-        draft: {
-          pathParams: resolvedPathParamsForHistory,
-          queryParams: resolvedQueryParamsForHistory,
-          inactiveQueryParamNames: snapshot.nextInactiveQueryParamNamesForSend,
-          queryParamKeyOverrides,
-          disabledQueryParamNames: snapshot.effectiveDisabledQueryParamNamesForSend,
-          headers: resolvedHeadersForHistory,
-          headerEntries: resolvedHeaderEntriesForHistory,
-          headerOverrides: snapshot.nextHeaderOverridesForSend,
-          disabledHeaderNames: snapshot.nextDisabledHeaderNamesForSend,
-          inactiveHeaderNames: snapshot.nextInactiveHeaderNamesForSend,
-          preSqlScript,
-          postSqlScript,
-          preSqlScriptIsActive,
-          postSqlScriptIsActive,
-          sqlConnectionId: selectedSqlConnectionId ?? undefined,
-          bodyText: resolvedBodyTextForHistory,
-          bodyFormat,
-          fileFieldName: snapshot.fileFieldName,
-          fileFieldNames: fileRows.map(r => r.fieldName.trim()).filter(Boolean),
-          fileRows: fileRows.map(r => ({ fieldName: r.fieldName.trim(), fileName: r.file?.name ?? r.fileName, isActive: r.isActive })),
-          baseUrlKey,
-          urlTemplateOverride,
-          dataDrivenInput,
-          selectedTestFunction,
-          requestTestScript,
-        },
-      })
-
-      const preSql = preSqlScriptIsActive ? preSqlScript.trim() : ''
-      const postSql = postSqlScriptIsActive ? postSqlScript.trim() : ''
-      const shouldRunSql = !!(preSql || postSql)
-
-      if (shouldRunSql) {
-        if (!selectedSqlConnection) {
-          const result = getSqlErrorResult('SQL Failed', 'Missing database connection. Select it in SQL tab.')
-          props.onResult(props.request.id, result, runId)
-          return result
-        }
-
-        if (preSql) {
-          const r = await runDbSql({
-            type: selectedSqlConnection.type,
-            connectionString: selectedSqlConnection.connectionString,
-            sql: applyVariablesForDisplay(preSql, effectiveVariables),
-          })
-          if (!r.ok) {
-            const result = getSqlErrorResult('SQL Pre Script Failed', r.message || 'Pre script failed.')
-            props.onResult(props.request.id, result, runId)
-            return result
-          }
-        }
-
-        if (abortController.signal.aborted) {
-          const canceled = getCanceledResult()
-          props.onResult(props.request.id, canceled, runId)
-          return canceled
-        }
-      }
-
-      let sendBaseUrl = baseUrl
-      let sendUrlTemplateOverride = urlTemplateOverride
-      let usedLocalMockServer = false
-      const originalBaseUrl = baseUrl
-      const originalUrlTemplateOverride = urlTemplateOverride
-      try {
-        const localServer = await getLocalMockServerStatus()
-        if (localServer?.running && localServer.baseUrl) {
-          usedLocalMockServer = true
-          sendBaseUrl = localServer.baseUrl.trim()
-          const overrideRaw = (urlTemplateOverride || '').trim()
-          if (overrideRaw) {
-            if (isAbsoluteUrl(overrideRaw) || overrideRaw.startsWith('//')) {
-              try {
-                const parsed = new URL(overrideRaw, 'http://localhost')
-                sendUrlTemplateOverride = parsed.pathname || props.request.path
-              } catch {
-                sendUrlTemplateOverride = props.request.path
-              }
-            } else {
-              sendUrlTemplateOverride = overrideRaw
-            }
-          } else {
-            let pathPrefix = ''
-            try {
-              const parsedBase = new URL(baseUrl)
-              pathPrefix = (parsedBase.pathname || '').trim()
-            } catch {
-              pathPrefix = ''
-            }
-
-            const normalizedPrefix = pathPrefix
-              ? (pathPrefix.startsWith('/') ? pathPrefix : `/${pathPrefix}`)
-              : ''
-            const cleanedPrefix = normalizedPrefix.replace(/\/+$/, '')
-            sendUrlTemplateOverride = cleanedPrefix && cleanedPrefix !== '/'
-              ? joinUrlParts(cleanedPrefix, props.request.path)
-              : props.request.path
-          }
-        }
-      } catch (error) {
-        logWarn('sendWithVariables.localMockServerStatus', 'Failed to read local mock server status before send', { error })
-      }
-
-      let result = await runRequest({
-        request: props.request,
-        baseUrl: sendBaseUrl,
-        urlTemplateOverride: sendUrlTemplateOverride,
-        variables: effectiveVariables,
-        pathParams: effectivePathParamsForSend,
-        queryParams: effectiveQueryParamsForSend,
-        headers: snapshot.effectiveHeadersForSend,
-        headerEntries: snapshot.headerEntriesForSend,
-        bodyText,
-        files: snapshot.filesForMultipart,
-        emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
-        file: snapshot.fileForOctetStream,
-        fileFieldName: snapshot.fileFieldName,
-        formFields: snapshot.formFields,
-        signal: abortController.signal,
-      })
-
-      if (usedLocalMockServer && result.status === 404) {
-        const missHeader = (() => {
-          for (const [k, v] of Object.entries(result.responseHeaders || {})) {
-            if (k.toLowerCase() === 'x-ruf-local-mock-miss') return String(v || '')
-          }
-          return ''
-        })()
-        const isMissByBody = /"error"\s*:\s*"mock route not found"/i.test(result.bodyText || '')
-        const isLocalMockMiss = missHeader === '1' || isMissByBody
-
-        if (isLocalMockMiss && !abortController.signal.aborted) {
-          result = await runRequest({
-            request: props.request,
-            baseUrl: originalBaseUrl,
-            urlTemplateOverride: originalUrlTemplateOverride,
-            variables: effectiveVariables,
-            pathParams: effectivePathParamsForSend,
-            queryParams: effectiveQueryParamsForSend,
-            headers: snapshot.effectiveHeadersForSend,
-            headerEntries: snapshot.headerEntriesForSend,
-            bodyText,
-            files: snapshot.filesForMultipart,
-            emptyFileFieldNames: snapshot.emptyFileFieldNamesForMultipart,
-            file: snapshot.fileForOctetStream,
-            fileFieldName: snapshot.fileFieldName,
-            formFields: snapshot.formFields,
-            signal: abortController.signal,
-          })
-        }
-      }
-
-      if (shouldRunSql && postSql) {
-        if (abortController.signal.aborted) {
-          const canceled = getCanceledResult()
-          props.onResult(props.request.id, canceled, runId)
-          return canceled
-        }
-        if (selectedSqlConnection) {
-          const r = await runDbSql({
-            type: selectedSqlConnection.type,
-            connectionString: selectedSqlConnection.connectionString,
-            sql: applyVariablesForDisplay(postSql, effectiveVariables),
-          })
-          if (!r.ok) {
-            result = {
-              ...result,
-              ok: false,
-              bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\n${r.message || 'Post script failed.'}\n`,
-            }
-          }
-        } else {
-          result = {
-            ...result,
-            ok: false,
-            bodyText: `${result.bodyText}\n\n-- SQL Post Script Failed --\nMissing database connection. Select it in SQL tab.\n`,
-          }
-        }
-      }
-
-      const testResults = executeResponseTests({
-        selectedGlobalTestFunction: selectedTestFunction,
-        globalTestFunctions: availableGlobalTestFunctions,
-        requestTestScript,
-        request: props.request,
-        result,
-      })
-      result = { ...result, testResults }
-
-      props.onResult(props.request.id, result, runId)
-      return result
-    } finally {
-      if (!isExternalAbortController && abortControllersRef.current.get(requestIdKey) === abortController) {
-        abortControllersRef.current.delete(requestIdKey)
-      }
-      props.onSendEnd?.(props.request.id, runId)
-    }
-  }, [
-    baseUrl,
-    baseUrlKey,
-    bodyFormat,
-    bodyText,
-    buildSendSnapshot,
-    dataDrivenInput,
-    selectedTestFunction,
-    requestTestScript,
-    displayUrl,
-    fileRows,
-    getCanceledResult,
-    getSqlErrorResult,
-    pathParams,
-    postSqlScript,
-    postSqlScriptIsActive,
-    preSqlScript,
-    preSqlScriptIsActive,
-    props,
-    queryParamKeyOverrides,
-    queryDraftRows,
-    runDbSql,
-    selectedSqlConnection,
-    selectedSqlConnectionId,
-    availableGlobalTestFunctions,
-    urlTemplateOverride,
-    variables,
-    pathParamsList,
-    grouped.query,
-  ])
-
-  async function send() {
-    await sendWithVariables()
-  }
 
   async function startDataDrivenRun() {
     if (dataDrivenRunning || isSending) return
@@ -3905,22 +1524,6 @@ export function RequestEditor(props: {
     setDataDrivenInput(dataDrivenInputEditorText)
   }
 
-  useEffect(() => {
-    sendRef.current = () => void send()
-    return () => {
-      sendRef.current = null
-    }
-  }, [send])
-
-  useEffect(() => {
-    return () => {
-      for (const controller of abortControllersRef.current.values()) controller.abort()
-      abortControllersRef.current.clear()
-      dataDrivenAbortRef.current?.abort()
-      dataDrivenAbortRef.current = null
-    }
-  }, [])
-
   const triggerSendShortcut = useCallback((): boolean => {
     if (!canSend || isSending) return false
     commitFocusedValueFieldToState()
@@ -4025,98 +1628,13 @@ export function RequestEditor(props: {
   }
 
   function renderFilePicker() {
-    const canDeleteRow = fileRows.length > 1
-
     return (
-      <div className="section">
-        <input
-          ref={bodyFileInputRef}
-          type="file"
-          style={{ display: 'none' }}
-          onChange={e => {
-            const next = e.target.files?.[0] ?? null
-            const targetRowId = activeFileRowIdRef.current ?? fileRows[0]?.id ?? null
-            const el = e.target as HTMLInputElement
-
-            activeFileRowIdRef.current = null
-            el.value = ''
-
-            if (!targetRowId) return
-            if (!next) return
-
-            setFileRows(prev => prev.map(r => (r.id === targetRowId ? { ...r, file: next, fileName: next.name } : r)))
-          }}
-        />
-
-        {fileRows.map(row => (
-          <div key={row.id} className="formRow">
-            <input
-              className={`mono ${row.isActive ? '' : 'rowInactive'}`.trim()}
-              value={row.fieldName}
-              onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: e.target.value } : r)))}
-              placeholder="Key"
-              aria-label="File field key"
-            />
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className={`chooseFileBtn ${row.isActive ? '' : 'rowInactive'}`.trim()}
-                title={row.file ? row.file.name : row.fileName || 'Choose file'}
-                style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                onClick={() => {
-                  activeFileRowIdRef.current = row.id
-                  bodyFileInputRef.current?.click()
-                }}
-              >
-                <span className="chooseFileBtnLabel">{row.file ? row.file.name : row.fileName || 'Choose file'}</span>
-              </button>
-
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <label className="checkRow rowCheck" title={row.isActive ? 'Active' : 'Inactive'}>
-                  <input
-                    type="checkbox"
-                    className="checkInput"
-                    checked={row.isActive}
-                    aria-label={`Toggle file row ${row.fieldName.trim() || row.file?.name || row.fileName || ''}`.trim()}
-                    onChange={e => setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: e.target.checked } : r)))}
-                    onClick={e => e.stopPropagation()}
-                  />
-                  <span className="checkBox" aria-hidden="true" />
-                </label>
-                <ConfirmIconButton
-                  className="rowDeleteBtn"
-                  disabled={false}
-                  onConfirm={() => {
-                    if (row.file) {
-                      setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '', file: null, fileName: '' } : r)))
-                      return
-                    }
-                    if (canDeleteRow) {
-                      setFileRows(prev => prev.filter(r => r.id !== row.id))
-                      return
-                    }
-                    setFileRows(prev => prev.map(r => (r.id === row.id ? { ...r, fieldName: '' } : r)))
-                  }}
-                  ariaLabel={row.file ? 'Remove file' : canDeleteRow ? 'Remove file row' : 'Clear file row'}
-                  confirmAriaLabel={row.file ? 'Confirm remove file' : canDeleteRow ? 'Confirm remove file row' : 'Confirm clear file row'}
-                  title={
-                    row.file
-                      ? 'Remove file'
-                      : canDeleteRow
-                        ? 'Remove file row'
-                        : row.fieldName.trim()
-                          ? 'Clear key'
-                          : 'No file to remove'
-                  }
-                  confirmTitle={row.file ? 'Confirm remove file' : canDeleteRow ? 'Confirm remove file row' : 'Confirm clear key'}
-                  icon={<CloseIcon size={18} />}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-
-      </div>
+      <RequestEditorFilePicker
+        bodyFileInputRef={bodyFileInputRef}
+        activeFileRowIdRef={activeFileRowIdRef}
+        fileRows={fileRows}
+        setFileRows={setFileRows}
+      />
     )
   }
 
@@ -4201,6 +1719,129 @@ export function RequestEditor(props: {
     window.addEventListener('pointerup', onUp, { once: true })
   }
 
+  const handlePlainBodyKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if (triggerSendShortcut()) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+      return
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      e.stopPropagation()
+      applyBodyTabIndent(e.shiftKey)
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      applyBodyEnterIndent()
+      return
+    }
+    if (e.key === '"') {
+      const ta = bodyTextareaRef.current
+      if (!ta) return
+
+      const selStart = ta.selectionStart ?? 0
+      const selEnd = ta.selectionEnd ?? 0
+
+      if (selStart === selEnd && ta.value[selStart] === '"') {
+        e.preventDefault()
+        e.stopPropagation()
+        const nextPos = selStart + 1
+        ta.selectionStart = nextPos
+        ta.selectionEnd = nextPos
+        return
+      }
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (selStart !== selEnd) {
+        const selected = ta.value.slice(selStart, selEnd)
+        applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
+        return
+      }
+
+      applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
+      return
+    }
+    if (e.key === '{' || e.key === '[') {
+      const ta = bodyTextareaRef.current
+      if (!ta) return
+
+      const selStart = ta.selectionStart ?? 0
+      const selEnd = ta.selectionEnd ?? 0
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      const open = e.key
+      const close = open === '{' ? '}' : ']'
+
+      if (selStart !== selEnd) {
+        const selected = ta.value.slice(selStart, selEnd)
+        applyBodyTextareaReplacement(selStart, selEnd, `${open}${selected}${close}`, selStart + 1, selEnd + 1)
+        return
+      }
+
+      applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
+    }
+  }, [applyBodyEnterIndent, applyBodyTabIndent, applyBodyTextareaReplacement, triggerSendShortcut])
+
+  const { buildSendSnapshot, send, sendWithVariables, cancelInFlightSend, abortAllSends } = useRequestEditorSend({
+    request: props.request,
+    pathParams,
+    pathParamsList,
+    groupedQueryParams: grouped.query,
+    queryDraftRows,
+    querySpecNames,
+    queryParams,
+    effectiveQueryParams,
+    inactiveQueryParamNames,
+    disabledQueryParamNames,
+    queryParamKeyOverrides,
+    headerDraftRows,
+    headerOverrides,
+    disabledHeaderNames,
+    inactiveHeaderNames,
+    committedHeaders,
+    envHeaders,
+    requestBaseHeaders,
+    fileRows,
+    bodyText,
+    bodyFormat,
+    bodyFormatForDisplay,
+    effectiveContentType,
+    methodAllowsBody,
+    isMultipartForm,
+    supportsFileSend,
+    baseUrl,
+    baseUrlKey,
+    urlTemplateOverride,
+    variables,
+    displayUrl,
+    dataDrivenInput,
+    selectedTestFunction,
+    requestTestScript,
+    availableGlobalTestFunctions,
+    preSqlScript,
+    postSqlScript,
+    preSqlScriptIsActive,
+    postSqlScriptIsActive,
+    selectedSqlConnectionId,
+    selectedSqlConnection,
+    runDbSqlFn: runDbSql,
+    onBeforeSend: props.onBeforeSend,
+    onSendStart: props.onSendStart,
+    onSendEnd: props.onSendEnd,
+    onResult: props.onResult,
+    applyVariablesForDisplay,
+    contentTypeForBodyFormat,
+  })
+
   async function copyUrlText() {
     await copyText(displayUrl)
     setCopyOk(true)
@@ -4229,6 +1870,21 @@ export function RequestEditor(props: {
     setCopyOk(true)
     setTimeout(() => setCopyOk(false), 900)
   }
+
+  useEffect(() => {
+    sendRef.current = () => void send()
+    return () => {
+      sendRef.current = null
+    }
+  }, [send])
+
+  useEffect(() => {
+    return () => {
+      abortAllSends()
+      dataDrivenAbortRef.current?.abort()
+      dataDrivenAbortRef.current = null
+    }
+  }, [abortAllSends])
 
   function startUrlEdit(placeCursorAtEnd = false) {
     urlEditStartRef.current = urlEditorText.trim()
@@ -4382,275 +2038,48 @@ export function RequestEditor(props: {
 
   return (
     <div className="editor">
-      <div className="editorUrlWrap">
-        <div
-          className="mono editorUrl"
-        >
-          <div className="editorUrlText">
-            <div ref={methodMenuOpen ? methodMenuWrapRef : null} className="methodMenuWrap">
-              <button
-                type="button"
-                className="badge mono methodBadgeBtn"
-                disabled={!props.onChangeMethod}
-                onPointerDown={e => {
-                  if (!props.onChangeMethod) return
-                  e.stopPropagation()
-                }}
-                onClick={e => {
-                  if (!props.onChangeMethod) return
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setMethodMenuOpen(v => !v)
-                }}
-                aria-label="Change method"
-                title="Change method"
-              >
-                {props.request.method}
-              </button>
-
-              {methodMenuOpen ? (
-                <div
-                  className="methodMenuPanel"
-                  role="menu"
-                  onPointerDown={e => {
-                    e.stopPropagation()
-                  }}
-                  onClick={e => {
-                    e.stopPropagation()
-                  }}
-                >
-                  {DEFAULT_METHOD_OPTIONS.map(m => (
-                    <div key={m} className={`methodMenuItemRow ${m === props.request.method ? 'methodMenuItemActive' : ''}`}>
-                      <button
-                        type="button"
-                        className="methodMenuItem mono"
-                        role="menuitem"
-                        onClick={() => selectMethod(m)}
-                      >
-                        {m}
-                      </button>
-                    </div>
-                  ))}
-                  {visibleCustomMethodOptions.length ? <div className="treeMenuDivider" role="separator" /> : null}
-                  {visibleCustomMethodOptions.map(m => (
-                    <div key={m} className={`methodMenuItemRow methodMenuCustomItemRow ${m === props.request.method ? 'methodMenuItemActive' : ''}`}>
-                      <button
-                        type="button"
-                        className="methodMenuItem mono methodMenuCustomItemBtn"
-                        role="menuitem"
-                        onClick={() => selectMethod(m)}
-                      >
-                        {m}
-                      </button>
-                      <button
-                        type="button"
-                        className="methodMenuDeleteBtn mono"
-                        aria-label={`Delete method ${m}`}
-                        title={`Delete method ${m}`}
-                        onClick={e => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          removeCustomMethod(m)
-                        }}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
-                  <div className="treeMenuDivider" role="separator" />
-                  {isAddingMethod ? (
-                    <input
-                      ref={methodAddInputRef}
-                      className="methodMenuAddInput mono"
-                      value={methodAddDraft}
-                      placeholder="METHOD"
-                      onChange={e => setMethodAddDraft(e.target.value.toUpperCase())}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') commitMethodAdd(true)
-                        if (e.key === 'Escape') {
-                          cancelMethodAdd()
-                        }
-                      }}
-                      onBlur={() => commitMethodAdd(true)}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="methodMenuItem mono methodMenuAddBtn"
-                      role="menuitem"
-                      onClick={startMethodAdd}
-                    >
-                      Add
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            <div
-              className="editorUrlMain"
-              role="button"
-              tabIndex={0}
-              title={editorUrlMainDisplay}
-              onClick={() => {
-                if (isEditingUrl) return
-                startUrlEdit(true)
-              }}
-              onKeyDown={e => {
-                if (isEditingUrl) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  startUrlEdit(true)
-                }
-              }}
-              style={{ cursor: 'pointer' }}
-            >
-              {isEditingUrl ? (
-                <VariableAutocompleteField
-                  ref={urlInputRef as any}
-                  className="mono editorUrlInput"
-                  value={urlDraftText}
-                  suggestions={variableSuggestions}
-                  onChangeValue={setUrlDraftText}
-                  onClick={e => e.stopPropagation()}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') commitUrlEdit((e.currentTarget as HTMLInputElement).value)
-                    if (e.key === 'Escape') cancelUrlEdit()
-                  }}
-                  onBlur={() => {
-                    commitUrlEdit(urlInputRef.current?.value)
-                  }}
-                  style={{ flex: 1, minWidth: 0 }}
-                />
-              ) : (
-                <span className="editorUrlValue">
-                  {editorUrlMainDisplay}
-                </span>
-              )}
-
-              {isEditingUrl ? (
-                <div className="editorUrlBaseUrlDock">
-                  <div
-                    className="selectMenuPanel valueHistoryPanel editorUrlBaseUrlMenu"
-                    role="menu"
-                    onPointerDown={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
-                    onClick={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                    }}
-                  >
-                    {variableKeys.length ? (
-                      variableKeys.map(k => (
-                        <button
-                          key={k}
-                          type="button"
-                          className={`selectMenuItem ${k === baseUrlKey ? 'selectMenuItemActive' : ''}`}
-                          role="menuitem"
-                          onMouseDown={e => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                          }}
-                          onClick={() => {
-                            setBaseUrlKey(k)
-                            cancelUrlEdit()
-                          }}
-                        >
-                          <div className="mono">{k}</div>
-                          {props.environment?.variables?.[k] ? (
-                            <div className="varMenuDesc mono">{String(props.environment?.variables?.[k] ?? '')}</div>
-                          ) : null}
-                        </button>
-                      ))
-                    ) : (
-                      <div className="valueHistoryEmpty small">No URLs</div>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div ref={copyMenuOpen ? copyMenuWrapRef : null} className="methodMenuWrap">
-            <button
-              type="button"
-              className="iconBtn editorUrlActionBtn"
-              onPointerDown={e => e.stopPropagation()}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                setCopyMenuOpen(v => !v)
-              }}
-              aria-label="Copy"
-              title="Copy"
-              style={{ width: 28, height: 28 }}
-            >
-              {copyOk ? 'OK' : <CopyIcon />}
-            </button>
-
-            {copyMenuOpen ? (
-              <div
-                className="methodMenuPanel copyMenuPanel"
-                role="menu"
-                onPointerDown={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }}
-              >
-                <button
-                  type="button"
-                  className="methodMenuItem mono"
-                  role="menuitem"
-                  onClick={() => {
-                    setCopyMenuOpen(false)
-                    void copyUrlText()
-                  }}
-                >
-                  Copy URL
-                </button>
-                <button
-                  type="button"
-                  className="methodMenuItem mono"
-                  role="menuitem"
-                  onClick={() => {
-                    setCopyMenuOpen(false)
-                    void copyCurlText()
-                  }}
-                >
-                  Copy cURL
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="editorUrlSendWrap">
-            <button
-              className={`editorSendBtn ${isSending ? 'editorSendBtnCancel' : ''}`.trim()}
-              onPointerDown={e => {
-                e.stopPropagation()
-                if (!isSending) commitFocusedValueFieldToState()
-              }}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                if (isSending) cancelInFlightSend()
-                else void send()
-              }}
-              disabled={!canSend && !isSending}
-            >
-              {isSending ? 'Cancel' : 'Send'}
-            </button>
-          </div>
-        </div>
-
-      </div>
+      <RequestEditorToolbar
+        requestMethod={props.request.method}
+        onChangeMethod={props.onChangeMethod}
+        methodMenuOpen={methodMenuOpen}
+        setMethodMenuOpen={setMethodMenuOpen}
+        methodMenuWrapRef={methodMenuWrapRef}
+        defaultMethodOptions={DEFAULT_METHOD_OPTIONS}
+        visibleCustomMethodOptions={visibleCustomMethodOptions}
+        isAddingMethod={isAddingMethod}
+        methodAddDraft={methodAddDraft}
+        setMethodAddDraft={setMethodAddDraft}
+        methodAddInputRef={methodAddInputRef}
+        commitMethodAdd={commitMethodAdd}
+        cancelMethodAdd={cancelMethodAdd}
+        selectMethod={selectMethod}
+        startMethodAdd={startMethodAdd}
+        removeCustomMethod={removeCustomMethod}
+        isEditingUrl={isEditingUrl}
+        editorUrlMainDisplay={editorUrlMainDisplay}
+        startUrlEdit={startUrlEdit}
+        urlInputRef={urlInputRef}
+        urlDraftText={urlDraftText}
+        setUrlDraftText={setUrlDraftText}
+        variableSuggestions={variableSuggestions}
+        commitUrlEdit={commitUrlEdit}
+        cancelUrlEdit={cancelUrlEdit}
+        variableKeys={variableKeys}
+        baseUrlKey={baseUrlKey}
+        setBaseUrlKey={setBaseUrlKey}
+        environmentVariables={props.environment?.variables}
+        copyMenuOpen={copyMenuOpen}
+        setCopyMenuOpen={setCopyMenuOpen}
+        copyMenuWrapRef={copyMenuWrapRef}
+        copyOk={copyOk}
+        copyUrlText={copyUrlText}
+        copyCurlText={copyCurlText}
+        isSending={isSending}
+        canSend={canSend}
+        commitFocusedValueFieldToState={commitFocusedValueFieldToState}
+        cancelInFlightSend={() => cancelInFlightSend()}
+        send={send}
+      />
 
       {!canSend && (
         <div className="small" style={{ color: '#ff9a9a' }}>
@@ -4681,948 +2110,153 @@ export function RequestEditor(props: {
       {requestEditorTabExtensions.some(tab => tab.id === activeTabId) ? (
         <>{requestEditorTabExtensions.find(tab => tab.id === activeTabId)?.render(tabExtensionContext) ?? null}</>
       ) : activeTabId === 'tests' ? (
-        <div className="accordion">
-          <div style={{ display: 'grid', gap: 8 }}>
-            <div className="small" style={{ opacity: 0.78 }}>Function</div>
-            <div ref={testFunctionMenuWrapRef} className="selectMenuWrap" style={{ width: '100%' }}>
-              <button
-                type="button"
-                className="selectMenuBtn mono"
-                aria-haspopup="listbox"
-                aria-expanded={testFunctionMenuOpen}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setTestFunctionMenuOpen(prev => !prev)
-                }}
-              >
-                {selectedTestFunction || 'No function'}
-              </button>
-              {testFunctionMenuOpen ? (
-                <div className="selectMenuPanel" role="listbox" style={{ position: 'absolute', left: 0, top: 'calc(100% + 6px)', width: '100%', zIndex: 210 }}>
-                  <button
-                    type="button"
-                    className={`selectMenuItem ${selectedTestFunction === '' ? 'selectMenuItemActive' : ''}`}
-                    role="option"
-                    aria-selected={selectedTestFunction === ''}
-                    onClick={() => {
-                      setSelectedTestFunction('')
-                      setTestFunctionMenuOpen(false)
-                    }}
-                  >
-                    <div className="mono">No function</div>
-                  </button>
-                  {availableGlobalTestFunctionNames.map(fnName => (
-                    <button
-                      key={fnName}
-                      type="button"
-                      className={`selectMenuItem ${selectedTestFunction === fnName ? 'selectMenuItemActive' : ''}`}
-                      role="option"
-                      aria-selected={selectedTestFunction === fnName}
-                      onClick={() => {
-                        setSelectedTestFunction(fnName)
-                        setTestFunctionMenuOpen(false)
-                      }}
-                    >
-                      <div className="mono">{fnName}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            {!availableGlobalTestFunctionNames.length ? (
-              <div className="small" style={{ color: '#ffb46a' }}>
-                Global test functions list is empty. Add functions via the sidebar Tests button.
-              </div>
-            ) : null}
-          </div>
-
-          <div className="section" style={{ display: 'grid', gap: 8 }}>
-            <div className="small" style={{ opacity: 0.78 }}>Request Test Script (JS)</div>
-            <JsCodeEditor
-              value={requestTestScript}
-              onChangeValue={setRequestTestScript}
-              minHeight={220}
-            />
-          </div>
-        </div>
+        <RequestEditorTestsSection
+          testFunctionMenuWrapRef={testFunctionMenuWrapRef}
+          testFunctionMenuOpen={testFunctionMenuOpen}
+          setTestFunctionMenuOpen={setTestFunctionMenuOpen}
+          selectedTestFunction={selectedTestFunction}
+          setSelectedTestFunction={setSelectedTestFunction}
+          availableGlobalTestFunctionNames={availableGlobalTestFunctionNames}
+          requestTestScript={requestTestScript}
+          setRequestTestScript={setRequestTestScript}
+        />
       ) : activeTabId === 'data' ? (
-        <div className="accordion">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontWeight: 600, opacity: 0.95 }}>Data-driven run</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                onClick={() => setDataDrivenReportSheetOpen(true)}
-                style={{ height: 32, minHeight: 32, padding: '0 10px', boxSizing: 'border-box' }}
-              >
-                Report
-              </button>
-              {dataDrivenRunning ? (
-                <button
-                  type="button"
-                  onClick={cancelDataDrivenRun}
-                  style={{
-                    height: 32,
-                    minHeight: 32,
-                    padding: '0 10px',
-                    boxSizing: 'border-box',
-                    background: 'rgba(239,68,68,.24)',
-                    borderColor: 'rgba(239,68,68,.55)',
-                    color: 'rgb(255, 170, 170)',
-                  }}
-                >
-                  Stop
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void startDataDrivenRun()}
-                  disabled={!canSend || !!dataDrivenParsed.error || !dataDrivenParsed.rows.length || isSending}
-                  style={{ height: 32, minHeight: 32, padding: '0 10px', boxSizing: 'border-box' }}
-                >
-                  Run Data
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="section" style={{ display: 'grid', gap: 8 }}>
-              <div className="small" style={{ opacity: 0.78 }}>
-                JSON/CSV
-            </div>
-            <div style={{ position: 'relative' }}>
-              <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 2, display: 'flex', gap: 6 }}>
-                <button
-                  type="button"
-                  className="iconBtn"
-                  onClick={openDataDrivenInputEditor}
-                  aria-label="Open large editor"
-                  title="Open large editor"
-                  style={{
-                    width: 28,
-                    height: 28,
-                    minHeight: 28,
-                    padding: 0,
-                  }}
-                >
-                  <OpenInNewIcon size={14} />
-                </button>
-                <ConfirmIconButton
-                  className="iconBtn"
-                  onConfirm={() => setDataDrivenInput('')}
-                  ariaLabel="Clear data input"
-                  confirmAriaLabel="Confirm clear data input"
-                  title="Clear data input"
-                  confirmTitle="Confirm clear data input"
-                  icon={<CloseIcon size={14} />}
-                  style={{
-                    width: 28,
-                    height: 28,
-                    minHeight: 28,
-                    padding: 0,
-                  }}
-                />
-              </div>
-              <textarea
-                className="mono"
-                spellCheck={false}
-                value={dataDrivenInput}
-                onChange={e => setDataDrivenInput(e.target.value)}
-                placeholder={'[{"userId":"1","token":"abc"},{"userId":"2","token":"def"}]\n\nuserId,token\n1,abc\n2,def'}
-                style={{
-                  width: '100%',
-                  minHeight: 140,
-                  resize: 'vertical',
-                  borderRadius: 'var(--radius)',
-                  border: '1px solid rgba(255,255,255,.12)',
-                  background: 'rgba(255,255,255,.04)',
-                  padding: '8px 74px 8px 10px',
-                }}
-              />
-            </div>
-            <div className="small" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, opacity: 0.8 }}>
-              <span>Format: <span className="mono">{dataDrivenParsed.format.toUpperCase()}</span></span>
-              <span>Rows: <span className="mono">{dataDrivenParsed.rows.length}</span></span>
-              <span>Passed: <span className="mono">{dataDrivenRunReport?.passed ?? 0}</span></span>
-              <span>Failed: <span className="mono">{dataDrivenRunReport?.failed ?? 0}</span></span>
-              {dataDrivenParsed.error ? <span style={{ color: '#ff9a9a' }}>{dataDrivenParsed.error}</span> : null}
-            </div>
-          </div>
-        </div>
+        <RequestEditorDataSection
+          dataDrivenRunning={dataDrivenRunning}
+          canSend={canSend}
+          isSending={isSending}
+          dataDrivenInput={dataDrivenInput}
+          setDataDrivenInput={setDataDrivenInput}
+          dataDrivenParsed={dataDrivenParsed}
+          dataDrivenRunReport={dataDrivenRunReport}
+          setDataDrivenReportSheetOpen={setDataDrivenReportSheetOpen}
+          cancelDataDrivenRun={cancelDataDrivenRun}
+          startDataDrivenRun={startDataDrivenRun}
+          openDataDrivenInputEditor={openDataDrivenInputEditor}
+        />
       ) : activeTabId === 'params' ? (
-        <div className="accordion">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontWeight: 600, opacity: 0.95 }}>Params</div>
-            <button
-              type="button"
-              className="iconBtn addRowBtn"
-              onClick={addQueryDraftRow}
-              aria-label="Add query param"
-              title="Add query param"
-            >
-              <PlusIcon size={16} />
-            </button>
-          </div>
-
-          {pathParamsList.length > 0 && (
-            <div className="section">
-              <div className="sectionTitle">Path</div>
-              {pathParamsList.map(p => (
-                <ParamRow
-                  key={p.name}
-                  param={p}
-                  store={pathParams}
-                  setStore={setPathParams}
-                  onClear={() => {
-                    setPathParams(prev => {
-                      if (!(p.name in prev)) return prev
-                      const next = { ...prev }
-                      delete next[p.name]
-                      return next
-                    })
-                  }}
-                  variableSuggestions={variableSuggestions}
-                  enumMenuId={`enum:path:${p.name}`}
-                  enumMenuOpenId={enumMenuOpenId}
-                  enumMenuAnchor={enumMenuAnchor}
-                  onToggleEnumMenu={toggleEnumMenu}
-                  onCloseEnumMenu={closeEnumMenu}
-                  enumMenuPanelRef={enumMenuPanelRef}
-                  historyItems={valueHistory.path[p.name] ?? []}
-                  onRecordHistory={next => recordValueHistory('path', p.name, next)}
-                  onPickHistory={next => {
-                    setPathParams(prev => ({ ...prev, [p.name]: next }))
-                    recordValueHistory('path', p.name, next)
-                  }}
-                  onDeleteHistoryItem={next => deleteValueHistoryItem('path', p.name, next)}
-                  onClearAllHistory={clearAllValueHistory}
-                  historyMenuId={`path:${p.name}`}
-                  historyMenuOpenId={valueHistoryMenuOpenId}
-                  historyMenuAnchor={valueHistoryMenuAnchor}
-                  onToggleHistoryMenu={toggleValueHistoryMenu}
-                  onCloseHistoryMenu={closeValueHistoryMenu}
-                  historyMenuPanelRef={valueHistoryMenuPanelRef}
-                />
-              ))}
-            </div>
-          )}
-
-          <div className="section">
-            <div className="sectionTitle">Query</div>
-            {queryParamsList.map(p => {
-              const rawName = p.name
-              const isSpec = querySpecNames.has(rawName)
-              const isRequiredSpecKey = isSpec && !!p.required
-              const effectiveName =
-                isRequiredSpecKey
-                  ? rawName
-                  : isSpec
-                    ? (queryParamKeyOverrides[rawName] ?? rawName)
-                    : rawName
-              const value = queryParams[effectiveName] ?? ''
-              const isActive = !inactiveQueryParamNames[effectiveName]
-              const hint =
-                typeof p.example === 'string' || typeof p.example === 'number'
-                  ? String(p.example)
-                  : p.schemaType || ''
-
-              return (
-                <QueryRow
-                  key={rawName}
-                  name={effectiveName}
-                  rawName={rawName}
-                  isSpec={isSpec}
-                  value={value}
-                  hint={isSpec ? hint : undefined}
-                  enumValues={isSpec ? p.enumValues : undefined}
-                  required={isSpec ? p.required : false}
-                  readOnlyName={isRequiredSpecKey}
-                  isActive={isActive}
-                  onToggleActive={nextActive => setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, nextActive))}
-                  variableSuggestions={variableSuggestions}
-                  historyItems={valueHistory.query[effectiveName] ?? []}
-                  onRecordHistory={next => recordValueHistory('query', effectiveName, next)}
-                  onPickHistory={next => {
-                    setQueryParams(prev => {
-                      const nextParams = { ...prev }
-                      nextParams[effectiveName] = next
-                      if (isSpec && effectiveName !== rawName) delete nextParams[rawName]
-                      return nextParams
-                    })
-                    setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
-                    recordValueHistory('query', effectiveName, next)
-                  }}
-                  onDeleteHistoryItem={next => deleteValueHistoryItem('query', effectiveName, next)}
-                  onClearAllHistory={clearAllValueHistory}
-                  historyMenuId={`query:${effectiveName}`}
-                  historyMenuOpenId={valueHistoryMenuOpenId}
-                  historyMenuAnchor={valueHistoryMenuAnchor}
-                  onToggleHistoryMenu={toggleValueHistoryMenu}
-                  onCloseHistoryMenu={closeValueHistoryMenu}
-                  historyMenuPanelRef={valueHistoryMenuPanelRef}
-                  enumMenuId={isSpec ? `enum:query:${rawName}` : undefined}
-                  enumMenuOpenId={enumMenuOpenId}
-                  enumMenuAnchor={enumMenuAnchor}
-                  onToggleEnumMenu={toggleEnumMenu}
-                  onCloseEnumMenu={closeEnumMenu}
-                  enumMenuPanelRef={enumMenuPanelRef}
-                  onChangeValue={nextValue => {
-                    setQueryParams(prev => {
-                      const next = { ...prev }
-                      next[effectiveName] = nextValue
-                      if (isSpec && effectiveName !== rawName) delete next[rawName]
-                      return next
-                    })
-                  }}
-                  onRename={
-                    isRequiredSpecKey
-                      ? undefined
-                      : nextName => {
-                      const trimmed = nextName.trim()
-                      if (trimmed === effectiveName) return
-
-                      if (isSpec) {
-                        if (!trimmed) {
-                          setQueryParams(prev => {
-                            if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                            const next = { ...prev }
-                            delete next[effectiveName]
-                            if (rawName !== effectiveName) delete next[rawName]
-                            return next
-                          })
-                          setInactiveQueryParamNames(prev => {
-                            let next = setFlagForKey(prev, effectiveName, true)
-                            if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                            return next
-                          })
-                          return
-                        }
-                        setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
-                        setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
-                        setQueryParamKeyOverrides(prev => {
-                          const next = { ...prev }
-                          if (trimmed === rawName) delete next[rawName]
-                          else next[rawName] = trimmed
-                          return next
-                        })
-                        setInactiveQueryParamNames(prev => setFlagForKey(prev, trimmed, isActive))
-                        setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
-                        return
-                      }
-
-                      if (!trimmed) {
-                        setQueryDraftRows(prev => [...prev, { id: uid('qrow'), name: '', value, isActive: true }])
-                        setQueryParams(prev => {
-                          if (!(effectiveName in prev)) return prev
-                          const next = { ...prev }
-                          delete next[effectiveName]
-                          return next
-                        })
-                        setInactiveQueryParamNames(prev => setFlagForKey(prev, effectiveName, true))
-                        return
-                      }
-
-                      setQueryParams(prev => renameStoreKey(prev, effectiveName, trimmed))
-                      setInactiveQueryParamNames(prev => renameFlagKey(prev, effectiveName, trimmed))
-                      setQueryKeyOrder(prev => replaceKeyInOrder(prev, effectiveName, trimmed))
-                    }
-                  }
-                  onDelete={isRequiredSpecKey ? () => {
-                    setQueryParams(prev => {
-                      if (!Object.prototype.hasOwnProperty.call(prev, effectiveName)) return prev
-                      if (prev[effectiveName] === '') return prev
-                      return { ...prev, [effectiveName]: '' }
-                    })
-                  } : () => {
-                    const totalRows = queryParamsList.length + queryDraftRows.length
-                    const isLastRow = totalRows === 1
-
-                    if (isLastRow) {
-                      if (isSpec) {
-                        setQueryParams(prev => {
-                          if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                          const next = { ...prev }
-                          delete next[effectiveName]
-                          if (rawName !== effectiveName) delete next[rawName]
-                          return next
-                        })
-                        setInactiveQueryParamNames(prev => {
-                          let next = setFlagForKey(prev, effectiveName, true)
-                          if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                          return next
-                        })
-                        setQueryParamKeyOverrides(prev => {
-                          if (!(rawName in prev)) return prev
-                          const next = { ...prev }
-                          delete next[rawName]
-                          return next
-                        })
-                        setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
-                        setQueryDraftRows(prev => (prev.length ? prev : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
-                        return
-                      }
-
-                      setQueryParams(prev => {
-                        if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[effectiveName]
-                        if (rawName !== effectiveName) delete next[rawName]
-                        return next
-                      })
-                      setQueryDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('qrow'), name: '', value: '', isActive: true }]))
-                      setInactiveQueryParamNames(prev => {
-                        let next = setFlagForKey(prev, effectiveName, true)
-                        if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                        return next
-                      })
-                      return
-                    }
-
-                    setQueryParams(prev => {
-                      if (!(effectiveName in prev) && !(rawName in prev)) return prev
-                      const next = { ...prev }
-                      delete next[effectiveName]
-                      if (rawName !== effectiveName) delete next[rawName]
-                      return next
-                    })
-                    setInactiveQueryParamNames(prev => {
-                      let next = setFlagForKey(prev, effectiveName, true)
-                      if (rawName !== effectiveName) next = setFlagForKey(next, rawName, true)
-                      return next
-                    })
-                    if (isSpec) {
-                      setQueryParamKeyOverrides(prev => {
-                        if (!(rawName in prev)) return prev
-                        const next = { ...prev }
-                        delete next[rawName]
-                        return next
-                      })
-                      setDisabledQueryParamNames(prev => ({ ...prev, [rawName]: true }))
-                    }
-                  }}
-                />
-              )
-            })}
-
-            {queryDraftRows.map(row => (
-              <QueryDraftRow
-                key={row.id}
-                rowId={row.id}
-                name={row.name}
-                value={row.value}
-                isActive={row.isActive}
-                onToggleActive={isActive => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
-                onChangeName={nextName => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
-                onChangeValue={nextValue => setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-                variableSuggestions={variableSuggestions}
-                historyItems={valueHistory.query[row.name.trim()] ?? []}
-                onRecordHistory={next => recordValueHistory('query', row.name, next)}
-                onPickHistory={next => {
-                  setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
-                  setQueryDraftRows(prev => prev.map(r => (r.id === row.id ? { ...r, isActive: true } : r)))
-                  recordValueHistory('query', row.name, next)
-                }}
-                onDeleteHistoryItem={next => deleteValueHistoryItem('query', row.name, next)}
-                onClearAllHistory={clearAllValueHistory}
-                historyMenuId={`queryDraft:${row.id}`}
-                historyMenuOpenId={valueHistoryMenuOpenId}
-                historyMenuAnchor={valueHistoryMenuAnchor}
-                onToggleHistoryMenu={toggleValueHistoryMenu}
-                onCloseHistoryMenu={closeValueHistoryMenu}
-                historyMenuPanelRef={valueHistoryMenuPanelRef}
-                onDelete={() => {
-                  setQueryDraftRows(prev => {
-                    if (prev.length === 1 && prev[0]?.id === row.id) {
-                      if (queryParamsList.length > 0) return []
-                      return [{ ...prev[0], name: '', value: '', isActive: true }]
-                    }
-                    return prev.filter(r => r.id !== row.id)
-                  })
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        <RequestEditorParamsTab
+          pathParams={pathParams}
+          pathParamsList={pathParamsList}
+          setPathParams={setPathParams}
+          queryParams={queryParams}
+          queryParamsList={queryParamsList}
+          querySpecNames={querySpecNames}
+          queryParamKeyOverrides={queryParamKeyOverrides}
+          inactiveQueryParamNames={inactiveQueryParamNames}
+          queryDraftRows={queryDraftRows}
+          variableSuggestions={variableSuggestions}
+          valueHistory={valueHistory}
+          setInactiveQueryParamNames={setInactiveQueryParamNames}
+          setQueryParams={setQueryParams}
+          setQueryDraftRows={setQueryDraftRows}
+          setQueryParamKeyOverrides={setQueryParamKeyOverrides}
+          setDisabledQueryParamNames={setDisabledQueryParamNames}
+          setQueryKeyOrder={setQueryKeyOrder}
+          setFlagForKey={setFlagForKey}
+          renameStoreKey={renameStoreKey}
+          renameFlagKey={renameFlagKey}
+          replaceKeyInOrder={replaceKeyInOrder}
+          uid={uid}
+          addQueryDraftRow={addQueryDraftRow}
+          recordValueHistory={recordValueHistory}
+          deleteValueHistoryItem={deleteValueHistoryItem}
+          enumMenuOpenId={enumMenuOpenId}
+          enumMenuAnchor={enumMenuAnchor}
+          onToggleEnumMenu={toggleEnumMenu}
+          onCloseEnumMenu={closeEnumMenu}
+          enumMenuPanelRef={enumMenuPanelRef}
+          valueHistoryMenuOpenId={valueHistoryMenuOpenId}
+          valueHistoryMenuAnchor={valueHistoryMenuAnchor}
+          onToggleValueHistoryMenu={toggleValueHistoryMenu}
+          onCloseValueHistoryMenu={closeValueHistoryMenu}
+          valueHistoryMenuPanelRef={valueHistoryMenuPanelRef}
+          clearAllValueHistory={clearAllValueHistory}
+        />
       ) : (
-        <div className="accordion">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontWeight: 600, opacity: 0.95 }}>Headers</div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                type="button"
-                className="iconBtn addRowBtn"
-                onClick={reloadFromGlobalHeaders}
-                disabled={!hasDisabledEnvOnlyHeaders}
-                aria-disabled={!hasDisabledEnvOnlyHeaders}
-                aria-label="Reload from global headers"
-                title={hasDisabledEnvOnlyHeaders ? 'Reload from global headers' : 'No deleted global headers'}
-              >
-                <ReloadIcon size={16} />
-              </button>
-              <button
-                type="button"
-                className="iconBtn addRowBtn"
-                onClick={() => addHeaderDraftRow()}
-                aria-label="Add header"
-                title="Add header"
-              >
-                <PlusIcon size={16} />
-              </button>
-            </div>
-          </div>
-
-          <div className="section">
-            {visibleHeaderParams.map(h => {
-              const isSpec = headerSpecNames.has(h.name)
-              const baseKey = findHeaderKeyCaseInsensitive(requestBaseHeaders, h.name)
-              const envKey = findHeaderKeyCaseInsensitive(envHeaders, h.name)
-              const isInBase = !!baseKey
-              const isInEnv = !!envKey
-              const isEnvOnly = !isInBase && isInEnv
-              const value = getHeaderCaseInsensitive(committedHeaders, h.name) ?? ''
-              return (
-                <HeaderRow
-                  key={h.name}
-                  name={h.name}
-                  value={value}
-                  readOnlyName={isSpec}
-                  required={isSpec ? h.required : false}
-                  isActive={!headerIsInactive(inactiveHeaderNames, h.name)}
-                  onToggleActive={isActive => {
-                    const nextInactiveHeaderNames = setFlagForHeaderName(headerDraftSaveRef.current.inactiveHeaderNames, h.name, isActive)
-                    setInactiveHeaderNames(nextInactiveHeaderNames)
-                    persistHeaderDraftPatch({ inactiveHeaderNames: nextInactiveHeaderNames })
-                  }}
-                  variableSuggestions={variableSuggestions}
-                  historyItems={headerValueHistoryItems}
-                  onRecordHistory={next => recordValueHistory('header', h.name, next)}
-                  onPickHistory={next => {
-                    setHeaderValueForRequest(h.name, next)
-                    recordValueHistory('header', h.name, next)
-                  }}
-                  onDeleteHistoryItem={next => deleteValueHistoryItem('header', h.name, next)}
-                  onClearAllHistory={clearAllValueHistory}
-                  historyMenuId={`header:${h.name}`}
-                  historyMenuOpenId={valueHistoryMenuOpenId}
-                  historyMenuAnchor={valueHistoryMenuAnchor}
-                  onToggleHistoryMenu={toggleValueHistoryMenu}
-                  onCloseHistoryMenu={closeValueHistoryMenu}
-                  historyMenuPanelRef={valueHistoryMenuPanelRef}
-                  enumValues={isSpec ? h.enumValues : undefined}
-                  enumMenuId={isSpec ? `enum:header:${h.name}` : undefined}
-                  enumMenuOpenId={enumMenuOpenId}
-                  enumMenuAnchor={enumMenuAnchor}
-                  onToggleEnumMenu={toggleEnumMenu}
-                  onCloseEnumMenu={closeEnumMenu}
-                  enumMenuPanelRef={enumMenuPanelRef}
-                  onChangeValue={nextValue => {
-                    setHeaderValueForRequest(h.name, nextValue)
-                  }}
-                  onRename={
-                    isSpec
-                      ? undefined
-                      : nextName => {
-                        const nextKey = nextName.trim()
-                        if (nextKey === h.name) return
-
-                        if (!nextKey) {
-                          const current = headerDraftSaveRef.current
-                          const nextInactiveHeaderNames = setFlagForHeaderName(current.inactiveHeaderNames, h.name, true)
-                          const nextHeaderDraftRows = [...current.headerDraftRows, { id: uid('hrow'), name: '', value, isActive: true }]
-                          const nextDisabledHeaderNames: Record<string, true> = (isInBase || isInEnv)
-                            ? { ...current.disabledHeaderNames, [h.name]: true }
-                            : current.disabledHeaderNames
-                          const nextHeaderOverrides = (() => {
-                            const existingKey = findHeaderKeyCaseInsensitive(current.headerOverrides, h.name)
-                            if (!existingKey) return current.headerOverrides
-                            const next = { ...current.headerOverrides }
-                            delete next[existingKey]
-                            return next
-                          })()
-                          setInactiveHeaderNames(nextInactiveHeaderNames)
-                          setHeaderDraftRows(nextHeaderDraftRows)
-                          setDisabledHeaderNames(nextDisabledHeaderNames)
-                          setHeaderOverrides(nextHeaderOverrides)
-                          persistHeaderDraftPatch({
-                            inactiveHeaderNames: nextInactiveHeaderNames,
-                            headerDraftRows: nextHeaderDraftRows,
-                            disabledHeaderNames: nextDisabledHeaderNames,
-                            headerOverrides: nextHeaderOverrides,
-                          })
-                          return
-                        }
-
-                        if (findHeaderKeyCaseInsensitive(committedHeaders, nextKey)) return
-
-                        const current = headerDraftSaveRef.current
-                        const nextHeaderOverrides = (() => {
-                          const next = { ...current.headerOverrides }
-                          setHeaderCaseInsensitive(next, nextKey, value)
-                          deleteHeaderCaseInsensitive(next, h.name)
-                          return next
-                        })()
-                        const nextDisabledHeaderNames = (() => {
-                          const next = { ...current.disabledHeaderNames }
-                          if (isInBase || isInEnv) next[h.name] = true
-                          deleteHeaderCaseInsensitive(next, nextKey)
-                          return next
-                        })()
-                        const nextInactiveHeaderNames = (() => {
-                          const wasInactive = headerIsInactive(current.inactiveHeaderNames, h.name)
-                          let next = setFlagForHeaderName(current.inactiveHeaderNames, h.name, true)
-                          if (wasInactive) next = setFlagForHeaderName(next, nextKey, false)
-                          return next
-                        })()
-                        const nextHeaderKeyOrder = replaceKeyInOrderCaseInsensitive(current.headerKeyOrder, h.name, nextKey)
-                        setHeaderOverrides(nextHeaderOverrides)
-                        setDisabledHeaderNames(nextDisabledHeaderNames)
-                        setInactiveHeaderNames(nextInactiveHeaderNames)
-                        setHeaderKeyOrder(nextHeaderKeyOrder)
-                        persistHeaderDraftPatch({
-                          headerOverrides: nextHeaderOverrides,
-                          disabledHeaderNames: nextDisabledHeaderNames,
-                          inactiveHeaderNames: nextInactiveHeaderNames,
-                          headerKeyOrder: nextHeaderKeyOrder,
-                        })
-                      }
-                  }
-                  onDelete={
-                    isSpec
-                      ? h.required
-                        ? () => setHeaderValueForRequest(h.name, '')
-                        : undefined
-                      : () => {
-                        setInactiveHeaderNames(prev => setFlagForHeaderName(prev, h.name, true))
-                        const shouldEnsureEmptyRowAfterDelete =
-                          isEnvOnly && headerDraftRows.length === 0 && !hasAnyEditableVisibleHeaderRow
-
-                        const totalRows = visibleHeaderParams.length + headerDraftRows.length
-                        const isLastRow = totalRows === 1
-
-                        if (isLastRow) {
-                          if (isInBase || isInEnv) {
-                            setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
-                            setHeaderOverrides(prev => {
-                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                              if (!existingKey) return prev
-                              const { [existingKey]: _removed, ...rest } = prev
-                              return rest
-                            })
-                          } else {
-                            setHeaderOverrides(prev => {
-                              const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                              if (!existingKey) return prev
-                              const { [existingKey]: _removed, ...rest } = prev
-                              return rest
-                            })
-                          }
-                          setHeaderDraftRows(prev => (prev.length ? [{ ...prev[0], name: '', value: '', isActive: true }, ...prev.slice(1)] : [{ id: uid('hrow'), name: '', value: '', isActive: true }]))
-                          return
-                        }
-
-                        if (isInBase || isInEnv) {
-                          setDisabledHeaderNames(prev => ({ ...prev, [h.name]: true }))
-                          setHeaderOverrides(prev => {
-                            const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                            if (!existingKey) return prev
-                            const { [existingKey]: _removed, ...rest } = prev
-                            return rest
-                          })
-                          if (shouldEnsureEmptyRowAfterDelete) {
-                            setHeaderDraftRows(prev =>
-                              prev.length ? prev : [{ id: uid('hrow'), name: '', value: '', isActive: true }],
-                            )
-                          }
-                          return
-                        }
-                        setHeaderOverrides(prev => {
-                          const existingKey = findHeaderKeyCaseInsensitive(prev, h.name)
-                          if (!existingKey) return prev
-                          const { [existingKey]: _removed, ...rest } = prev
-                          return rest
-                        })
-                        if (shouldEnsureEmptyRowAfterDelete) {
-                          setHeaderDraftRows(prev =>
-                            prev.length ? prev : [{ id: uid('hrow'), name: '', value: '', isActive: true }],
-                          )
-                        }
-                      }
-                  }
-                />
-              )
-            })}
-
-          {headerDraftRows.map(row => (
-              <HeaderDraftRow
-                key={row.id}
-                rowId={row.id}
-                name={row.name}
-                value={row.value}
-                isActive={row.isActive}
-                onToggleActive={isActive => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, isActive } : r)))}
-                onChangeName={nextName => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, name: nextName } : r)))}
-                onChangeValue={nextValue => setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, value: nextValue } : r)))}
-                variableSuggestions={variableSuggestions}
-                historyItems={headerValueHistoryItems}
-                onRecordHistory={next => recordValueHistory('header', row.name, next)}
-                onPickHistory={next => {
-                  setHeaderDraftRowsAndPersist(prev => prev.map(r => (r.id === row.id ? { ...r, value: next } : r)))
-                  recordValueHistory('header', row.name, next)
-                }}
-                onDeleteHistoryItem={next => deleteValueHistoryItem('header', row.name, next)}
-                onClearAllHistory={clearAllValueHistory}
-                historyMenuId={`headerDraft:${row.id}`}
-                historyMenuOpenId={valueHistoryMenuOpenId}
-                historyMenuAnchor={valueHistoryMenuAnchor}
-                onToggleHistoryMenu={toggleValueHistoryMenu}
-                onCloseHistoryMenu={closeValueHistoryMenu}
-                historyMenuPanelRef={valueHistoryMenuPanelRef}
-                onDelete={() => {
-                  setHeaderDraftRowsAndPersist(prev => {
-                    if (prev.length === 1 && prev[0]?.id === row.id) {
-                      if (visibleHeaderParams.length > 0) return []
-                      return [{ ...prev[0], name: '', value: '', isActive: true }]
-                    }
-                    return prev.filter(r => r.id !== row.id)
-                  })
-                }}
-              />
-            ))}
-
-          </div>
-        </div>
+        <RequestEditorHeadersTab
+          visibleHeaderParams={visibleHeaderParams}
+          headerSpecNames={headerSpecNames}
+          requestBaseHeaders={requestBaseHeaders}
+          envHeaders={envHeaders}
+          committedHeaders={committedHeaders}
+          inactiveHeaderNames={inactiveHeaderNames}
+          headerDraftRows={headerDraftRows}
+          headerValueHistoryItems={headerValueHistoryItems}
+          variableSuggestions={variableSuggestions}
+          hasDisabledEnvOnlyHeaders={hasDisabledEnvOnlyHeaders}
+          hasAnyEditableVisibleHeaderRow={hasAnyEditableVisibleHeaderRow}
+          findHeaderKeyCaseInsensitive={findHeaderKeyCaseInsensitive}
+          getHeaderCaseInsensitive={getHeaderCaseInsensitive}
+          headerIsInactive={headerIsInactive}
+          setFlagForHeaderName={setFlagForHeaderName}
+          deleteValueHistoryItem={deleteValueHistoryItem as (kind: 'header', key: string, value: string) => void}
+          recordValueHistory={recordValueHistory as (kind: 'header', key: string, value: string) => void}
+          setHeaderValueForRequest={setHeaderValueForRequest}
+          headerDraftSaveRef={headerDraftSaveRef}
+          persistHeaderDraftPatch={persistHeaderDraftPatch}
+          setInactiveHeaderNames={setInactiveHeaderNames}
+          setHeaderDraftRows={setHeaderDraftRows}
+          setHeaderDraftRowsAndPersist={setHeaderDraftRowsAndPersist}
+          setDisabledHeaderNames={setDisabledHeaderNames}
+          setHeaderOverrides={setHeaderOverrides}
+          setHeaderKeyOrder={setHeaderKeyOrder}
+          replaceKeyInOrderCaseInsensitive={replaceKeyInOrderCaseInsensitive}
+          deleteHeaderCaseInsensitive={deleteHeaderCaseInsensitive}
+          setHeaderCaseInsensitive={setHeaderCaseInsensitive}
+          addHeaderDraftRow={addHeaderDraftRow}
+          reloadFromGlobalHeaders={reloadFromGlobalHeaders}
+          uid={uid}
+          enumMenuOpenId={enumMenuOpenId}
+          enumMenuAnchor={enumMenuAnchor}
+          onToggleEnumMenu={toggleEnumMenu}
+          onCloseEnumMenu={closeEnumMenu}
+          enumMenuPanelRef={enumMenuPanelRef}
+          valueHistoryMenuOpenId={valueHistoryMenuOpenId}
+          valueHistoryMenuAnchor={valueHistoryMenuAnchor}
+          onToggleValueHistoryMenu={toggleValueHistoryMenu}
+          onCloseValueHistoryMenu={closeValueHistoryMenu}
+          valueHistoryMenuPanelRef={valueHistoryMenuPanelRef}
+          clearAllValueHistory={clearAllValueHistory}
+        />
       )}
 
-      <details
-        className="accordion"
-        open={isBodyOpen}
-        onToggle={e => setIsBodyOpen(e.currentTarget.open)}
-      >
-        <summary>
-          <span>Body</span>
-          <span style={{ marginLeft: 'auto' }} />
-          <div ref={bodyFormatMenuWrapRef} className="selectMenuWrap" style={{ width: 120 }}>
-            <button
-              type="button"
-              className="selectMenuBtn mono bodyFormatMenuBtn"
-              onPointerDown={e => e.stopPropagation()}
-              onClick={e => {
-                e.preventDefault()
-                e.stopPropagation()
-                setBodyFormatMenuOpen(v => !v)
-              }}
-              aria-haspopup="menu"
-              aria-expanded={bodyFormatMenuOpen}
-              aria-label="Body format"
-              title="Body format"
-            >
-              {labelForBodyFormat(bodyFormatForDisplay)}
-            </button>
-          </div>
-          <button
-            type="button"
-            className="bodyBeautifyBtn mono"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              reloadExampleBodyText()
-            }}
-            aria-label="Reload example body"
-            title={hasExampleBody ? 'Reload example body' : 'Clear body'}
-          >
-            <ReloadIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="bodyBeautifyBtn mono"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              beautifyBodyText()
-            }}
-            aria-label="Beautify"
-            title="Beautify"
-          >
-            <StarIcon size={16} />
-          </button>
-          <button
-            type="button"
-            className="iconBtn"
-            onClick={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              void copyBodyText()
-            }}
-            aria-label="Copy body"
-            title="Copy body"
-            style={{ width: 32, height: 32 }}
-          >
-            {bodyCopied ? 'OK' : <CopyIcon />}
-          </button>
-          <ConfirmIconButton
-            className="iconBtn"
-            onConfirm={() => setBodyText('')}
-            ariaLabel="Clear body"
-            confirmAriaLabel="Confirm clear body"
-            title="Clear body"
-            confirmTitle="Confirm clear body"
-            icon={<CloseIcon size={18} />}
-          />
-        </summary>
-        {useJsonBodyEditor ? (
-          <JsonCodeEditor
-            value={bodyText}
-            onChangeValue={setBodyText}
-            onSubmitShortcut={triggerSendShortcut}
-            variableSuggestions={variableSuggestions}
-          />
-        ) : (
-          <>
-            <VariableAutocompleteField
-              as="textarea"
-              ref={bodyTextareaRef as any}
-              className="mono editorTextarea"
-              style={IS_MAC ? { resize: 'none' } : undefined}
-              value={bodyText}
-              spellCheck={false}
-              suggestions={variableSuggestions}
-              onChangeValue={setBodyText}
-              onKeyDown={e => {
-              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                if (triggerSendShortcut()) {
-                  e.preventDefault()
-                  e.stopPropagation()
-                }
-                return
-              }
-              if (e.ctrlKey || e.metaKey || e.altKey) return
-              if (e.key === 'Tab') {
-                e.preventDefault()
-                e.stopPropagation()
-                applyBodyTabIndent(e.shiftKey)
-                return
-              }
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                e.stopPropagation()
-                applyBodyEnterIndent()
-                return
-              }
-              if (e.key === '"') {
-                const ta = bodyTextareaRef.current
-                if (!ta) return
-
-                const selStart = ta.selectionStart ?? 0
-                const selEnd = ta.selectionEnd ?? 0
-
-                if (selStart === selEnd && ta.value[selStart] === '"') {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  const nextPos = selStart + 1
-                  ta.selectionStart = nextPos
-                  ta.selectionEnd = nextPos
-                  return
-                }
-
-                e.preventDefault()
-                e.stopPropagation()
-
-                if (selStart !== selEnd) {
-                  const selected = ta.value.slice(selStart, selEnd)
-                  applyBodyTextareaReplacement(selStart, selEnd, `"${selected}"`, selStart + 1, selEnd + 1)
-                  return
-                }
-
-                applyBodyTextareaReplacement(selStart, selEnd, '""', selStart + 1, selStart + 1)
-              }
-              if (e.key === '{' || e.key === '[') {
-                const ta = bodyTextareaRef.current
-                if (!ta) return
-
-                const selStart = ta.selectionStart ?? 0
-                const selEnd = ta.selectionEnd ?? 0
-
-                e.preventDefault()
-                e.stopPropagation()
-
-                const open = e.key
-                const close = open === '{' ? '}' : ']'
-
-                if (selStart !== selEnd) {
-                  const selected = ta.value.slice(selStart, selEnd)
-                  applyBodyTextareaReplacement(selStart, selEnd, `${open}${selected}${close}`, selStart + 1, selEnd + 1)
-                  return
-                }
-
-                applyBodyTextareaReplacement(selStart, selEnd, `${open}${close}`, selStart + 1, selStart + 1)
-              }
-            }}
-              rows={18}
-            />
-            {IS_MAC ? <div className="bodyResizeHandle" onPointerDown={onPlainBodyResizeHandlePointerDown} /> : null}
-          </>
-        )}
-      </details>
-
-      {(
-        <details
-          className="accordion"
-          open={isFileOpen}
-          onToggle={e => setIsFileOpen(e.currentTarget.open)}
-        >
-          <summary>
-            <span>File</span>
-            <span style={{ marginLeft: 'auto' }} />
-            <button
-              type="button"
-              className="iconBtn addRowBtn"
-              aria-disabled={false}
-              aria-label="Add file"
-              title={isMultipartForm ? 'Add file' : 'Add file (multiple files are only sent for multipart/form-data)'}
-              onPointerDown={e => e.stopPropagation()}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setIsFileOpen(true)
-	                  setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }])
-                }}
-              >
-                <PlusIcon size={16} />
-              </button>
-          </summary>
-          {renderFilePicker()}
-        </details>
-      )}
-
-      {bodyFormatMenuOpen ? (
-        <div
-          ref={bodyFormatMenuPanelRef}
-          className="selectMenuPanel"
-          role="menu"
-          style={{ position: 'fixed', left: bodyFormatMenuAnchor.left, top: bodyFormatMenuAnchor.top, width: bodyFormatMenuAnchor.width, zIndex: 200 }}
-          onPointerDown={e => {
-            e.preventDefault()
-            e.stopPropagation()
-          }}
-          onClick={e => {
-            e.preventDefault()
-            e.stopPropagation()
-          }}
-        >
-          {(['auto', 'json', 'xml', 'yaml', 'text'] as BodyFormat[]).map(v => (
-            <button
-              key={v}
-              type="button"
-              className={`selectMenuItem ${bodyFormatForDisplay === v ? 'selectMenuItemActive' : ''}`}
-              role="menuitem"
-              onClick={() => pickBodyFormat(v)}
-            >
-              {labelForBodyFormat(v)}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      <RequestEditorBodyFileSection
+        isBodyOpen={isBodyOpen}
+        onToggleBodyOpen={setIsBodyOpen}
+        bodyFormatMenuWrapRef={bodyFormatMenuWrapRef}
+        bodyFormatMenuPanelRef={bodyFormatMenuPanelRef}
+        bodyFormatMenuOpen={bodyFormatMenuOpen}
+        onToggleBodyFormatMenu={() => setBodyFormatMenuOpen(v => !v)}
+        bodyFormatId={bodyFormatForDisplay}
+        bodyFormatLabel={labelForBodyFormat(bodyFormatForDisplay)}
+        bodyFormatOptions={(['auto', 'json', 'xml', 'yaml', 'text'] as BodyFormat[]).map(id => ({ id, label: labelForBodyFormat(id) }))}
+        onPickBodyFormat={id => pickBodyFormat(id as BodyFormat)}
+        bodyFormatMenuAnchor={bodyFormatMenuAnchor}
+        hasExampleBody={hasExampleBody}
+        onReloadExampleBody={reloadExampleBodyText}
+        onBeautifyBody={beautifyBodyText}
+        onCopyBody={() => { void copyBodyText() }}
+        bodyCopied={bodyCopied}
+        onClearBody={() => setBodyText('')}
+        useJsonBodyEditor={useJsonBodyEditor}
+        bodyText={bodyText}
+        onChangeBodyText={setBodyText}
+        onSubmitShortcut={triggerSendShortcut}
+        variableSuggestions={variableSuggestions}
+        bodyTextareaRef={bodyTextareaRef}
+        isMac={IS_MAC}
+        onPlainBodyKeyDown={handlePlainBodyKeyDown}
+        onPlainBodyResizeHandlePointerDown={onPlainBodyResizeHandlePointerDown}
+        isFileOpen={isFileOpen}
+        onToggleFileOpen={setIsFileOpen}
+        isMultipartForm={isMultipartForm}
+        onAddFileRow={() => {
+          setIsFileOpen(true)
+          setFileRows(prev => [...prev, { id: uid('frow'), fieldName: '', file: null, fileName: '', isActive: true }])
+        }}
+        filePicker={renderFilePicker()}
+      />
 
       <DataDrivenReportSheet
         open={dataDrivenReportSheetOpen}

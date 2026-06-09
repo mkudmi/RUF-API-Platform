@@ -5,7 +5,7 @@ import { copyText } from '../../../shared/utils/clipboard'
 import { logWarn } from '../../../shared/utils/logger'
 import type { VariableSuggestion } from '../../../shared/utils/variables'
 import type { Collection } from '../../collectionTree'
-import { JsonCodeEditor } from '../../requestEditor/components/JsonCodeEditor'
+import { JsonCodeEditor } from '../../requestEditor/components/editors/JsonCodeEditor'
 import {
   applyPreparedLocalMockRoutes,
   addPreparedLocalMockRoute,

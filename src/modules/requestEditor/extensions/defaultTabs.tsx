@@ -1,24 +1,17 @@
-import { AuthorizationTab } from '../components/AuthorizationTab'
-import { MockerTab } from '../components/MockerTab'
-import { SqlScriptsTab } from '../components/SqlScriptsTab'
+import { AuthorizationTab } from '../components/tabs/AuthorizationTab'
+import { MockerTab } from '../components/tabs/MockerTab'
+import { SqlScriptsTab } from '../components/tabs/SqlScriptsTab'
+import { getHeaderCaseInsensitive } from '../state/headers/headerState'
 import type { RequestEditorTabExtension } from './types'
-
-function getHeaderCaseInsensitive(headers: Record<string, string>, name: string): string {
-  const needle = name.toLowerCase()
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === needle) return v
-  }
-  return ''
-}
 
 const authorizationTab: RequestEditorTabExtension = {
   id: 'authorization',
   label: 'Authorization',
   order: 20,
-  hasData: ctx => !!getHeaderCaseInsensitive(ctx.committedHeaders, 'Authorization').trim(),
+  hasData: ctx => !!(getHeaderCaseInsensitive(ctx.committedHeaders, 'Authorization') ?? '').trim(),
   render: ctx => (
     <AuthorizationTab
-      value={getHeaderCaseInsensitive(ctx.committedHeaders, 'Authorization')}
+      value={getHeaderCaseInsensitive(ctx.committedHeaders, 'Authorization') ?? ''}
       variableSuggestions={ctx.variableSuggestions}
       onChangeValue={next => ctx.setHeaderValue('Authorization', next)}
     />
