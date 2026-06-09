@@ -13,6 +13,7 @@ import {
   IconMaximize,
   IconPencil,
   IconPlayerPlay,
+  IconPlayerStop,
   IconPlus,
   IconReload,
   IconSchema,
@@ -125,6 +126,10 @@ export function SettingsIcon(props?: SharedIconProps) {
 
 export function PlayIcon(props?: SharedIconProps) {
   return renderIcon(IconPlayerPlay, props)
+}
+
+export function StopIcon(props?: SharedIconProps) {
+  return renderIcon(IconPlayerStop, props)
 }
 
 export function FunctionIcon(props?: SharedIconProps) {

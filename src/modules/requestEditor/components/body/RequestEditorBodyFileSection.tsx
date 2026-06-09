@@ -3,6 +3,8 @@ import { CloseIcon, CopyIcon, PlusIcon, ReloadIcon, StarIcon } from '../../../..
 import { ConfirmIconButton } from '../../../../shared/components/ConfirmIconButton'
 import { VariableAutocompleteField } from '../../../../shared/components/VariableAutocompleteField'
 import type { VariableSuggestion } from '../../../../shared/utils/variables'
+import type { BeautifyBodyFormat } from '../../utils/bodyBeautify'
+import { FileTextCodeEditor } from '../editors/FileTextCodeEditor'
 import { JsonCodeEditor } from '../editors/JsonCodeEditor'
 import type { MenuAnchor } from '../rows/RequestEditorRows'
 
@@ -30,10 +32,12 @@ export function RequestEditorBodyFileSection(props: {
   bodyCopied: boolean
   onClearBody: () => void
   useJsonBodyEditor: boolean
+  bodyCodeEditorFormat: BeautifyBodyFormat | null
   bodyText: string
   onChangeBodyText: (value: string) => void
   onSubmitShortcut: () => boolean
   variableSuggestions: VariableSuggestion[]
+  variables?: Record<string, string>
   bodyTextareaRef: RefObject<HTMLTextAreaElement | null>
   isMac: boolean
   onPlainBodyKeyDown: KeyboardEventHandler<HTMLTextAreaElement>
@@ -128,6 +132,20 @@ export function RequestEditorBodyFileSection(props: {
             onChangeValue={props.onChangeBodyText}
             onSubmitShortcut={props.onSubmitShortcut}
             variableSuggestions={props.variableSuggestions}
+            variables={props.variables}
+          />
+        ) : props.bodyCodeEditorFormat ? (
+          <FileTextCodeEditor
+            value={props.bodyText}
+            format={props.bodyCodeEditorFormat}
+            minHeight={320}
+            marginTop={10}
+            marginBottom={6}
+            onChangeValue={props.onChangeBodyText}
+            onSubmitShortcut={props.onSubmitShortcut}
+            variableSuggestions={props.variableSuggestions}
+            variables={props.variables}
+            resizableOnMac={props.isMac}
           />
         ) : (
           <>

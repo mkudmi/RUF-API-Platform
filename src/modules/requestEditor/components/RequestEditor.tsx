@@ -1456,6 +1456,11 @@ export function RequestEditor(props: {
     }
   }, [activeTabId, tabs])
   const useJsonBodyEditor = bodyFormatForDisplay === 'json'
+  const bodyCodeEditorFormat: BeautifyBodyFormat | null = (
+    bodyFormatForDisplay === 'xml' || bodyFormatForDisplay === 'yaml'
+      ? bodyFormatForDisplay
+      : null
+  )
 
   function pickBodyFormat(nextFormat: BodyFormat) {
     setBodyFormatMenuOpen(false)
@@ -2367,10 +2372,12 @@ export function RequestEditor(props: {
         bodyCopied={bodyCopied}
         onClearBody={() => setBodyText('')}
         useJsonBodyEditor={useJsonBodyEditor}
+        bodyCodeEditorFormat={bodyCodeEditorFormat}
         bodyText={bodyText}
         onChangeBodyText={setBodyText}
         onSubmitShortcut={triggerSendShortcut}
         variableSuggestions={variableSuggestions}
+        variables={variables}
         bodyTextareaRef={bodyTextareaRef}
         isMac={IS_MAC}
         onPlainBodyKeyDown={handlePlainBodyKeyDown}

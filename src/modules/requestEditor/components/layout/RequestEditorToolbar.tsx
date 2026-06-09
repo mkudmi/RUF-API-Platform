@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react'
-import { CopyIcon } from '../../../../shared/icons'
+import { CopyIcon, PlayIcon, StopIcon } from '../../../../shared/icons'
 import { VariableAutocompleteField } from '../../../../shared/components/VariableAutocompleteField'
 import type { VariableSuggestion } from '../../../../shared/utils/variables'
 import type { HttpMethod } from '../../../collectionTree'
@@ -296,6 +296,8 @@ export function RequestEditorToolbar(props: {
         <div className="editorUrlSendWrap">
           <button
             className={`editorSendBtn ${props.isSending ? 'editorSendBtnCancel' : ''}`.trim()}
+            aria-label={props.isSending ? 'Cancel request' : 'Send request'}
+            title={props.isSending ? 'Cancel request' : 'Send request'}
             onPointerDown={e => {
               e.stopPropagation()
               if (!props.isSending) props.commitFocusedValueFieldToState()
@@ -308,7 +310,7 @@ export function RequestEditorToolbar(props: {
             }}
             disabled={!props.canSend && !props.isSending}
           >
-            {props.isSending ? 'Cancel' : 'Send'}
+            {props.isSending ? <StopIcon size={16} /> : <PlayIcon size={16} />}
           </button>
         </div>
       </div>
