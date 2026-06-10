@@ -1288,7 +1288,7 @@ export function CollectionsTree(props: {
                   <div className="treeSummaryLeft">
                     {isEditing ? (
                       <span className="treeCollectionNameWrap">
-                        <b
+                        <span
                           ref={nameEditableRef as any}
                           className="treeCollectionName treeCollectionNameEditing"
                           contentEditable
@@ -1320,7 +1320,7 @@ export function CollectionsTree(props: {
                           aria-label="Collection name"
                         >
                           {draftName}
-                        </b>
+                        </span>
                         <span className="small treeCollectionCount">{reqCount}</span>
                         <button
                           className="treeRenameIcon treeRenameIconConfirm"
@@ -1342,7 +1342,7 @@ export function CollectionsTree(props: {
                       </span>
                     ) : (
                       <span className="treeCollectionNameWrap">
-                        <b
+                        <span
                           className="treeCollectionName"
                           onDoubleClick={e => {
                             e.preventDefault()
@@ -1352,7 +1352,7 @@ export function CollectionsTree(props: {
                           title={col.name}
                         >
                           {col.name}
-                        </b>
+                        </span>
                         <span className="small treeCollectionCount">{reqCount}</span>
                         <button
                           className="treeRenameIcon"

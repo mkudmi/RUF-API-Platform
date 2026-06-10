@@ -1887,6 +1887,7 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeSummaryRight { display: flex; gap: 6px; align-items: center; margin-left: auto; flex: 0 0 auto; }
 .treeCollectionName {
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1894,6 +1895,7 @@ button:hover { background: rgba(255,255,255,.10); }
   cursor: pointer;
   min-width: 0;
   display: block;
+  align-self: center;
 }
 .treeCollectionNameWrap,
 .treeFolderNameWrap {
@@ -1917,11 +1919,14 @@ button:hover { background: rgba(255,255,255,.10); }
 .treeFolderCount,
 .treeCollectionCount {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   color: rgba(255,255,255,.42);
   font-size: 11px;
   line-height: 1.15;
   font-weight: 400;
   letter-spacing: 0;
+  transform: translateY(0.5px);
 }
 .treeNameEditing { cursor: text; outline: none; }
 .treeNameEditing:focus { outline: none; }
@@ -1938,6 +1943,8 @@ button:hover { background: rgba(255,255,255,.10); }
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 18px;
+  height: 18px;
   background: transparent;
   border: 0;
   color: rgba(255,255,255,.75);
@@ -1955,7 +1962,7 @@ button:hover { background: rgba(255,255,255,.10); }
   opacity: 1;
   pointer-events: auto;
 }
-.treeMenuBtn::before { content: '⋯'; font-size: 18px; line-height: 1; display: block; transform: translateY(-1px); }
+.treeMenuBtn::before { content: '⋯'; font-size: 18px; line-height: 1; display: block; }
 .treeMenuBtn:hover { background: rgba(255,255,255,.08); color: rgba(255,255,255,.95); }
 .treeSummaryDnd:hover .treeMenuBtn:disabled,
 .treeSummaryDnd:focus-within .treeMenuBtn:disabled,
