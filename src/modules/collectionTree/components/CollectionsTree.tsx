@@ -1,13 +1,22 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent } from 'react'
-import type { Collection, Folder, RequestItem, TreeSortMode } from '../types'
+import type {
+  Collection,
+  CollectionTreeDropTarget,
+  Folder,
+  RequestItem,
+  TreeSortMode,
+  TreeDropPosition,
+  WorkspaceCollectionDropTarget,
+} from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import { copyText } from '../../../shared/utils/clipboard'
-import { asCollectionDropArgs, handleCollectionTreeDrop, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
+import { getDragKind, getDropPosition, onCollectionDragStart as setCollectionDragData, onDragOverMove, onFolderDragStart as setFolderDragData, onRequestDragStart as setRequestDragData } from '../utils/treeDndHandlers'
 import { buildPostmanCollectionFromRufCollection } from '../../export/rufCollection/rufCollectionExporter'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 import { logWarn } from '../../../shared/utils/logger'
+import { readDraggedCollection, readDraggedFolder, readDraggedRequest } from '../utils/treeDragDrop'
 
 const TREE_OPEN_STATE_KEY = 'ruf_tree_open_state_v1'
 
@@ -98,6 +107,21 @@ async function saveTextWithSuggestedName(args: { suggestedName: string, text: st
 export function CollectionsTree(props: {
   collections: Collection[]
   scopeId?: string
+  workspaceFolderId?: string | null
+  draggingItem?: {
+    kind: 'collection' | 'folder' | 'request' | 'workspace-folder'
+    collectionId?: string
+    folderId?: string
+    requestId?: string
+    workspaceFolderId?: string
+  } | null
+  onDraggingItemChange?: (item: {
+    kind: 'collection' | 'folder' | 'request' | 'workspace-folder'
+    collectionId?: string
+    folderId?: string
+    requestId?: string
+    workspaceFolderId?: string
+  } | null) => void
   sortMode?: TreeSortMode
   environmentsByCollection: Record<string, Environment>
   activeRequestId?: string
@@ -128,6 +152,9 @@ export function CollectionsTree(props: {
   onDuplicateCollection: (collectionId: string) => void
   onDuplicateFolder: (collectionId: string, folderId: string) => void
   onDuplicateRequest: (collectionId: string, requestId: string) => void
+  onDropCollectionAtTarget?: (collectionId: string, target: WorkspaceCollectionDropTarget) => void
+  onDropFolderAtTarget: (collectionId: string, folderId: string, target: CollectionTreeDropTarget) => void
+  onDropRequestAtTarget: (collectionId: string, requestId: string, target: CollectionTreeDropTarget) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
   onMoveFolderToCollection?: (sourceCollectionId: string, folderId: string, targetCollectionId: string, targetParentFolderId: string | null) => void
@@ -138,6 +165,8 @@ export function CollectionsTree(props: {
 }) {
   type EditingTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
   type OpenMenuTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
+  type RowDropTarget = { kind: 'collection' | 'folder' | 'request', id: string, position: TreeDropPosition } | null
+  type InvalidDropTarget = { kind: 'collection' | 'folder' | 'request', id: string } | null
   const scopeId = props.scopeId ?? 'root'
 
   const sortMode = props.sortMode ?? 'none'
@@ -187,6 +216,8 @@ export function CollectionsTree(props: {
 
   const [editing, setEditing] = useState<EditingTarget>(null)
   const [draftName, setDraftName] = useState('')
+  const [dropTarget, setDropTarget] = useState<RowDropTarget>(null)
+  const [invalidDropTarget, setInvalidDropTarget] = useState<InvalidDropTarget>(null)
   const nameEditableRef = useRef<HTMLElement | null>(null)
   const suppressNextBlurRef = useRef(false)
   const [localOpenMenu, setLocalOpenMenu] = useState<OpenMenuTarget>(null)
@@ -196,6 +227,7 @@ export function CollectionsTree(props: {
   const lastAppliedTreeCommandNonceRef = useRef<number | null>(null)
   const [, setDraggingFolder] = useState<{ collectionId: string, folderId: string } | null>(null)
   const [, setDraggingRequest] = useState<{ collectionId: string, requestId: string } | null>(null)
+  const draggingItem = props.draggingItem ?? null
   const openMenu = props.sharedOpenMenu?.scopeId === scopeId
     ? { kind: props.sharedOpenMenu.kind, id: props.sharedOpenMenu.id }
     : (props.onSharedOpenMenuChange ? null : localOpenMenu)
@@ -206,6 +238,20 @@ export function CollectionsTree(props: {
     }
     setLocalOpenMenu(menu)
   }
+
+  useEffect(() => {
+    function clearDropTarget() {
+      setDropTarget(null)
+      setInvalidDropTarget(null)
+    }
+
+    window.addEventListener('dragend', clearDropTarget)
+    window.addEventListener('drop', clearDropTarget)
+    return () => {
+      window.removeEventListener('dragend', clearDropTarget)
+      window.removeEventListener('drop', clearDropTarget)
+    }
+  }, [])
 
   useLayoutEffect(() => {
     const cmd = props.treeOpenCommand
@@ -289,6 +335,38 @@ export function CollectionsTree(props: {
     requestCountByCollection[col.id] = (col.requests ?? []).length + col.folders.reduce((n, f) => n + countRequests(f), 0)
   }
 
+  function containsFolderId(folder: Folder, targetId: string): boolean {
+    if (folder.id === targetId) return true
+    return (folder.folders ?? []).some(child => containsFolderId(child, targetId))
+  }
+
+  function findFolderInCollections(folderId: string): { collectionId: string, folder: Folder } | null {
+    function findInFolders(folders: Folder[], collectionId: string): { collectionId: string, folder: Folder } | null {
+      for (const folder of folders) {
+        if (folder.id === folderId) return { collectionId, folder }
+        const nested = findInFolders(folder.folders ?? [], collectionId)
+        if (nested) return nested
+      }
+      return null
+    }
+
+    for (const collection of props.collections) {
+      const found = findInFolders(collection.folders, collection.id)
+      if (found) return found
+    }
+    return null
+  }
+
+  function clearDropFeedback() {
+    setDropTarget(null)
+    setInvalidDropTarget(null)
+  }
+
+  function markInvalidDrop(kind: NonNullable<InvalidDropTarget>['kind'], id: string) {
+    setDropTarget(null)
+    setInvalidDropTarget({ kind, id })
+  }
+
   useEffect(() => {
     saveTreeOpenState({ collections: Array.from(openCollections), folders: Array.from(openFolders) })
   }, [openCollections, openFolders])
@@ -365,20 +443,193 @@ export function CollectionsTree(props: {
 
   function onFolderDragStart(e: DragEvent<HTMLElement>, collectionId: string, folderId: string) {
     setDraggingFolder({ collectionId, folderId })
+    props.onDraggingItemChange?.({ kind: 'folder', collectionId, folderId })
     setFolderDragData(e, collectionId, folderId)
   }
 
   function onFolderDragEnd() {
     setDraggingFolder(null)
+    props.onDraggingItemChange?.(null)
   }
 
   function onRequestDragStart(e: DragEvent<HTMLElement>, collectionId: string, requestId: string) {
     setDraggingRequest({ collectionId, requestId })
+    props.onDraggingItemChange?.({ kind: 'request', collectionId, requestId })
     setRequestDragData(e, collectionId, requestId)
   }
 
   function onRequestDragEnd() {
     setDraggingRequest(null)
+    props.onDraggingItemChange?.(null)
+  }
+
+  function onCollectionRowDragOver(e: DragEvent<HTMLElement>, collectionId: string) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind) return
+    if (dragKind === 'workspace-folder') {
+      clearDropFeedback()
+      return
+    }
+    if (dragKind !== 'collection') {
+      onDragOverMove(e)
+      setInvalidDropTarget(null)
+      setDropTarget({ kind: 'collection', id: collectionId, position: 'inside' })
+      return
+    }
+    const draggedCollectionId = draggingItem?.kind === 'collection' ? draggingItem.collectionId : readDraggedCollection(e.dataTransfer)?.collectionId
+    if (!draggedCollectionId) return
+    if (draggedCollectionId === collectionId) {
+      markInvalidDrop('collection', collectionId)
+      return
+    }
+    onDragOverMove(e)
+    setInvalidDropTarget(null)
+    setDropTarget({ kind: 'collection', id: collectionId, position: getDropPosition(e, { allowInside: false }) })
+  }
+
+  function onFolderRowDragOver(e: DragEvent<HTMLElement>, col: Collection, folder: Folder) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind) return
+    if (dragKind === 'collection' || dragKind === 'workspace-folder') {
+      clearDropFeedback()
+      return
+    }
+    if (dragKind === 'request') {
+      onDragOverMove(e)
+      setInvalidDropTarget(null)
+      setDropTarget({ kind: 'folder', id: folder.id, position: 'inside' })
+      return
+    }
+    const dragged = draggingItem?.kind === 'folder'
+      ? { collectionId: draggingItem.collectionId ?? '', folderId: draggingItem.folderId ?? '' }
+      : readDraggedFolder(e.dataTransfer)
+    if (!dragged?.collectionId || !dragged.folderId) return
+    const draggedFolder = findFolderInCollections(dragged.folderId)
+    if (
+      dragged.folderId === folder.id
+      || (dragged.collectionId === col.id && draggedFolder?.folder && containsFolderId(draggedFolder.folder, folder.id))
+    ) {
+      markInvalidDrop('folder', folder.id)
+      return
+    }
+    onDragOverMove(e)
+    setInvalidDropTarget(null)
+    setDropTarget({ kind: 'folder', id: folder.id, position: getDropPosition(e, { allowInside: true }) })
+  }
+
+  function onRequestRowDragOver(e: DragEvent<HTMLElement>, requestId: string) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind || dragKind !== 'request') {
+      clearDropFeedback()
+      return
+    }
+    const draggedRequestId = draggingItem?.kind === 'request' ? draggingItem.requestId : readDraggedRequest(e.dataTransfer)?.requestId
+    if (!draggedRequestId) return
+    if (draggedRequestId === requestId) {
+      markInvalidDrop('request', requestId)
+      return
+    }
+    onDragOverMove(e)
+    setInvalidDropTarget(null)
+    setDropTarget({ kind: 'request', id: requestId, position: getDropPosition(e, { allowInside: false }) })
+  }
+
+  function onCollectionRowDrop(e: DragEvent<HTMLElement>, collectionId: string) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind) return
+    e.preventDefault()
+    e.stopPropagation()
+    const position = dragKind === 'collection' ? getDropPosition(e, { allowInside: false }) : 'inside'
+    clearDropFeedback()
+
+    if (dragKind === 'collection') {
+      props.onDropCollectionAtTarget?.(collectionId, {
+        workspaceFolderId: props.workspaceFolderId ?? null,
+        targetCollectionId: collectionId,
+        position: position === 'before' ? 'before' : 'after',
+      })
+      return
+    }
+    if (dragKind === 'folder') {
+      const dragged = draggingItem?.kind === 'folder'
+        ? { collectionId: draggingItem.collectionId ?? '', folderId: draggingItem.folderId ?? '' }
+        : readDraggedFolder(e.dataTransfer)
+      if (!dragged) return
+      props.onDropFolderAtTarget(dragged.collectionId, dragged.folderId, {
+        collectionId,
+        targetType: 'root',
+        targetId: null,
+        parentFolderId: null,
+        position: 'inside',
+      })
+      return
+    }
+    if (dragKind === 'request') {
+      const dragged = draggingItem?.kind === 'request'
+        ? { collectionId: draggingItem.collectionId ?? '', requestId: draggingItem.requestId ?? '' }
+        : readDraggedRequest(e.dataTransfer)
+      if (!dragged) return
+      props.onDropRequestAtTarget(dragged.collectionId, dragged.requestId, {
+        collectionId,
+        targetType: 'root',
+        targetId: null,
+        parentFolderId: null,
+        position: 'inside',
+      })
+    }
+  }
+
+  function onFolderRowDrop(e: DragEvent<HTMLElement>, col: Collection, folder: Folder) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind) return
+    e.preventDefault()
+    e.stopPropagation()
+    const position = dragKind === 'request' ? 'inside' : getDropPosition(e, { allowInside: true })
+    clearDropFeedback()
+
+    const target: CollectionTreeDropTarget = {
+      collectionId: col.id,
+      targetType: 'folder',
+      targetId: folder.id,
+      parentFolderId: null,
+      position,
+    }
+
+    if (dragKind === 'folder') {
+      const dragged = draggingItem?.kind === 'folder'
+        ? { collectionId: draggingItem.collectionId ?? '', folderId: draggingItem.folderId ?? '' }
+        : readDraggedFolder(e.dataTransfer)
+      if (!dragged) return
+      props.onDropFolderAtTarget(dragged.collectionId, dragged.folderId, target)
+      return
+    }
+    if (dragKind === 'request') {
+      const dragged = draggingItem?.kind === 'request'
+        ? { collectionId: draggingItem.collectionId ?? '', requestId: draggingItem.requestId ?? '' }
+        : readDraggedRequest(e.dataTransfer)
+      if (!dragged) return
+      props.onDropRequestAtTarget(dragged.collectionId, dragged.requestId, target)
+    }
+  }
+
+  function onRequestRowDrop(e: DragEvent<HTMLElement>, col: Collection, requestId: string, parentFolderId: string | null) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind || dragKind !== 'request') return
+    e.preventDefault()
+    e.stopPropagation()
+    const position = getDropPosition(e, { allowInside: false })
+    clearDropFeedback()
+    const dragged = draggingItem?.kind === 'request'
+      ? { collectionId: draggingItem.collectionId ?? '', requestId: draggingItem.requestId ?? '' }
+      : readDraggedRequest(e.dataTransfer)
+    if (!dragged) return
+    props.onDropRequestAtTarget(dragged.collectionId, dragged.requestId, {
+      collectionId: col.id,
+      targetType: 'request',
+      targetId: requestId,
+      parentFolderId,
+      position: position === 'before' ? 'before' : 'after',
+    })
   }
 
   function renderFolder(col: Collection, folder: Folder) {
@@ -386,6 +637,8 @@ export function CollectionsTree(props: {
     const reqCount = countFolderItems(folder)
     const isEditing = editing?.kind === 'folder' && editing.id === folder.id
     const isFolderMenuOpen = openMenu?.kind === 'folder' && openMenu.id === folder.id && !isEditing
+    const folderDropPosition = dropTarget?.kind === 'folder' && dropTarget.id === folder.id ? dropTarget.position : null
+    const isFolderDropInvalid = invalidDropTarget?.kind === 'folder' && invalidDropTarget.id === folder.id
 
     function startRename() {
       suppressNextBlurRef.current = false
@@ -437,7 +690,7 @@ export function CollectionsTree(props: {
           }}
         >
           <div
-            className="treeSummaryDnd"
+            className={`treeSummaryDnd${folderDropPosition ? ` treeDropTarget treeDropTarget${folderDropPosition[0].toUpperCase()}${folderDropPosition.slice(1)}` : ''}${isFolderDropInvalid ? ' treeDropInvalid' : ''}`}
             draggable={!isEditing}
             onDragStart={e => {
               if (isEditing) return
@@ -448,16 +701,10 @@ export function CollectionsTree(props: {
               onFolderDragEnd()
             }}
             onDragOver={e => {
-              onDragOverMove(e)
+              onFolderRowDragOver(e, col, folder)
             }}
             onDrop={e => {
-              handleCollectionTreeDrop(e, {
-                ...asCollectionDropArgs(col, folder.id),
-                onMoveFolder: props.onMoveFolder,
-                onMoveRequest: props.onMoveRequest,
-                onMoveFolderToCollection: props.onMoveFolderToCollection,
-                onMoveRequestToCollection: props.onMoveRequestToCollection,
-              })
+              onFolderRowDrop(e, col, folder)
             }}
           >
           <span className="treeChevron" aria-hidden="true" />
@@ -711,6 +958,8 @@ export function CollectionsTree(props: {
             const active = props.activeRequestId === r.id
             const isEditingRequest = editing?.kind === 'request' && editing.id === r.id
             const isRequestMenuOpen = openMenu?.kind === 'request' && openMenu.id === r.id && !isEditingRequest
+            const requestDropPosition = dropTarget?.kind === 'request' && dropTarget.id === r.id ? dropTarget.position : null
+            const isRequestDropInvalid = invalidDropTarget?.kind === 'request' && invalidDropTarget.id === r.id
 
             function startRenameRequest() {
               suppressNextBlurRef.current = false
@@ -734,11 +983,19 @@ export function CollectionsTree(props: {
             return (
               <div
                 key={r.id}
-                className={`treeItem ${active ? 'treeItemActive' : ''}`}
+                className={`treeItem ${active ? 'treeItemActive' : ''}${requestDropPosition ? ` treeDropTarget treeDropTarget${requestDropPosition[0].toUpperCase()}${requestDropPosition.slice(1)}` : ''}${isRequestDropInvalid ? ' treeDropInvalid' : ''}`}
                 draggable={!isEditingRequest}
                 onClick={() => {
                   if (isEditingRequest) return
                   props.onPickRequest(r, col)
+                }}
+                onDragOver={e => {
+                  if (isEditingRequest) return
+                  onRequestRowDragOver(e, r.id)
+                }}
+                onDrop={e => {
+                  if (isEditingRequest) return
+                  onRequestRowDrop(e, col, r.id, folder.id)
                 }}
                 onDragStart={e => {
                   if (isEditingRequest) return
@@ -970,6 +1227,8 @@ export function CollectionsTree(props: {
             const reqCount = requestCountByCollection[col.id] ?? 0
             const isEditing = editing?.kind === 'collection' && editing.id === col.id
             const isMenuOpen = !isEditing && openMenu?.kind === 'collection' && openMenu.id === col.id
+            const collectionDropPosition = dropTarget?.kind === 'collection' && dropTarget.id === col.id ? dropTarget.position : null
+            const isCollectionDropInvalid = invalidDropTarget?.kind === 'collection' && invalidDropTarget.id === col.id
 
             function startRename() {
               suppressNextBlurRef.current = false
@@ -1008,23 +1267,21 @@ export function CollectionsTree(props: {
                   }}
                 >
                   <div
-                    className="treeSummaryDnd"
+                    className={`treeSummaryDnd${collectionDropPosition ? ` treeDropTarget treeDropTarget${collectionDropPosition[0].toUpperCase()}${collectionDropPosition.slice(1)}` : ''}${isCollectionDropInvalid ? ' treeDropInvalid' : ''}`}
                     draggable={!isEditing}
                     onDragStart={e => {
                       if (isEditing) return
+                      props.onDraggingItemChange?.({ kind: 'collection', collectionId: col.id })
                       setCollectionDragData(e, col.id)
                     }}
+                    onDragEnd={() => {
+                      props.onDraggingItemChange?.(null)
+                    }}
                     onDragOver={e => {
-                      onDragOverMove(e)
+                      onCollectionRowDragOver(e, col.id)
                     }}
                     onDrop={e => {
-                      handleCollectionTreeDrop(e, {
-                        ...asCollectionDropArgs(col, null),
-                        onMoveFolder: props.onMoveFolder,
-                        onMoveRequest: props.onMoveRequest,
-                        onMoveFolderToCollection: props.onMoveFolderToCollection,
-                        onMoveRequestToCollection: props.onMoveRequestToCollection,
-                      })
+                      onCollectionRowDrop(e, col.id)
                     }}
                   >
                   <span className="treeChevron" aria-hidden="true" />
@@ -1375,6 +1632,8 @@ export function CollectionsTree(props: {
               const active = props.activeRequestId === r.id
               const isEditingRequest = editing?.kind === 'request' && editing.id === r.id
               const isRequestMenuOpen = openMenu?.kind === 'request' && openMenu.id === r.id && !isEditingRequest
+              const requestDropPosition = dropTarget?.kind === 'request' && dropTarget.id === r.id ? dropTarget.position : null
+              const isRequestDropInvalid = invalidDropTarget?.kind === 'request' && invalidDropTarget.id === r.id
 
               function startRenameRequest() {
                 suppressNextBlurRef.current = false
@@ -1398,11 +1657,19 @@ export function CollectionsTree(props: {
                 return (
                   <div
                     key={r.id}
-                    className={`treeItem ${active ? 'treeItemActive' : ''}`}
+                    className={`treeItem ${active ? 'treeItemActive' : ''}${requestDropPosition ? ` treeDropTarget treeDropTarget${requestDropPosition[0].toUpperCase()}${requestDropPosition.slice(1)}` : ''}${isRequestDropInvalid ? ' treeDropInvalid' : ''}`}
                     draggable={!isEditingRequest}
                     onClick={() => {
                     if (isEditingRequest) return
                     props.onPickRequest(r, col)
+                  }}
+                  onDragOver={e => {
+                    if (isEditingRequest) return
+                    onRequestRowDragOver(e, r.id)
+                  }}
+                  onDrop={e => {
+                    if (isEditingRequest) return
+                    onRequestRowDrop(e, col, r.id, null)
                   }}
                   onDragStart={e => {
                     if (isEditingRequest) return

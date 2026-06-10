@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react'
-import type { Collection } from '../types'
-import { readDraggedCollection, readDraggedFolder, readDraggedRequest, readDraggedWorkspaceFolder, setDraggedCollection, setDraggedFolder, setDraggedRequest, setDraggedWorkspaceFolder } from './treeDragDrop'
+import type { Collection, TreeDropPosition } from '../types'
+import { readDraggedCollection, readDraggedFolder, readDraggedKind, readDraggedRequest, readDraggedWorkspaceFolder, setDraggedCollection, setDraggedFolder, setDraggedRequest, setDraggedWorkspaceFolder } from './treeDragDrop'
 
 function isFileDrag(dt: DataTransfer | null) {
   if (!dt) return false
@@ -10,6 +10,22 @@ function isFileDrag(dt: DataTransfer | null) {
 export function onDragOverMove<T extends HTMLElement>(e: DragEvent<T>) {
   e.preventDefault()
   e.dataTransfer.dropEffect = isFileDrag(e.dataTransfer) ? 'copy' : 'move'
+}
+
+export function getDragKind<T extends HTMLElement>(e: DragEvent<T>) {
+  if (isFileDrag(e.dataTransfer)) return null
+  return readDraggedKind(e.dataTransfer)
+}
+
+export function getDropPosition<T extends HTMLElement>(e: DragEvent<T>, opts?: { allowInside?: boolean }): TreeDropPosition {
+  const rect = e.currentTarget.getBoundingClientRect()
+  const y = e.clientY - rect.top
+  const allowInside = opts?.allowInside ?? true
+  if (!allowInside) return y < rect.height / 2 ? 'before' : 'after'
+  const edge = Math.min(12, rect.height * 0.25)
+  if (y <= edge) return 'before'
+  if (y >= rect.height - edge) return 'after'
+  return 'inside'
 }
 
 export function onCollectionDragStart<T extends HTMLElement>(e: DragEvent<T>, collectionId: string) {

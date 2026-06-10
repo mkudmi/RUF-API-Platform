@@ -1,7 +1,19 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { BackIcon, CloseIcon, FunctionIcon, MaximizeIcon, MinimizeIcon, PlayIcon, SettingsIcon } from '../shared/icons'
 import { SidebarCreateMenu } from '../shared/components/SidebarCreateMenu'
-import { WorkspaceTree, syncCollectionKeepingIds, summarizeCollectionDiff, type Collection, type Folder, type HttpMethod, type RequestItem, type TreeSortMode } from '../modules/collectionTree'
+import {
+  WorkspaceTree,
+  syncCollectionKeepingIds,
+  summarizeCollectionDiff,
+  type Collection,
+  type CollectionTreeDropTarget,
+  type Folder,
+  type HttpMethod,
+  type RequestItem,
+  type TreeSortMode,
+  type WorkspaceCollectionDropTarget,
+  type WorkspaceFolderDropTarget,
+} from '../modules/collectionTree'
 import { RequestEditor } from '../modules/requestEditor'
 import { ResponseViewer } from '../modules/responseViewer'
 import { ImportFab, buildImportedCollectionFromText } from '../modules/import'
@@ -2889,6 +2901,266 @@ export default function App() {
     })
   }
 
+  function dropFolderAtTarget(sourceCollectionId: string, folderId: string, target: CollectionTreeDropTarget) {
+    if (target.targetType === 'root') {
+      moveFolderToCollection(sourceCollectionId, folderId, target.collectionId, null)
+      return
+    }
+    if (target.targetType !== 'folder') return
+    if (target.position === 'inside') {
+      moveFolderToCollection(sourceCollectionId, folderId, target.collectionId, target.targetId)
+      return
+    }
+    if (folderId === target.targetId) return
+
+    setCollections(prev => {
+      const source = prev.find(c => c.id === sourceCollectionId) ?? null
+      const targetCollection = prev.find(c => c.id === target.collectionId) ?? null
+      if (!source || !targetCollection) return prev
+
+      function findFolder(folders: Folder[], id: string): Folder | null {
+        for (const folder of folders) {
+          if (folder.id === id) return folder
+          const found = findFolder(folder.folders ?? [], id)
+          if (found) return found
+        }
+        return null
+      }
+
+      function containsFolderId(folder: Folder, id: string): boolean {
+        if (folder.id === id) return true
+        return (folder.folders ?? []).some(child => containsFolderId(child, id))
+      }
+
+      function removeFolder(folders: Folder[]): { folders: Folder[], removed: Folder | null, changed: boolean } {
+        let changed = false
+        let removed: Folder | null = null
+        const nextFolders: Folder[] = []
+
+        for (const folder of folders) {
+          if (!removed && folder.id === folderId) {
+            removed = folder
+            changed = true
+            continue
+          }
+          const nested = folder.folders ?? []
+          if (!removed && nested.length) {
+            const child = removeFolder(nested)
+            if (child.changed) {
+              changed = true
+              removed = child.removed
+              nextFolders.push(child.folders.length ? { ...folder, folders: child.folders } : { ...folder, folders: undefined })
+              continue
+            }
+          }
+          nextFolders.push(folder)
+        }
+
+        return { folders: nextFolders, removed, changed }
+      }
+
+      function insertFolderRelative(folders: Folder[], targetFolderId: string, position: 'before' | 'after', folderToInsert: Folder): { folders: Folder[], inserted: boolean } {
+        const index = folders.findIndex(folder => folder.id === targetFolderId)
+        if (index >= 0) {
+          const nextFolders = [...folders]
+          const insertAt = position === 'before' ? index : index + 1
+          nextFolders.splice(insertAt, 0, folderToInsert)
+          return { folders: nextFolders, inserted: true }
+        }
+
+        let inserted = false
+        const nextFolders = folders.map(folder => {
+          if (inserted) return folder
+          const nested = folder.folders ?? []
+          if (!nested.length) return folder
+          const child = insertFolderRelative(nested, targetFolderId, position, folderToInsert)
+          if (!child.inserted) return folder
+          inserted = true
+          return child.folders.length ? { ...folder, folders: child.folders } : { ...folder, folders: undefined }
+        })
+
+        return { folders: nextFolders, inserted }
+      }
+
+      function findRequestInFolder(folder: Folder, requestId: string): RequestItem | null {
+        const found = folder.requests.find(request => request.id === requestId) ?? null
+        if (found) return found
+        for (const child of folder.folders ?? []) {
+          const nested = findRequestInFolder(child, requestId)
+          if (nested) return nested
+        }
+        return null
+      }
+
+      const movingFolder = findFolder(source.folders, folderId)
+      if (!movingFolder) return prev
+      if (containsFolderId(movingFolder, target.targetId)) return prev
+
+      const removed = removeFolder(source.folders)
+      if (!removed.changed || !removed.removed) return prev
+
+      const sourceFolders = removed.folders
+      const targetFoldersBase = sourceCollectionId === target.collectionId ? sourceFolders : targetCollection.folders
+      const relativePosition = target.position === 'before' ? 'before' : 'after'
+      const inserted = insertFolderRelative(targetFoldersBase, target.targetId, relativePosition, removed.removed)
+      if (!inserted.inserted) return prev
+
+      const updatedSource: Collection = { ...source, folders: sourceFolders }
+      const updatedTarget: Collection = sourceCollectionId === target.collectionId
+        ? { ...targetCollection, folders: inserted.folders }
+        : { ...targetCollection, folders: inserted.folders }
+
+      const next = prev.map(collection => {
+        if (collection.id === sourceCollectionId && collection.id === target.collectionId) return updatedTarget
+        if (collection.id === sourceCollectionId) return updatedSource
+        if (collection.id === target.collectionId) return updatedTarget
+        return collection
+      })
+
+      saveCollections(next)
+
+      if (sourceCollectionId !== target.collectionId && active?.col.id === sourceCollectionId) {
+        const movedActive = findRequestInFolder(removed.removed, active.req.id)
+        if (movedActive) setActive({ col: updatedTarget, req: movedActive })
+      }
+
+      return next
+    })
+  }
+
+  function dropRequestAtTarget(sourceCollectionId: string, requestId: string, target: CollectionTreeDropTarget) {
+    if (target.targetType === 'root') {
+      moveRequestToCollection(sourceCollectionId, requestId, target.collectionId, null)
+      return
+    }
+    if (target.targetType === 'folder' && target.position === 'inside') {
+      moveRequestToCollection(sourceCollectionId, requestId, target.collectionId, target.targetId)
+      return
+    }
+    if (target.targetType !== 'request') return
+    if (requestId === target.targetId) return
+
+    setCollections(prev => {
+      const source = prev.find(c => c.id === sourceCollectionId) ?? null
+      const targetCollection = prev.find(c => c.id === target.collectionId) ?? null
+      if (!source || !targetCollection) return prev
+
+      let movedRequest: RequestItem | null = null
+
+      function removeRequestFromFolders(folders: Folder[]): { folders: Folder[], removed: boolean } {
+        let removed = false
+        const nextFolders = folders.map(folder => {
+          let nextFolder = folder
+          const requestIndex = folder.requests.findIndex(request => request.id === requestId)
+          if (requestIndex >= 0) {
+            removed = true
+            movedRequest = folder.requests[requestIndex] ?? movedRequest
+            nextFolder = {
+              ...nextFolder,
+              requests: [...folder.requests.slice(0, requestIndex), ...folder.requests.slice(requestIndex + 1)],
+            }
+          }
+
+          const nested = folder.folders ?? []
+          if (nested.length) {
+            const child = removeRequestFromFolders(nested)
+            if (child.removed) {
+              removed = true
+              nextFolder = { ...nextFolder, folders: child.folders }
+            }
+          }
+
+          return nextFolder
+        })
+
+        return { folders: nextFolders, removed }
+      }
+
+      function insertRequestRelativeInFolders(
+        folders: Folder[],
+        targetRequestId: string,
+        position: 'before' | 'after',
+        requestToInsert: RequestItem,
+      ): { folders: Folder[], inserted: boolean } {
+        let inserted = false
+        const nextFolders = folders.map(folder => {
+          if (inserted) return folder
+          const requestIndex = folder.requests.findIndex(request => request.id === targetRequestId)
+          if (requestIndex >= 0) {
+            inserted = true
+            const nextRequests = [...folder.requests]
+            const insertAt = position === 'before' ? requestIndex : requestIndex + 1
+            nextRequests.splice(insertAt, 0, requestToInsert)
+            return { ...folder, requests: nextRequests }
+          }
+          const nested = folder.folders ?? []
+          if (!nested.length) return folder
+          const child = insertRequestRelativeInFolders(nested, targetRequestId, position, requestToInsert)
+          if (!child.inserted) return folder
+          inserted = true
+          return { ...folder, folders: child.folders }
+        })
+        return { folders: nextFolders, inserted }
+      }
+
+      const sourceRequests = source.requests ?? []
+      const targetCollectionRequests = targetCollection.requests ?? []
+      const directIndex = sourceRequests.findIndex(request => request.id === requestId)
+      const sourceDirectRequests = directIndex >= 0
+        ? [...sourceRequests.slice(0, directIndex), ...sourceRequests.slice(directIndex + 1)]
+        : sourceRequests
+      if (directIndex >= 0) movedRequest = sourceRequests[directIndex] ?? null
+
+      const sourceFoldersRemoved = directIndex >= 0 ? { folders: source.folders, removed: false } : removeRequestFromFolders(source.folders)
+      if (!movedRequest) return prev
+
+      const sourceFolders = sourceFoldersRemoved.folders
+      const targetFoldersBase = sourceCollectionId === target.collectionId ? sourceFolders : targetCollection.folders
+      const targetDirectBase = sourceCollectionId === target.collectionId ? sourceDirectRequests : targetCollectionRequests
+
+      let targetRequests = targetDirectBase
+      let targetFolders = targetFoldersBase
+      let inserted = false
+
+      if (target.parentFolderId === null) {
+        const targetIndex = targetRequests.findIndex(request => request.id === target.targetId)
+        if (targetIndex >= 0) {
+          targetRequests = [...targetRequests]
+          const insertAt = target.position === 'before' ? targetIndex : targetIndex + 1
+          targetRequests.splice(insertAt, 0, movedRequest)
+          inserted = true
+        }
+      } else {
+        const relativePosition = target.position === 'before' ? 'before' : 'after'
+        const relative = insertRequestRelativeInFolders(targetFolders, target.targetId, relativePosition, movedRequest)
+        targetFolders = relative.folders
+        inserted = relative.inserted
+      }
+
+      if (!inserted) return prev
+
+      const updatedSource: Collection = { ...source, requests: sourceDirectRequests, folders: sourceFolders }
+      const updatedTarget: Collection = sourceCollectionId === target.collectionId
+        ? { ...targetCollection, requests: targetRequests, folders: targetFolders }
+        : { ...targetCollection, requests: targetRequests, folders: targetFolders }
+
+      const next = prev.map(collection => {
+        if (collection.id === sourceCollectionId && collection.id === target.collectionId) return updatedTarget
+        if (collection.id === sourceCollectionId) return updatedSource
+        if (collection.id === target.collectionId) return updatedTarget
+        return collection
+      })
+
+      saveCollections(next)
+
+      if (active?.req.id === requestId && active.col.id === sourceCollectionId) {
+        setActive({ col: updatedTarget, req: movedRequest })
+      }
+
+      return next
+    })
+  }
+
   function confirmDeleteCollection() {
     const collectionId = confirmDeleteId
     if (!collectionId) return
@@ -3124,6 +3396,104 @@ export default function App() {
     })
   }
 
+  function dropWorkspaceFolderAtTarget(workspaceFolderId: string, target: WorkspaceFolderDropTarget) {
+    if (target.targetType === 'root') {
+      moveWorkspaceFolder(workspaceFolderId, null)
+      return
+    }
+    if (target.position === 'inside') {
+      moveWorkspaceFolder(workspaceFolderId, target.targetId)
+      return
+    }
+    if (workspaceFolderId === target.targetId) return
+
+    setWorkspace(prev => {
+      function findFolder(folders: WorkspaceFolder[], id: string): WorkspaceFolder | null {
+        for (const folder of folders) {
+          if (folder.id === id) return folder
+          const found = findFolder(folder.folders ?? [], id)
+          if (found) return found
+        }
+        return null
+      }
+
+      function containsFolderId(folder: WorkspaceFolder, id: string): boolean {
+        if (folder.id === id) return true
+        return (folder.folders ?? []).some(child => containsFolderId(child, id))
+      }
+
+      function removeFolder(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], removed: WorkspaceFolder | null, changed: boolean } {
+        let removed: WorkspaceFolder | null = null
+        let changed = false
+        const nextFolders: WorkspaceFolder[] = []
+
+        for (const folder of folders) {
+          if (!removed && folder.id === workspaceFolderId) {
+            removed = folder
+            changed = true
+            continue
+          }
+          const nested = folder.folders ?? []
+          if (!removed && nested.length) {
+            const child = removeFolder(nested)
+            if (child.changed) {
+              changed = true
+              removed = child.removed
+              nextFolders.push(child.folders.length ? { ...folder, folders: child.folders } : { ...folder, folders: undefined })
+              continue
+            }
+          }
+          nextFolders.push(folder)
+        }
+
+        return { folders: nextFolders, removed, changed }
+      }
+
+      function insertRelative(
+        folders: WorkspaceFolder[],
+        targetFolderId: string,
+        position: 'before' | 'after',
+        folderToInsert: WorkspaceFolder,
+      ): { folders: WorkspaceFolder[], inserted: boolean } {
+        const index = folders.findIndex(folder => folder.id === targetFolderId)
+        if (index >= 0) {
+          const nextFolders = [...folders]
+          const insertAt = position === 'before' ? index : index + 1
+          nextFolders.splice(insertAt, 0, folderToInsert)
+          return { folders: nextFolders, inserted: true }
+        }
+
+        let inserted = false
+        const nextFolders = folders.map(folder => {
+          if (inserted) return folder
+          const nested = folder.folders ?? []
+          if (!nested.length) return folder
+          const child = insertRelative(nested, targetFolderId, position, folderToInsert)
+          if (!child.inserted) return folder
+          inserted = true
+          return child.folders.length ? { ...folder, folders: child.folders } : { ...folder, folders: undefined }
+        })
+
+        return { folders: nextFolders, inserted }
+      }
+
+      const moving = findFolder(prev.folders, workspaceFolderId)
+      if (!moving) return prev
+      if (containsFolderId(moving, target.targetId)) return prev
+
+      const removed = removeFolder(prev.folders)
+      if (!removed.changed || !removed.removed) return prev
+
+      const relativePosition = target.position === 'before' ? 'before' : 'after'
+      const inserted = insertRelative(removed.folders, target.targetId, relativePosition, removed.removed)
+      if (!inserted.inserted) return prev
+
+      const next: Workspace = { ...prev, folders: inserted.folders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
   function moveCollectionToWorkspaceFolder(collectionId: string, workspaceFolderId: string | null) {
     setWorkspace(prev => {
       function moveInFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
@@ -3144,6 +3514,66 @@ export default function App() {
           return nextChildFolders?.length
             ? { ...f, collectionIds, folders: nextChildFolders }
             : { ...f, collectionIds, folders: undefined }
+        })
+        return { folders: nextFolders, changed }
+      }
+
+      const res = moveInFolders(prev.folders)
+      if (!res.changed) return prev
+      const next: Workspace = { ...prev, folders: res.folders }
+      saveWorkspace(next)
+      return next
+    })
+  }
+
+  function dropCollectionAtTarget(collectionId: string, target: WorkspaceCollectionDropTarget) {
+    if (target.position === 'inside') {
+      moveCollectionToWorkspaceFolder(collectionId, target.workspaceFolderId)
+      return
+    }
+    if (collectionId === target.targetCollectionId) return
+
+    if (target.workspaceFolderId === null) {
+      moveCollectionToWorkspaceFolder(collectionId, null)
+      setCollections(prev => {
+        const currentIndex = prev.findIndex(collection => collection.id === collectionId)
+        const targetIndex = prev.findIndex(collection => collection.id === target.targetCollectionId)
+        if (currentIndex < 0 || targetIndex < 0) return prev
+        const moving = prev[currentIndex]
+        const without = [...prev.slice(0, currentIndex), ...prev.slice(currentIndex + 1)]
+        const adjustedTargetIndex = currentIndex < targetIndex ? targetIndex - 1 : targetIndex
+        const insertAt = target.position === 'before' ? adjustedTargetIndex : adjustedTargetIndex + 1
+        without.splice(insertAt, 0, moving)
+        saveCollections(without)
+        return without
+      })
+      return
+    }
+
+    setWorkspace(prev => {
+      function moveInFolders(folders: WorkspaceFolder[]): { folders: WorkspaceFolder[], changed: boolean } {
+        let changed = false
+        const nextFolders = folders.map(folder => {
+          const filtered = folder.collectionIds.filter(id => id !== collectionId)
+          let collectionIds = filtered
+          if (folder.id === target.workspaceFolderId) {
+            const targetIndex = filtered.findIndex(id => id === target.targetCollectionId)
+            if (targetIndex >= 0) {
+              collectionIds = [...filtered]
+              const insertAt = target.position === 'before' ? targetIndex : targetIndex + 1
+              collectionIds.splice(insertAt, 0, collectionId)
+            }
+          }
+
+          const childRes = folder.folders?.length ? moveInFolders(folder.folders) : null
+          const nextChildFolders = childRes ? childRes.folders : folder.folders
+
+          const didChangeHere = collectionIds.length !== folder.collectionIds.length || collectionIds.some((value, index) => value !== folder.collectionIds[index])
+          if (didChangeHere || childRes?.changed) changed = true
+          if (!didChangeHere && !childRes?.changed) return folder
+          return nextChildFolders?.length
+            ? { ...folder, collectionIds, folders: nextChildFolders }
+            : { ...folder, collectionIds, folders: undefined }
         })
         return { folders: nextFolders, changed }
       }
@@ -3855,6 +4285,9 @@ export default function App() {
                 onDuplicateCollection={duplicateCollection}
                 onDuplicateFolder={duplicateFolder}
                 onDuplicateRequest={duplicateRequest}
+                onDropCollectionAtTarget={dropCollectionAtTarget}
+                onDropFolderAtTarget={dropFolderAtTarget}
+                onDropRequestAtTarget={dropRequestAtTarget}
                 onMoveFolder={moveFolder}
                 onMoveRequest={moveRequest}
                 onMoveFolderToCollection={moveFolderToCollection}
@@ -3864,6 +4297,7 @@ export default function App() {
                 onDeleteCollection={requestDeleteCollection}
                 onMoveCollectionToWorkspaceFolder={moveCollectionToWorkspaceFolder}
                 onMoveWorkspaceFolder={moveWorkspaceFolder}
+                onDropWorkspaceFolderAtTarget={dropWorkspaceFolderAtTarget}
                 onCreateCollectionInWorkspaceFolder={folderId => openCreateProject(folderId)}
                 onAddWorkspaceFolderToFolder={addWorkspaceFolderToFolder}
                 onRenameWorkspaceFolder={renameWorkspaceFolder}

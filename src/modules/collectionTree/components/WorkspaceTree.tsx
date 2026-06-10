@@ -1,13 +1,22 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Collection, RequestItem, TreeSortMode } from '../types'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react'
+import type {
+  Collection,
+  CollectionTreeDropTarget,
+  RequestItem,
+  TreeDropPosition,
+  TreeSortMode,
+  WorkspaceCollectionDropTarget,
+  WorkspaceFolderDropTarget,
+} from '../types'
 import type { Environment } from '../../../shared/types/environment'
 import type { Workspace, WorkspaceFolder } from '../../../shared/types/workspace'
-import { handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
+import { getDragKind, getDropPosition, handleWorkspaceDrop, onDragOverMove, onWorkspaceFolderDragStart } from '../utils/treeDndHandlers'
 import { getEffectiveWorkspaceSearchTreeOpenCommand, getSearchOpenWorkspaceFolders, getVisibleWorkspaceSearchTree, normalizeWorkspaceTreeSearch } from '../utils/workspaceTreeSearch'
 import { CollectionsTree } from './CollectionsTree'
 import { WorkspaceTreeSearchBar } from './WorkspaceTreeSearchBar'
 import { loadLocalStorageJson, saveLocalStorageJson } from '../../../shared/utils/localStorageJson'
 import { copyText } from '../../../shared/utils/clipboard'
+import { readDraggedCollection, readDraggedWorkspaceFolder } from '../utils/treeDragDrop'
 
 const WORKSPACE_OPEN_STATE_KEY = 'ruf_workspace_open_state_v1'
 
@@ -50,6 +59,9 @@ export function WorkspaceTree(props: {
   onDuplicateCollection: (collectionId: string) => void
   onDuplicateFolder: (collectionId: string, folderId: string) => void
   onDuplicateRequest: (collectionId: string, requestId: string) => void
+  onDropCollectionAtTarget: (collectionId: string, target: WorkspaceCollectionDropTarget) => void
+  onDropFolderAtTarget: (collectionId: string, folderId: string, target: CollectionTreeDropTarget) => void
+  onDropRequestAtTarget: (collectionId: string, requestId: string, target: CollectionTreeDropTarget) => void
   onMoveFolder: (collectionId: string, folderId: string, targetParentFolderId: string | null) => void
   onMoveRequest: (collectionId: string, requestId: string, targetFolderId: string | null) => void
   onMoveFolderToCollection?: (sourceCollectionId: string, folderId: string, targetCollectionId: string, targetParentFolderId: string | null) => void
@@ -59,6 +71,7 @@ export function WorkspaceTree(props: {
   onDeleteCollection: (collectionId: string) => void
   onMoveCollectionToWorkspaceFolder: (collectionId: string, workspaceFolderId: string | null) => void
   onMoveWorkspaceFolder: (workspaceFolderId: string, targetParentWorkspaceFolderId: string | null) => void
+  onDropWorkspaceFolderAtTarget: (workspaceFolderId: string, target: WorkspaceFolderDropTarget) => void
   onCreateCollectionInWorkspaceFolder: (workspaceFolderId: string) => void
   onAddWorkspaceFolderToFolder: (workspaceFolderId: string) => void
   onRenameWorkspaceFolder: (workspaceFolderId: string, name: string) => void
@@ -70,6 +83,8 @@ export function WorkspaceTree(props: {
     totalFolders: number
     openFolders: number
   }
+  type WorkspaceDropState = { id: string, position: TreeDropPosition } | null
+  type InvalidWorkspaceDropTarget = string | null
   type SharedTreeMenuTarget =
     | { scopeId: string, kind: 'workspace-folder', id: string }
     | { scopeId: string, kind: 'collection' | 'folder' | 'request', id: string }
@@ -83,6 +98,15 @@ export function WorkspaceTree(props: {
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [workspaceDropTarget, setWorkspaceDropTarget] = useState<WorkspaceDropState>(null)
+  const [invalidWorkspaceDropTarget, setInvalidWorkspaceDropTarget] = useState<InvalidWorkspaceDropTarget>(null)
+  const [draggingItem, setDraggingItem] = useState<{
+    kind: 'collection' | 'folder' | 'request' | 'workspace-folder'
+    collectionId?: string
+    folderId?: string
+    requestId?: string
+    workspaceFolderId?: string
+  } | null>(null)
   const editInputRef = useRef<HTMLInputElement | null>(null)
   const searchTerm = useMemo(() => normalizeWorkspaceTreeSearch(searchQuery), [searchQuery])
 
@@ -268,6 +292,39 @@ export function WorkspaceTree(props: {
     requestAnimationFrame(() => editInputRef.current?.focus())
   }, [editingFolderId])
 
+  useEffect(() => {
+    function clearDropTarget() {
+      setWorkspaceDropTarget(null)
+      setInvalidWorkspaceDropTarget(null)
+      setDraggingItem(null)
+    }
+
+    window.addEventListener('dragend', clearDropTarget)
+    window.addEventListener('drop', clearDropTarget)
+    return () => {
+      window.removeEventListener('dragend', clearDropTarget)
+      window.removeEventListener('drop', clearDropTarget)
+    }
+  }, [])
+
+  function containsWorkspaceFolderId(folder: WorkspaceFolder, targetId: string): boolean {
+    if (folder.id === targetId) return true
+    return (folder.folders ?? []).some(child => containsWorkspaceFolderId(child, targetId))
+  }
+
+  function findWorkspaceFolderById(folderId: string): WorkspaceFolder | null {
+    function findInFolders(folders: WorkspaceFolder[]): WorkspaceFolder | null {
+      for (const folder of folders) {
+        if (folder.id === folderId) return folder
+        const nested = findInFolders(folder.folders ?? [])
+        if (nested) return nested
+      }
+      return null
+    }
+
+    return findInFolders(props.workspace.folders)
+  }
+
   const { rootCollections, collectionsByWorkspaceFolderId } = useMemo(() => {
     const byId = new Map(visibleCollections.map(c => [c.id, c]))
 
@@ -303,10 +360,75 @@ export function WorkspaceTree(props: {
     })
   }, [rootCollections.length])
 
+  function onWorkspaceFolderRowDragOver(e: DragEvent<HTMLElement>, folderId: string) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind || dragKind === 'request' || dragKind === 'folder') {
+      setWorkspaceDropTarget(null)
+      setInvalidWorkspaceDropTarget(null)
+      return
+    }
+    if (dragKind === 'workspace-folder') {
+      const dragged = draggingItem?.kind === 'workspace-folder'
+        ? { workspaceFolderId: draggingItem.workspaceFolderId ?? '' }
+        : readDraggedWorkspaceFolder(e.dataTransfer)
+      if (!dragged) return
+      const draggedFolder = findWorkspaceFolderById(dragged.workspaceFolderId)
+      if (
+        dragged.workspaceFolderId === folderId
+        || (draggedFolder && containsWorkspaceFolderId(draggedFolder, folderId))
+      ) {
+        setWorkspaceDropTarget(null)
+        setInvalidWorkspaceDropTarget(folderId)
+        return
+      }
+    }
+    onDragOverMove(e)
+    const position = dragKind === 'collection' ? 'inside' : getDropPosition(e, { allowInside: true })
+    setInvalidWorkspaceDropTarget(null)
+    setWorkspaceDropTarget({ id: folderId, position })
+  }
+
+  function onWorkspaceFolderRowDrop(e: DragEvent<HTMLElement>, folderId: string) {
+    const dragKind = draggingItem?.kind ?? getDragKind(e)
+    if (!dragKind || dragKind === 'request' || dragKind === 'folder') return
+    e.preventDefault()
+    e.stopPropagation()
+    const position = getDropPosition(e, { allowInside: true })
+    setWorkspaceDropTarget(null)
+    setInvalidWorkspaceDropTarget(null)
+
+    if (dragKind === 'workspace-folder') {
+      const dragged = draggingItem?.kind === 'workspace-folder'
+        ? { workspaceFolderId: draggingItem.workspaceFolderId ?? '' }
+        : readDraggedWorkspaceFolder(e.dataTransfer)
+      if (!dragged) return
+      props.onDropWorkspaceFolderAtTarget?.(dragged.workspaceFolderId, {
+        targetType: 'workspace-folder',
+        targetId: folderId,
+        parentFolderId: null,
+        position,
+      } as WorkspaceFolderDropTarget)
+      return
+    }
+    if (dragKind === 'collection' && position === 'inside') {
+      const dragged = draggingItem?.kind === 'collection'
+        ? { collectionId: draggingItem.collectionId ?? '' }
+        : readDraggedCollection(e.dataTransfer)
+      if (!dragged) return
+      props.onDropCollectionAtTarget(dragged.collectionId, {
+        workspaceFolderId: folderId,
+        targetCollectionId: null,
+        position: 'inside',
+      })
+    }
+  }
+
   function renderWorkspaceFolder(folder: WorkspaceFolder, depth: number) {
     const cols = collectionsByWorkspaceFolderId[folder.id] ?? []
     const isEditing = editingFolderId === folder.id
     const isMenuOpen = openMenu?.kind === 'workspace-folder' && openMenu.id === folder.id && !isEditing
+    const dropPosition = workspaceDropTarget?.id === folder.id ? workspaceDropTarget.position : null
+    const isDropInvalid = invalidWorkspaceDropTarget === folder.id
     const childWorkspaceFolders = folder.folders ?? []
     const directChildCount = cols.length + childWorkspaceFolders.length
 
@@ -356,21 +478,21 @@ export function WorkspaceTree(props: {
           }}
         >
           <div
-            className="treeSummaryDnd"
+            className={`treeSummaryDnd${dropPosition ? ` treeDropTarget treeDropTarget${dropPosition[0].toUpperCase()}${dropPosition.slice(1)}` : ''}${isDropInvalid ? ' treeDropInvalid' : ''}`}
             draggable={!isEditing}
             onDragStart={e => {
               if (isEditing) return
+              setDraggingItem({ kind: 'workspace-folder', workspaceFolderId: folder.id })
               onWorkspaceFolderDragStart(e, folder.id)
             }}
+            onDragEnd={() => {
+              setDraggingItem(null)
+            }}
             onDragOver={e => {
-              onDragOverMove(e)
+              onWorkspaceFolderRowDragOver(e, folder.id)
             }}
             onDrop={e => {
-              handleWorkspaceDrop(e, {
-                targetWorkspaceFolderId: folder.id,
-                onMoveWorkspaceFolder: props.onMoveWorkspaceFolder,
-                onMoveCollectionToWorkspaceFolder: props.onMoveCollectionToWorkspaceFolder,
-              })
+              onWorkspaceFolderRowDrop(e, folder.id)
             }}
           >
             <span className="treeChevron" aria-hidden="true" />
@@ -528,12 +650,15 @@ export function WorkspaceTree(props: {
           <CollectionsTree
             collections={cols}
             scopeId={`wf:${folder.id}`}
+            workspaceFolderId={folder.id}
             sortMode={props.sortMode}
             environmentsByCollection={props.environmentsByCollection}
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
             sharedOpenMenu={openMenu?.kind === 'workspace-folder' ? null : openMenu}
             onSharedOpenMenuChange={setOpenMenu}
+            draggingItem={draggingItem}
+            onDraggingItemChange={setDraggingItem}
             treeOpenCommand={effectiveTreeOpenCommand}
             onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange(`wf:${folder.id}`, summary)}
             onPickRequest={props.onPickRequest}
@@ -553,6 +678,9 @@ export function WorkspaceTree(props: {
             onDuplicateCollection={props.onDuplicateCollection}
             onDuplicateFolder={props.onDuplicateFolder}
             onDuplicateRequest={props.onDuplicateRequest}
+            onDropCollectionAtTarget={props.onDropCollectionAtTarget}
+            onDropFolderAtTarget={props.onDropFolderAtTarget}
+            onDropRequestAtTarget={props.onDropRequestAtTarget}
             onMoveFolder={props.onMoveFolder}
             onMoveRequest={props.onMoveRequest}
             onMoveFolderToCollection={props.onMoveFolderToCollection}
@@ -562,7 +690,7 @@ export function WorkspaceTree(props: {
             onDeleteCollection={props.onDeleteCollection}
           />
         ) : childWorkspaceFolders.length ? null : (
-          <div className="small" style={{ padding: '6px 4px', color: 'rgba(255,255,255,.55)' }}>
+          <div className="small workspaceFolderDropHint">
             Drop collections here
           </div>
         )}
@@ -574,7 +702,10 @@ export function WorkspaceTree(props: {
     <div
       className="workspaceRoot"
       onDragOver={e => {
-        onDragOverMove(e)
+        const dragKind = getDragKind(e)
+        if (dragKind === 'collection' || dragKind === 'workspace-folder') {
+          onDragOverMove(e)
+        }
       }}
       onDrop={e => {
         handleWorkspaceDrop(e, {
@@ -603,12 +734,15 @@ export function WorkspaceTree(props: {
             <CollectionsTree
               collections={rootCollections}
               scopeId="root"
+              workspaceFolderId={null}
               sortMode={props.sortMode}
               environmentsByCollection={props.environmentsByCollection}
               activeRequestId={props.activeRequestId}
               inFlightCountByRequestId={props.inFlightCountByRequestId}
               sharedOpenMenu={openMenu?.kind === 'workspace-folder' ? null : openMenu}
               onSharedOpenMenuChange={setOpenMenu}
+              draggingItem={draggingItem}
+              onDraggingItemChange={setDraggingItem}
               treeOpenCommand={effectiveTreeOpenCommand}
               onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
               onPickRequest={props.onPickRequest}
@@ -628,6 +762,9 @@ export function WorkspaceTree(props: {
               onDuplicateCollection={props.onDuplicateCollection}
               onDuplicateFolder={props.onDuplicateFolder}
               onDuplicateRequest={props.onDuplicateRequest}
+              onDropCollectionAtTarget={props.onDropCollectionAtTarget}
+              onDropFolderAtTarget={props.onDropFolderAtTarget}
+              onDropRequestAtTarget={props.onDropRequestAtTarget}
               onMoveFolder={props.onMoveFolder}
               onMoveRequest={props.onMoveRequest}
               onMoveFolderToCollection={props.onMoveFolderToCollection}

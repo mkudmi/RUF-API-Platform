@@ -34,6 +34,18 @@ function readFallbackText(dt: DataTransfer): DraggedAny | null {
   }
 }
 
+export function readDraggedKind(dt: DataTransfer): DraggedAny['kind'] | null {
+  const folder = readDraggedFolder(dt)
+  if (folder) return 'folder'
+  const request = readDraggedRequest(dt)
+  if (request) return 'request'
+  const collection = readDraggedCollection(dt)
+  if (collection) return 'collection'
+  const workspaceFolder = readDraggedWorkspaceFolder(dt)
+  if (workspaceFolder) return 'workspace-folder'
+  return null
+}
+
 export function setDraggedFolder(dt: DataTransfer, payload: DraggedFolder) {
   dt.effectAllowed = 'move'
   const full: DraggedAny = { kind: 'folder', ...payload }
