@@ -70,10 +70,14 @@ export function WorkspaceTree(props: {
     totalFolders: number
     openFolders: number
   }
+  type SharedTreeMenuTarget =
+    | { scopeId: string, kind: 'workspace-folder', id: string }
+    | { scopeId: string, kind: 'collection' | 'folder' | 'request', id: string }
+    | null
 
   const [openWorkspaceFolders, setOpenWorkspaceFolders] = useState<Set<string>>(() => new Set(loadWorkspaceOpenIds()))
   const [collectionSummariesByScope, setCollectionSummariesByScope] = useState<Record<string, OpenStateSummary>>({})
-  const [openMenuWorkspaceFolderId, setOpenMenuWorkspaceFolderId] = useState<string | null>(null)
+  const [openMenu, setOpenMenu] = useState<SharedTreeMenuTarget>(null)
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const lastAppliedTreeCommandNonceRef = useRef<number | null>(null)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
@@ -146,7 +150,7 @@ export function WorkspaceTree(props: {
     if (lastAppliedTreeCommandNonceRef.current === cmd.nonce) return
     lastAppliedTreeCommandNonceRef.current = cmd.nonce
 
-    setOpenMenuWorkspaceFolderId(null)
+    setOpenMenu(null)
     setEditingFolderId(null)
     setDraftName('')
 
@@ -232,32 +236,32 @@ export function WorkspaceTree(props: {
   }, [collectionSummariesByScope, openWorkspaceFolders, props.onTreeAllExpandedChange, workspaceFolderIds])
 
   useEffect(() => {
-    if (!openMenuWorkspaceFolderId) return
+    if (!openMenu || openMenu.kind !== 'workspace-folder') return
     function onPointerDown(e: PointerEvent) {
       const el = menuWrapRef.current
       if (!el) return
       const target = e.target as Node | null
       if (!target) return
       if (el.contains(target)) return
-      setOpenMenuWorkspaceFolderId(null)
+      setOpenMenu(null)
     }
     window.addEventListener('pointerdown', onPointerDown)
     return () => window.removeEventListener('pointerdown', onPointerDown)
-  }, [openMenuWorkspaceFolderId])
+  }, [openMenu])
 
   useEffect(() => {
-    if (!openMenuWorkspaceFolderId) return
+    if (!openMenu || openMenu.kind !== 'workspace-folder') return
     const wrap = menuWrapRef.current
     const scroller = (wrap?.closest?.('.workspaceTreeScroll, .sidebarTreeWrap') as HTMLElement | null) ?? null
     if (!scroller) return
 
     function onScroll() {
-      setOpenMenuWorkspaceFolderId(null)
+      setOpenMenu(null)
     }
 
     scroller.addEventListener('scroll', onScroll, { passive: true })
     return () => scroller.removeEventListener('scroll', onScroll)
-  }, [openMenuWorkspaceFolderId])
+  }, [openMenu])
 
   useEffect(() => {
     if (!editingFolderId) return
@@ -302,12 +306,12 @@ export function WorkspaceTree(props: {
   function renderWorkspaceFolder(folder: WorkspaceFolder, depth: number) {
     const cols = collectionsByWorkspaceFolderId[folder.id] ?? []
     const isEditing = editingFolderId === folder.id
-    const isMenuOpen = openMenuWorkspaceFolderId === folder.id && !isEditing
+    const isMenuOpen = openMenu?.kind === 'workspace-folder' && openMenu.id === folder.id && !isEditing
     const childWorkspaceFolders = folder.folders ?? []
     const directChildCount = cols.length + childWorkspaceFolders.length
 
     function startRename() {
-      setOpenMenuWorkspaceFolderId(null)
+      setOpenMenu(null)
       setEditingFolderId(folder.id)
       setDraftName(folder.name)
     }
@@ -420,7 +424,7 @@ export function WorkspaceTree(props: {
                     if (isEditing) return
                     e.preventDefault()
                     e.stopPropagation()
-                    setOpenMenuWorkspaceFolderId(prev => (prev === folder.id ? null : folder.id))
+                    setOpenMenu(prev => (prev?.kind === 'workspace-folder' && prev.id === folder.id ? null : { scopeId: 'workspace', kind: 'workspace-folder', id: folder.id }))
                   }}
                   aria-label="Folder menu"
                   title="Menu"
@@ -459,7 +463,7 @@ export function WorkspaceTree(props: {
                         className="treeMenuItem"
                         role="menuitem"
                         onClick={() => {
-                          setOpenMenuWorkspaceFolderId(null)
+                          setOpenMenu(null)
                           setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
                           props.onCreateCollectionInWorkspaceFolder(folder.id)
                         }}
@@ -471,7 +475,7 @@ export function WorkspaceTree(props: {
                         className="treeMenuItem"
                         role="menuitem"
                         onClick={() => {
-                          setOpenMenuWorkspaceFolderId(null)
+                          setOpenMenu(null)
                           setOpenWorkspaceFolders(prev => new Set(prev).add(folder.id))
                           props.onAddWorkspaceFolderToFolder(folder.id)
                         }}
@@ -485,7 +489,7 @@ export function WorkspaceTree(props: {
                     className="treeMenuItem"
                     role="menuitem"
                     onClick={() => {
-                      setOpenMenuWorkspaceFolderId(null)
+                      setOpenMenu(null)
                       void copyText(folder.name)
                     }}
                   >
@@ -505,7 +509,7 @@ export function WorkspaceTree(props: {
                     className="treeMenuItem treeMenuItemDanger"
                     role="menuitem"
                     onClick={() => {
-                      setOpenMenuWorkspaceFolderId(null)
+                      setOpenMenu(null)
                       props.onDeleteWorkspaceFolder(folder.id)
                     }}
                   >
@@ -523,10 +527,13 @@ export function WorkspaceTree(props: {
         {cols.length ? (
           <CollectionsTree
             collections={cols}
+            scopeId={`wf:${folder.id}`}
             sortMode={props.sortMode}
             environmentsByCollection={props.environmentsByCollection}
             activeRequestId={props.activeRequestId}
             inFlightCountByRequestId={props.inFlightCountByRequestId}
+            sharedOpenMenu={openMenu?.kind === 'workspace-folder' ? null : openMenu}
+            onSharedOpenMenuChange={setOpenMenu}
             treeOpenCommand={effectiveTreeOpenCommand}
             onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange(`wf:${folder.id}`, summary)}
             onPickRequest={props.onPickRequest}
@@ -595,10 +602,13 @@ export function WorkspaceTree(props: {
           {rootCollections.length ? (
             <CollectionsTree
               collections={rootCollections}
+              scopeId="root"
               sortMode={props.sortMode}
               environmentsByCollection={props.environmentsByCollection}
               activeRequestId={props.activeRequestId}
               inFlightCountByRequestId={props.inFlightCountByRequestId}
+              sharedOpenMenu={openMenu?.kind === 'workspace-folder' ? null : openMenu}
+              onSharedOpenMenuChange={setOpenMenu}
               treeOpenCommand={effectiveTreeOpenCommand}
               onOpenStateSummaryChange={summary => onCollectionScopeSummaryChange('root', summary)}
               onPickRequest={props.onPickRequest}
