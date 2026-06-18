@@ -26,12 +26,49 @@ type McpToolCallArgs = {
   arguments: Record<string, unknown>
 }
 
+function buildPostgresDatabaseUri(env: Record<string, string>) {
+  const user = env.DB_USER?.trim() ?? ''
+  const password = env.DB_PASSWORD ?? ''
+  const host = env.DB_HOST?.trim() ?? ''
+  const port = env.DB_PORT?.trim() ?? ''
+  const database = env.DB_NAME?.trim() ?? ''
+
+  if (!user || !host || !port || !database) return ''
+
+  const userInfo = password
+    ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}`
+    : encodeURIComponent(user)
+
+  return `postgresql://${userInfo}@${host}:${port}/${encodeURIComponent(database)}`
+}
+
+function getServerEnv(server: McpServerSettings) {
+  if (!Array.isArray(server.envEntries)) return { ...server.env }
+
+  const env: Record<string, string> = {}
+  for (const entry of server.envEntries) {
+    const key = entry.key.trim()
+    if (!key) continue
+    env[key] = entry.value
+  }
+  return env
+}
+
+function materializeServerEnv(server: McpServerSettings) {
+  const env = getServerEnv(server)
+  if (server.template === 'postgres') {
+    const databaseUri = buildPostgresDatabaseUri(env)
+    if (databaseUri) env.DATABASE_URI = databaseUri
+  }
+  return env
+}
+
 function toServerPayload(server: McpServerSettings): McpCommandServerPayload {
   return {
     id: server.id,
     command: server.command.trim(),
     args: server.args,
-    env: server.env,
+    env: materializeServerEnv(server),
   }
 }
 

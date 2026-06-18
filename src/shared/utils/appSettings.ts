@@ -31,7 +31,7 @@ export type AiProviderSettings = {
   timeoutMs: number
 }
 
-export type McpServerTemplate = 'atlassian' | 'custom'
+export type McpServerTemplate = 'atlassian' | 'postgres' | 'custom'
 
 export type McpEnvEntry = {
   key: string
@@ -90,6 +90,35 @@ export const DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS: McpServerSettings = {
   bugReportIssueType: 'Bug',
 }
 
+export const DEFAULT_POSTGRES_MCP_SERVER_SETTINGS: McpServerSettings = {
+  id: 'mcp_postgres_default',
+  name: 'Postgres MCP',
+  enabled: false,
+  template: 'postgres',
+  command: 'uvx',
+  args: ['postgres-mcp', '--access-mode=unrestricted'],
+  env: {},
+  envEntries: [
+    { key: 'DB_USER', value: '' },
+    { key: 'DB_PASSWORD', value: '' },
+    { key: 'DB_HOST', value: 'localhost' },
+    { key: 'DB_PORT', value: '5432' },
+    { key: 'DB_NAME', value: '' },
+  ],
+  bugReportCloudId: '',
+  bugReportProjectKey: '',
+  bugReportIssueType: 'Bug',
+}
+
+function cloneMcpServerSettings(server: McpServerSettings): McpServerSettings {
+  return {
+    ...server,
+    args: [...server.args],
+    env: { ...server.env },
+    envEntries: server.envEntries?.map(entry => ({ ...entry })) ?? [],
+  }
+}
+
 const DEFAULT_APP_SETTINGS: AppSettings = {
   validateCertificates: true,
   caCertificates: [],
@@ -99,7 +128,10 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   globalSql: { ...DEFAULT_GLOBAL_SQL_CONNECTION_SETTINGS },
   globalSqlConnections: [],
   ai: { ...DEFAULT_AI_PROVIDER_SETTINGS },
-  mcp: [{ ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS, env: { ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.env }, args: [...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.args] }],
+  mcp: [
+    cloneMcpServerSettings(DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS),
+    cloneMcpServerSettings(DEFAULT_POSTGRES_MCP_SERVER_SETTINGS),
+  ],
 }
 
 const APP_SETTINGS_KEY = 'ruf_app_settings_v1'
@@ -257,7 +289,11 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
         const name = typeof x.name === 'string' && x.name.trim()
           ? x.name.trim()
           : (index === 0 ? DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.name : `MCP Server ${index + 1}`)
-        const template = x.template === 'atlassian' ? 'atlassian' : 'custom'
+        const template = x.template === 'atlassian'
+          ? 'atlassian'
+          : x.template === 'postgres'
+            ? 'postgres'
+            : 'custom'
         const command = typeof x.command === 'string' ? x.command.trim() : ''
         const args = Array.isArray(x.args)
           ? x.args.filter((arg): arg is string => typeof arg === 'string')
@@ -299,6 +335,16 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       .filter((x): x is McpServerSettings => !!x)
     : []
 
+  const mcpWithRequiredTemplates = [...mcp]
+  if (!mcpWithRequiredTemplates.some(server => server.template === 'atlassian')) {
+    mcpWithRequiredTemplates.unshift(cloneMcpServerSettings(DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS))
+  }
+  if (!mcpWithRequiredTemplates.some(server => server.template === 'postgres')) {
+    const atlassianIndex = mcpWithRequiredTemplates.findIndex(server => server.template === 'atlassian')
+    const insertIndex = atlassianIndex >= 0 ? atlassianIndex + 1 : 0
+    mcpWithRequiredTemplates.splice(insertIndex, 0, cloneMcpServerSettings(DEFAULT_POSTGRES_MCP_SERVER_SETTINGS))
+  }
+
   return {
     validateCertificates,
     caCertificates,
@@ -308,9 +354,12 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     globalSql,
     globalSqlConnections,
     ai,
-    mcp: mcp.length
-      ? mcp
-      : [{ ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS, env: { ...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.env }, args: [...DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS.args] }],
+    mcp: mcpWithRequiredTemplates.length
+      ? mcpWithRequiredTemplates
+      : [
+        cloneMcpServerSettings(DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS),
+        cloneMcpServerSettings(DEFAULT_POSTGRES_MCP_SERVER_SETTINGS),
+      ],
   }
 }
 

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import type { McpEnvEntry, McpServerSettings } from '../../../shared/utils/appSettings'
+import {
+  DEFAULT_POSTGRES_MCP_SERVER_SETTINGS,
+  type McpEnvEntry,
+  type McpServerSettings,
+} from '../../../shared/utils/appSettings'
 import { CloseIcon, FoldersCollapseIcon, FoldersExpandIcon, PlayIcon, ReloadIcon } from '../../../shared/icons'
 import { uid } from '../../../shared/utils/id'
 import { getMcpServerStatus, listMcpServerTools, reconnectMcpServer, startMcpServer, stopMcpServer } from '../services/mcp'
@@ -26,6 +30,15 @@ function createCustomServer(): McpServerSettings {
     bugReportCloudId: '',
     bugReportProjectKey: '',
     bugReportIssueType: 'Bug',
+  }
+}
+
+function createPostgresServer(): McpServerSettings {
+  return {
+    ...DEFAULT_POSTGRES_MCP_SERVER_SETTINGS,
+    env: { ...DEFAULT_POSTGRES_MCP_SERVER_SETTINGS.env },
+    args: [...DEFAULT_POSTGRES_MCP_SERVER_SETTINGS.args],
+    envEntries: DEFAULT_POSTGRES_MCP_SERVER_SETTINGS.envEntries?.map(entry => ({ ...entry })) ?? [],
   }
 }
 
@@ -62,6 +75,22 @@ function syncEnv(entries: McpEnvEntry[]) {
   } satisfies Pick<McpServerSettings, 'envEntries' | 'env'>
 }
 
+const POSTGRES_ENV_FIELDS = ['DB_USER', 'DB_PASSWORD', 'DB_HOST', 'DB_PORT', 'DB_NAME'] as const
+
+function getEnvValue(server: McpServerSettings, key: string) {
+  return getEnvEntries(server).find(entry => entry.key.trim() === key)?.value ?? ''
+}
+
+function updateNamedEnvEntry(server: McpServerSettings, key: string, value: string) {
+  const entries = getEnvEntries(server)
+  const index = entries.findIndex(entry => entry.key.trim() === key)
+  if (index >= 0) {
+    const nextEntries = entries.map((entry, entryIndex) => (entryIndex === index ? { key, value } : entry))
+    return syncEnv(nextEntries)
+  }
+  return syncEnv([...entries, { key, value }])
+}
+
 export function McpSettingsTab(props: Props) {
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({})
   const [toolsMenuOpenById, setToolsMenuOpenById] = useState<Record<string, boolean>>({})
@@ -74,6 +103,20 @@ export function McpSettingsTab(props: Props) {
   const [toolsById, setToolsById] = useState<Record<string, McpToolDescriptor[]>>({})
   const [selectedToolById, setSelectedToolById] = useState<Record<string, string>>({})
   const resetTimerByKeyRef = useRef<Record<string, number>>({})
+
+  useEffect(() => {
+    if (props.value.some(server => server.template === 'postgres')) return
+
+    props.onChange(prev => {
+      if (prev.some(server => server.template === 'postgres')) return prev
+
+      const atlassianIndex = prev.findIndex(server => server.template === 'atlassian')
+      const insertIndex = atlassianIndex >= 0 ? atlassianIndex + 1 : prev.length
+      const next = [...prev]
+      next.splice(insertIndex, 0, createPostgresServer())
+      return next
+    })
+  }, [props.onChange, props.value])
 
   useEffect(() => {
     return () => {
@@ -307,7 +350,11 @@ export function McpSettingsTab(props: Props) {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                 <b style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {server.name || (server.template === 'atlassian' ? 'Atlassian MCP' : 'Custom MCP Server')}
+                  {server.name || (server.template === 'atlassian'
+                    ? 'Atlassian MCP'
+                    : server.template === 'postgres'
+                      ? 'Postgres MCP'
+                      : 'Custom MCP Server')}
                 </b>
                 <span className={`localMockStatusDot ${isRunning ? 'localMockStatusDotRunning' : 'localMockStatusDotStopped'}`} aria-hidden="true" />
                 {currentServerName && isRunning ? (
@@ -425,30 +472,56 @@ export function McpSettingsTab(props: Props) {
                   <div className="settingsTableRow">
                     <div className="settingsTableLabel">Environment</div>
                     <div className="settingsTableValue">
-                    <div className="mcpEnvEditor">
-                      {getEnvEntries(server).map((entry, index) => (
-                          <div key={`${server.id}:env:${index}`} className="mcpEnvRow">
-                            <input
-                              className="mono mcpEnvInput"
-                              value={entry.key}
-                              onChange={event => updateEnvEntry(server, index, { key: event.target.value })}
-                              placeholder="KEY"
-                            />
-                            <input
-                              className="mono mcpEnvInput"
-                              value={entry.value}
-                              onChange={event => updateEnvEntry(server, index, { value: event.target.value })}
-                              placeholder="value"
-                            />
-                            <button type="button" className="iconBtn mcpEnvDeleteBtn" onClick={() => removeEnvEntry(server, index)} aria-label="Delete environment entry" title="Delete">
-                              <CloseIcon size={16} />
-                            </button>
+                      {server.template === 'postgres' ? (
+                        <div className="mcpEnvEditor">
+                          {POSTGRES_ENV_FIELDS.map(field => (
+                            <div key={`${server.id}:env:${field}`} className="mcpEnvRow">
+                              <input
+                                className="mono mcpEnvInput"
+                                value={field}
+                                readOnly
+                                aria-label={`${field} key`}
+                              />
+                              <input
+                                className="mono mcpEnvInput"
+                                value={getEnvValue(server, field)}
+                                onChange={event => updateServer(server.id, updateNamedEnvEntry(server, field, event.target.value))}
+                                placeholder={field === 'DB_PORT' ? '5432' : 'value'}
+                                type={field === 'DB_PASSWORD' ? 'password' : 'text'}
+                                aria-label={field}
+                              />
+                            </div>
+                          ))}
+                          <div className="small" style={{ opacity: 0.72 }}>
+                            DATABASE_URI is built automatically as `postgresql://user:password@host:port/db`
                           </div>
-                        ))}
-                        <div className="mcpEnvActions">
-                          <button type="button" className="mcpTextActionBtn mcpEnvAddBtn" onClick={() => addEnvEntry(server)}>Add variable</button>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="mcpEnvEditor">
+                          {getEnvEntries(server).map((entry, index) => (
+                            <div key={`${server.id}:env:${index}`} className="mcpEnvRow">
+                              <input
+                                className="mono mcpEnvInput"
+                                value={entry.key}
+                                onChange={event => updateEnvEntry(server, index, { key: event.target.value })}
+                                placeholder="KEY"
+                              />
+                              <input
+                                className="mono mcpEnvInput"
+                                value={entry.value}
+                                onChange={event => updateEnvEntry(server, index, { value: event.target.value })}
+                                placeholder="value"
+                              />
+                              <button type="button" className="iconBtn mcpEnvDeleteBtn" onClick={() => removeEnvEntry(server, index)} aria-label="Delete environment entry" title="Delete">
+                                <CloseIcon size={16} />
+                              </button>
+                            </div>
+                          ))}
+                          <div className="mcpEnvActions">
+                            <button type="button" className="mcpTextActionBtn mcpEnvAddBtn" onClick={() => addEnvEntry(server)}>Add variable</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
