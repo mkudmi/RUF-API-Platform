@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import type { Collection } from '../../collectionTree'
-import type { AiProviderSettings, McpServerSettings } from '../../../shared/utils/appSettings'
-import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
-import { resolveVariableValue } from '../../../shared/utils/variables'
-import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
-import { enhanceSqlWithYandex } from '../../ai/provider'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
-import { CloseIcon, SqlTerminalPositionIcon, StarIcon } from '../../../shared/icons'
-import { getPostgresMcpDatabaseUri, getPostgresMcpServer } from '../../mcp/services/mcp'
-import { SqlAiAssistantDialog } from './SqlAiAssistantDialog'
+import { enhanceSqlWithYandex } from '../../ai/provider'
+import { getPostgresMcpServer } from '../../mcp/services/mcp'
+import {
+  SQL_AI_INLINE_PROMPT_KEY,
+  SQL_TERMINAL_HEIGHT_KEY,
+  SQL_TERMINAL_MIN_HEIGHT_PX,
+  SQL_TERMINAL_MIN_WIDTH_PX,
+  SQL_TERMINAL_PAGE_SIZE,
+  SQL_TERMINAL_POSITION_KEY,
+  SQL_TERMINAL_SCHEMA_KEY,
+  SQL_TERMINAL_SELECTED_CONN_KEY,
+  SQL_TERMINAL_SPLIT_KEY,
+  SQL_TERMINAL_SQL_KEY,
+  SQL_TERMINAL_WIDTH_KEY,
+} from '../constants'
+import { useSqlTerminalEditorHistory } from '../hooks/useSqlTerminalEditorHistory'
 import {
   initializeSqlAiAssistantContext,
   initializeSqlAiAssistantContextFromDb,
@@ -17,406 +24,42 @@ import {
   type SqlAiAssistantContext,
   type SqlAiConversationMessage,
 } from '../services/sqlAiAgent'
+import {
+  loadSqlTerminalColumns,
+  loadSqlTerminalSchemas,
+  loadSqlTerminalTables,
+  preloadSqlTerminalColumns,
+} from '../services/sqlTerminalMetadata'
+import type { DbConnOption, ExecuteSqlOptions, OutputEntry, PopupPosition, ResultPagingState, SqlTerminalDrawerProps } from '../types'
+import { buildDbConnOptions, resolveFallbackPostgresConnectionString } from '../utils/connections'
+import {
+  getSqlTerminalBaseHeightPx,
+  getSqlTerminalBaseWidthPx,
+  getSqlTerminalMaxHeightPx,
+  getSqlTerminalMaxWidthPx,
+} from '../utils/layout'
+import {
+  applySchemaToTableRefs,
+  applyVariables,
+  buildSchemaAwareSql,
+  extractSchemaTableLabel,
+  formatTime,
+  getCurrentSqlStatement,
+  looksLikeSelectOrWith,
+  makeTableAlias,
+  parseFromAndJoinAliases,
+  stripQuotes,
+  trimTrailingSemicolons,
+  wrapSqlForPage,
+} from '../utils/sql'
+import { safeLoadFraction, safeLoadNumber, safeLoadString, safeRemove, safeSave } from '../utils/storage'
+import { SqlAiAssistantDialog } from './SqlAiAssistantDialog'
+import { SqlTerminalEditorPane } from './drawer/SqlTerminalEditorPane'
+import { SqlTerminalHeader } from './drawer/SqlTerminalHeader'
+import { SqlTerminalOutputPane } from './drawer/SqlTerminalOutputPane'
+import { runDbSql } from '../../environment'
 
-type DbConnOption = {
-  id: string
-  label: string
-  type: 'postgres' | 'mysql'
-  connectionString: string
-  connectionPreview: string
-  variables: Record<string, string>
-}
-
-type OutputEntry = { kind: 'sys' | 'out' | 'err' | 'in'; text: string }
-type PopupPosition = { top: number; left: number }
-
-const SQL_TERMINAL_HEIGHT_KEY = 'ruf_sql_terminal_height_v1'
-const SQL_TERMINAL_SELECTED_CONN_KEY = 'ruf_sql_terminal_selected_conn_v1'
-const SQL_TERMINAL_SQL_KEY = 'ruf_sql_terminal_sql_v1'
-const SQL_TERMINAL_SPLIT_KEY = 'ruf_sql_terminal_split_v1'
-const SQL_TERMINAL_SCHEMA_KEY = 'ruf_sql_terminal_schema_v1'
-const SQL_TERMINAL_POSITION_KEY = 'ruf_sql_terminal_position_v1'
-const SQL_TERMINAL_WIDTH_KEY = 'ruf_sql_terminal_width_v1'
-const SQL_TERMINAL_MIN_HEIGHT_PX = 240
-const SQL_TERMINAL_MIN_WIDTH_PX = 360
-const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
-const SQL_TERMINAL_PAGE_SIZE = 200
-const SQL_AI_INLINE_PROMPT_KEY = 'ruf_sql_ai_inline_prompt_v1'
-
-type ResultPagingState = {
-  enabled: boolean
-  loading: boolean
-  hasMore: boolean
-  loadAll: boolean
-  baseSql: string
-}
-
-type ExecuteSqlOptions = {
-  scopeLabel: 'selection' | 'statement' | 'script' | 'ai'
-}
-
-function getWindowTitlebarHeightPx() {
-  if (typeof document === 'undefined') return WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
-  const el = document.querySelector<HTMLElement>('.windowTitlebar')
-  const measured = el?.getBoundingClientRect().height ?? WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
-  return Math.max(0, Math.round(measured)) || WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX
-}
-
-function getSqlTerminalMaxHeightPx() {
-  if (typeof window === 'undefined') return 420
-  const topReserved = getWindowTitlebarHeightPx()
-  return Math.max(SQL_TERMINAL_MIN_HEIGHT_PX, Math.floor(window.innerHeight - topReserved))
-}
-
-function getSqlTerminalMaxWidthPx() {
-  if (typeof window === 'undefined') return 980
-  return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.floor(window.innerWidth - 280))
-}
-
-function getSqlTerminalBaseWidthPx() {
-  if (typeof window === 'undefined') return 680
-  const max = getSqlTerminalMaxWidthPx()
-  return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.round(Math.min(window.innerWidth * 0.68, max)))
-}
-
-function getSqlTerminalBaseHeightPx() {
-  if (typeof window === 'undefined') return 420
-  const max = getSqlTerminalMaxHeightPx()
-  return Math.round(Math.min(window.innerHeight * 0.38, max))
-}
-
-function safeLoadNumber(key: string): number | null {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const n = Number(raw)
-    return Number.isFinite(n) && n > 0 ? n : null
-  } catch (error) {
-    logError('SqlTerminal.safeLoadNumber', error, { key })
-    return null
-  }
-}
-
-function safeLoadString(key: string): string | null {
-  try {
-    const raw = localStorage.getItem(key)
-    return typeof raw === 'string' ? raw : null
-  } catch (error) {
-    logError('SqlTerminal.safeLoadString', error, { key })
-    return null
-  }
-}
-
-function safeLoadFraction(key: string): number | null {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return null
-    const n = Number(raw)
-    if (!Number.isFinite(n)) return null
-    if (n <= 0 || n >= 1) return null
-    return n
-  } catch (error) {
-    logError('SqlTerminal.safeLoadFraction', error, { key })
-    return null
-  }
-}
-
-function safeSave(key: string, value: string) {
-  try {
-    localStorage.setItem(key, value)
-  } catch (error) {
-    logError('SqlTerminal.safeSave', error, { key })
-  }
-}
-
-function safeRemove(key: string) {
-  try {
-    localStorage.removeItem(key)
-  } catch (error) {
-    logError('SqlTerminal.safeRemove', error, { key })
-  }
-}
-
-function applyVariables(text: string, vars: Record<string, string>) {
-  return text.replaceAll(/\{\{\s*([^}\s]+)\s*\}\}/g, (_m: string, name: string) => resolveVariableValue(name, vars) ?? '')
-}
-
-function quoteIdentPostgres(name: string) {
-  return `"${name.replaceAll('"', '""')}"`
-}
-
-function quoteSqlStringLiteral(value: string) {
-  return `'${value.replaceAll("'", "''")}'`
-}
-
-function looksLikeSelectOrWith(sql: string) {
-  const s = sql.trimStart()
-  return /^select\b/i.test(s) || /^with\b/i.test(s)
-}
-
-function trimTrailingSemicolons(sql: string) {
-  return sql.replaceAll(/;+\s*$/g, '').trimEnd()
-}
-
-function wrapSqlForPage(baseSql: string, offset: number, limit: number) {
-  return `select * from (\n${trimTrailingSemicolons(baseSql)}\n) __ruf_terminal_result offset ${Math.max(0, offset)} limit ${Math.max(1, limit)}`
-}
-
-function makeTableAlias(tableName: string): string {
-  const raw = (tableName || '').replaceAll('"', '').trim()
-  if (!raw) return 't'
-
-  // Split by common separators and also by camelCase boundaries.
-  const parts = raw
-    .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .split(/[^a-zA-Z0-9]+/g)
-    .filter(Boolean)
-
-  const letters = parts.map(p => p[0] ?? '').filter(Boolean)
-  const alias = letters.join('').slice(0, 6).toLowerCase()
-  return alias || raw.slice(0, 1).toLowerCase() || 't'
-}
-
-function stripQuotes(ident: string) {
-  return (ident || '').replaceAll('"', '').trim()
-}
-
-function parseFromAndJoinAliases(sql: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  const re = /\b(from|join)\s+([a-zA-Z0-9_".]+)\s*(?:as\s+)?([a-zA-Z0-9_"]+)?/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(sql)) !== null) {
-    const tableRef = (m[2] ?? '').trim()
-    if (!tableRef || tableRef.startsWith('(')) continue
-    const aliasRaw = (m[3] ?? '').trim()
-    const tableName = stripQuotes(tableRef.split('.').pop() ?? tableRef)
-    if (!tableName) continue
-    const alias = stripQuotes(aliasRaw)
-    if (alias && !/^(on|where|group|order|limit|inner|left|right|full|cross|join)$/i.test(alias)) out[alias] = tableName
-    // Also allow referencing by the table name itself.
-    out[tableName] = tableName
-  }
-  return out
-}
-
-function applySchemaToTableRefs(sql: string, schema: string) {
-  if (!schema.trim()) return sql
-  const schemaIdent = quoteIdentPostgres(schema.trim())
-  const re = /\b(from|join|into)\s+((?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?)(\s+(?:as\s+)?(?!(?:on|using|where|group|order|limit|inner|left|right|full|cross|join|set|values|returning|union|having|offset)\b)(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?/gi
-  return sql.replace(re, (_m, kw: string, tableRef: string, aliasRaw: string | undefined) => {
-    const table = (tableRef || '').trim()
-    if (!table || table.startsWith('(') || table.includes('.')) return _m
-    const alias = aliasRaw ?? ''
-    return `${kw} ${schemaIdent}.${table}${alias}`
-  })
-}
-
-function clampHistory<T>(arr: T[], max: number): T[] {
-  if (arr.length <= max) return arr
-  return arr.slice(arr.length - max)
-}
-
-function formatTime(d: Date) {
-  const pad2 = (n: number) => String(n).padStart(2, '0')
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
-}
-
-function extractSchemaTableLabel(sql: string, selectedSchema: string): string | null {
-  const re = /\b(from|into|update|join)\s+([a-zA-Z0-9_".]+)/gi
-  let m: RegExpExecArray | null
-  while ((m = re.exec(sql)) !== null) {
-    const rawRef = (m[2] ?? '').trim()
-    if (!rawRef || rawRef.startsWith('(')) continue
-    const normalized = rawRef
-      .split('.')
-      .map(stripQuotes)
-      .filter(Boolean)
-      .join('.')
-    if (!normalized) continue
-    if (normalized.includes('.')) return normalized
-    return selectedSchema ? `${selectedSchema}.${normalized}` : normalized
-  }
-  return null
-}
-
-function resolveFallbackPostgresConnectionString(
-  mcpSettings: McpServerSettings[],
-  selectedConnection?: {
-    type: 'postgres' | 'mysql'
-    connectionString: string
-  } | null,
-) {
-  if (selectedConnection?.type === 'postgres') {
-    const connectionString = selectedConnection.connectionString.trim()
-    if (connectionString) return connectionString
-  }
-
-  return getPostgresMcpDatabaseUri(getPostgresMcpServer(mcpSettings))
-}
-
-function getCurrentSqlStatement(sql: string, caret: number): string | null {
-  if (!sql) return null
-
-  const len = sql.length
-  const safeCaret = Math.max(0, Math.min(caret, len))
-  const segments: Array<{ start: number; end: number }> = []
-
-  let stmtStart = 0
-  let i = 0
-  let inSingle = false
-  let inDouble = false
-  let inLineComment = false
-  let inBlockComment = false
-
-  while (i < len) {
-    const ch = sql[i]
-    const next = i + 1 < len ? sql[i + 1] : ''
-
-    if (inLineComment) {
-      if (ch === '\n') inLineComment = false
-      i += 1
-      continue
-    }
-
-    if (inBlockComment) {
-      if (ch === '*' && next === '/') {
-        inBlockComment = false
-        i += 2
-        continue
-      }
-      i += 1
-      continue
-    }
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2
-        continue
-      }
-      if (ch === "'") inSingle = false
-      i += 1
-      continue
-    }
-
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2
-        continue
-      }
-      if (ch === '"') inDouble = false
-      i += 1
-      continue
-    }
-
-    if (ch === '-' && next === '-') {
-      inLineComment = true
-      i += 2
-      continue
-    }
-    if (ch === '/' && next === '*') {
-      inBlockComment = true
-      i += 2
-      continue
-    }
-    if (ch === "'") {
-      inSingle = true
-      i += 1
-      continue
-    }
-    if (ch === '"') {
-      inDouble = true
-      i += 1
-      continue
-    }
-
-    if (ch === ';') {
-      segments.push({ start: stmtStart, end: i })
-      stmtStart = i + 1
-    }
-    i += 1
-  }
-
-  segments.push({ start: stmtStart, end: len })
-
-  let fallback: { start: number; end: number } | null = null
-
-  for (const seg of segments) {
-    const raw = sql.slice(seg.start, seg.end)
-    const leading = raw.match(/^\s*/)?.[0].length ?? 0
-    const trailing = raw.match(/\s*$/)?.[0].length ?? 0
-    const start = seg.start + leading
-    const end = seg.end - trailing
-    if (end <= start) continue
-
-    if (safeCaret >= start && safeCaret <= end) {
-      return sql.slice(start, end).trim()
-    }
-
-    if (safeCaret > end) fallback = { start, end }
-  }
-
-  if (fallback) return sql.slice(fallback.start, fallback.end).trim()
-  return null
-}
-
-function buildDbConnOptions(
-  collections: Collection[],
-  envByCollection: Record<string, Environment>,
-  extraConnections: GlobalSqlConnectionItem[] | undefined,
-): DbConnOption[] {
-  const byId = new Map(collections.map(c => [c.id, c]))
-  const out: DbConnOption[] = []
-
-  for (const [collectionId, env] of Object.entries(envByCollection)) {
-    if (!env) continue
-    if (!hasDbConfigInEnv(env)) continue
-
-    const collection = byId.get(collectionId)
-    if (!collection) continue
-
-    const rawType = env.variables?.[DB_ENV_KEYS.type]
-    const type = rawType === 'mysql' ? 'mysql' : 'postgres'
-    const fromEnv = (env.variables?.[DB_ENV_KEYS.connectionString] ?? '').trim()
-    const connectionString = fromEnv || buildDbConnectionString(getDbFormStateFromEnv(env))
-    if (!connectionString) continue
-
-    const connectionPreview = getDbConnectionStringPreview(connectionString)
-    out.push({
-      id: `collection:${collectionId}`,
-      label: `Collection - ${collection.name || collectionId}`,
-      type,
-      connectionString,
-      connectionPreview,
-      variables: env.variables ?? {},
-    })
-  }
-
-  for (const conn of extraConnections ?? []) {
-    if (!conn) continue
-    const connectionString = buildDbConnectionString(conn)
-    if (!connectionString) continue
-    out.push({
-      id: `app:${conn.id}`,
-      label: `App - ${conn.name || 'Connection'}`,
-      type: conn.type,
-      connectionString,
-      connectionPreview: getDbConnectionStringPreview(connectionString),
-      variables: {},
-    })
-  }
-
-  return out.sort((a, b) => a.label.localeCompare(b.label))
-}
-
-export function SqlTerminalDrawer(props: {
-  open: boolean
-  onClose: () => void
-  collections: Collection[]
-  environmentsByCollection: Record<string, Environment>
-  extraConnections?: GlobalSqlConnectionItem[]
-  aiSettings: AiProviderSettings
-  mcpSettings: McpServerSettings[]
-}) {
+export function SqlTerminalDrawer(props: SqlTerminalDrawerProps) {
   const { open, onClose } = props
 
   const [busy, setBusy] = useState(false)
@@ -470,26 +113,34 @@ export function SqlTerminalDrawer(props: {
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const runRef = useRef<(() => void) | null>(null)
   const sectionRef = useRef<HTMLElement | null>(null)
-  const pendingCaretRef = useRef<number | null>(null)
-  const editHistoryRef = useRef<{ stack: Array<{ text: string; caret: number }>; index: number; applying: boolean }>({
-    stack: [{ text: safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '', caret: 0 }],
-    index: 0,
-    applying: false,
-  })
+
+  const {
+    pendingCaretRef,
+    recordProgrammaticChange,
+    recordInputChange,
+    undo,
+    redo,
+    finishApplying,
+  } = useSqlTerminalEditorHistory(sql)
+
+  const focusEditorSoon = useCallback(() => {
+    requestAnimationFrame(() => sqlRef.current?.focus())
+  }, [])
 
   const connOptions = useMemo(
     () => buildDbConnOptions(props.collections, props.environmentsByCollection, props.extraConnections),
     [props.collections, props.environmentsByCollection, props.extraConnections],
   )
-  const selectedConn = useMemo(() => connOptions.find(c => c.id === selectedConnId) ?? null, [connOptions, selectedConnId])
+  const selectedConn = useMemo(() => connOptions.find(conn => conn.id === selectedConnId) ?? null, [connOptions, selectedConnId])
+  const selectedConnection = useMemo(
+    () => (selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null),
+    [selectedConn],
+  )
   const sqlAiInitSignature = useMemo(() => {
     const postgresServer = getPostgresMcpServer(props.mcpSettings)
     return JSON.stringify({
       selectedSchema: selectedSchema.trim(),
-      fallbackConnectionString: resolveFallbackPostgresConnectionString(
-        props.mcpSettings,
-        selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null,
-      ),
+      fallbackConnectionString: resolveFallbackPostgresConnectionString(props.mcpSettings, selectedConnection),
       postgresServer: postgresServer
         ? {
             command: postgresServer.command,
@@ -499,10 +150,10 @@ export function SqlTerminalDrawer(props: {
           }
         : null,
     })
-  }, [props.mcpSettings, selectedConn, selectedSchema])
+  }, [props.mcpSettings, selectedConnection, selectedSchema])
   const lineCount = useMemo(() => Math.max(1, sql.split('\n').length), [sql])
   const lineNumberDigits = useMemo(() => Math.max(2, String(lineCount).length), [lineCount])
-  const lineNumbers = useMemo(() => Array.from({ length: lineCount }, (_x, i) => i + 1), [lineCount])
+  const lineNumbers = useMemo(() => Array.from({ length: lineCount }, (_value, index) => index + 1), [lineCount])
   const activeLine = useMemo(() => {
     const safeCursor = Math.max(0, Math.min(cursorPos, sql.length))
     return sql.slice(0, safeCursor).split('\n').length
@@ -514,11 +165,30 @@ export function SqlTerminalDrawer(props: {
       }) as CSSProperties,
     [lineNumberDigits],
   )
+  const editorBusy = busy || aiBusy
+  const effectiveResultColumns = useMemo(() => {
+    if (resultColumns?.length) return resultColumns
+    if (!resultRows?.length) return []
+    return Object.keys(resultRows[0] ?? {})
+  }, [resultColumns, resultRows])
+  const tableSuggestions = useMemo(() => {
+    const prefix = tableSuggestPrefix.toLowerCase()
+    if (!prefix) return tables.slice(0, 80)
+    return tables.filter(table => table.toLowerCase().includes(prefix)).slice(0, 80)
+  }, [tableSuggestPrefix, tables])
+  const columnSuggestions = useMemo(() => {
+    if (!columnTargetTableKey) return []
+    const columns = columnsByTableKey[columnTargetTableKey] ?? []
+    const prefix = tableSuggestPrefix.toLowerCase()
+    if (!prefix) return columns.slice(0, 120)
+    return columns.filter(column => column.toLowerCase().includes(prefix)).slice(0, 120)
+  }, [columnTargetTableKey, columnsByTableKey, tableSuggestPrefix])
+
   const syncLineNumberScroll = useCallback(() => {
-    const ta = sqlRef.current
+    const textarea = sqlRef.current
     const lines = lineNumbersRef.current
-    if (!ta || !lines) return
-    lines.style.transform = `translateY(${-ta.scrollTop}px)`
+    if (!textarea || !lines) return
+    lines.style.transform = `translateY(${-textarea.scrollTop}px)`
   }, [])
 
   const refreshEditorCaretState = useCallback(() => {
@@ -528,20 +198,20 @@ export function SqlTerminalDrawer(props: {
 
   const updateTableSuggestPopupPosition = useCallback(() => {
     if (!tableSuggestOpen) return
-    const ta = sqlRef.current
+    const textarea = sqlRef.current
     const wrap = editorWrapRef.current
-    if (!ta || !wrap) return
+    if (!textarea || !wrap) return
 
-    const pos = ta.selectionStart ?? 0
-    const before = ta.value.slice(0, pos)
+    const pos = textarea.selectionStart ?? 0
+    const before = textarea.value.slice(0, pos)
     const lines = before.split('\n')
     const lineIndex = Math.max(0, lines.length - 1)
     const currentLine = lines[lineIndex] ?? ''
-    const cs = window.getComputedStyle(ta)
-    const font = `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`
-    const lineHeight = Number.parseFloat(cs.lineHeight) || 17.4
-    const paddingTop = Number.parseFloat(cs.paddingTop) || 0
-    const paddingLeft = Number.parseFloat(cs.paddingLeft) || 0
+    const computedStyle = window.getComputedStyle(textarea)
+    const font = `${computedStyle.fontStyle} ${computedStyle.fontVariant} ${computedStyle.fontWeight} ${computedStyle.fontSize} / ${computedStyle.lineHeight} ${computedStyle.fontFamily}`
+    const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 17.4
+    const paddingTop = Number.parseFloat(computedStyle.paddingTop) || 0
+    const paddingLeft = Number.parseFloat(computedStyle.paddingLeft) || 0
 
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')
@@ -549,9 +219,8 @@ export function SqlTerminalDrawer(props: {
     ctx.font = font
     const textWidth = ctx.measureText(currentLine).width
 
-    const caretX = paddingLeft + textWidth - ta.scrollLeft
-    const caretY = paddingTop + lineIndex * lineHeight - ta.scrollTop
-
+    const caretX = paddingLeft + textWidth - textarea.scrollLeft
+    const caretY = paddingTop + lineIndex * lineHeight - textarea.scrollTop
     const popupW = tableSuggestRef.current?.offsetWidth ?? 220
     const popupH = tableSuggestRef.current?.offsetHeight ?? 220
     const wrapW = wrap.clientWidth
@@ -565,136 +234,22 @@ export function SqlTerminalDrawer(props: {
     setTableSuggestPopupPos({ top, left })
   }, [tableSuggestOpen])
 
-  useEffect(() => {
-    if (!open) return
-    requestAnimationFrame(() => sqlRef.current?.focus())
-  }, [open])
-
-  useEffect(() => {
-    if (open) return
-    setSqlAiDialogOpen(false)
-  }, [open])
-
-  useEffect(() => {
-    runRef.current = () => void run()
-  })
-
-  useEffect(() => {
-    const pending = pendingCaretRef.current
-    if (pending == null) return
-    pendingCaretRef.current = null
-    const ta = sqlRef.current
-    if (!ta) return
-    ta.focus()
-    ta.selectionStart = pending
-    ta.selectionEnd = pending
-    setCursorPos(pending)
-    requestAnimationFrame(syncLineNumberScroll)
-  }, [sql])
-
-  useEffect(() => {
-    requestAnimationFrame(syncLineNumberScroll)
-  }, [open, lineCount, syncLineNumberScroll])
-
-  useEffect(() => {
-    if (!open) return
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose])
-
-  useDismissibleLayer({
-    open: menuOpen,
-    onDismiss: () => setMenuOpen(false),
-    isInsideTarget: target => {
-      const wrap = menuWrapRef.current
-      return !!(target && wrap && wrap.contains(target))
-    },
-  })
-
-  useDismissibleLayer({
-    open: schemaMenuOpen,
-    onDismiss: () => setSchemaMenuOpen(false),
-    isInsideTarget: target => {
-      const wrap = schemaMenuWrapRef.current
-      return !!(target && wrap && wrap.contains(target))
-    },
-  })
-
-  useDismissibleLayer({
-    open: aiMenuOpen,
-    onDismiss: () => setAiMenuOpen(false),
-    isInsideTarget: target => {
-      const wrap = aiMenuWrapRef.current
-      return !!(target && wrap && wrap.contains(target))
-    },
-  })
-
-  useEffect(() => {
-    if (heightPx == null) return
-    safeSave(SQL_TERMINAL_HEIGHT_KEY, String(heightPx))
-  }, [heightPx])
-
-  useEffect(() => {
-    if (widthPx == null) return
-    safeSave(SQL_TERMINAL_WIDTH_KEY, String(widthPx))
-  }, [widthPx])
-
-  useEffect(() => {
-    safeSave(SQL_TERMINAL_POSITION_KEY, drawerPosition)
-  }, [drawerPosition])
-
-  useEffect(() => {
-    if (!open) return
-
-    function clampToViewport() {
-      const max = getSqlTerminalMaxHeightPx()
-      setHeightPx(prev => {
-        if (prev == null) return prev
-        return Math.min(prev, max)
-      })
-      const maxWidth = getSqlTerminalMaxWidthPx()
-      setWidthPx(prev => {
-        if (prev == null) return prev
-        return Math.min(prev, maxWidth)
-      })
-    }
-
-    clampToViewport()
-    window.addEventListener('resize', clampToViewport)
-    return () => window.removeEventListener('resize', clampToViewport)
-  }, [open])
-
-  useEffect(() => {
-    if (!selectedConnId) safeRemove(SQL_TERMINAL_SELECTED_CONN_KEY)
-    else safeSave(SQL_TERMINAL_SELECTED_CONN_KEY, selectedConnId)
-  }, [selectedConnId])
-
-  const editorBusy = busy || aiBusy
+  const pushOutput = useCallback((entries: OutputEntry[]) => {
+    if (!entries.length) return
+    setOutput(prev => [...prev, ...entries])
+  }, [])
 
   const applySqlText = useCallback((nextText: string, nextCaret = nextText.length) => {
-    const hist = editHistoryRef.current
-    const current = hist.stack[hist.index]?.text ?? ''
-    if (current !== nextText) {
-      const nextEntry = { text: nextText, caret: nextCaret }
-      const base = hist.stack.slice(0, hist.index + 1)
-      const nextStack = clampHistory([...base, nextEntry], 20)
-      editHistoryRef.current = { stack: nextStack, index: nextStack.length - 1, applying: false }
-    }
-
-    pendingCaretRef.current = nextCaret
+    recordProgrammaticChange(nextText, nextCaret)
     setSql(nextText)
-  }, [])
+  }, [recordProgrammaticChange])
 
   const appendSqlText = useCallback((snippet: string) => {
     const cleanSnippet = snippet.trim()
     if (!cleanSnippet) return
 
-    const hasExistingSql = sql.trim().length > 0
     let nextText = sql
-    if (hasExistingSql) {
+    if (sql.trim().length > 0) {
       if (!nextText.endsWith('\n')) nextText += '\n'
       if (!nextText.endsWith('\n\n')) nextText += '\n'
     }
@@ -702,331 +257,32 @@ export function SqlTerminalDrawer(props: {
     applySqlText(nextText, nextText.length)
   }, [applySqlText, sql])
 
-  useEffect(() => {
-    safeSave(SQL_TERMINAL_SQL_KEY, sql)
-  }, [sql])
+  const clearTerminal = useCallback(() => {
+    setOutput([])
+    setResultRows(null)
+    setResultColumns(null)
+    setResultHint(null)
+    setLastRunSchemaTableLabel(null)
+    setPaging({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
+    applySqlText('', 0)
+    focusEditorSoon()
+  }, [applySqlText, focusEditorSoon])
 
-  useEffect(() => {
-    if (!sqlAiPrompt.trim()) {
-      safeRemove(SQL_AI_INLINE_PROMPT_KEY)
-      return
-    }
-    safeSave(SQL_AI_INLINE_PROMPT_KEY, sqlAiPrompt)
-  }, [sqlAiPrompt])
-
-  useEffect(() => {
-    safeSave(SQL_TERMINAL_SPLIT_KEY, String(splitLeftFraction))
-  }, [splitLeftFraction])
-
-  useEffect(() => {
-    if (!selectedSchema) safeRemove(SQL_TERMINAL_SCHEMA_KEY)
-    else safeSave(SQL_TERMINAL_SCHEMA_KEY, selectedSchema)
-  }, [selectedSchema])
-
-  useEffect(() => {
-    const el = outputRef.current
-    if (!el) return
-    const hasTableResult = (resultColumns?.length ?? 0) > 0 || (resultRows?.length ?? 0) > 0
-    if (hasTableResult) {
-      if (!resetTableScrollOnNextResultRef.current) return
-      el.scrollTop = 0
-      resetTableScrollOnNextResultRef.current = false
-      return
-    }
-    el.scrollTop = el.scrollHeight
-  }, [open, output.length, resultColumns, resultRows])
-
-  useEffect(() => {
-    if (!connOptions.length) return
-    setSelectedConnId(prev => {
-      if (prev && connOptions.some(c => c.id === prev)) return prev
-      const fromStorage = safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY)
-      if (fromStorage && connOptions.some(c => c.id === fromStorage)) return fromStorage
-      return connOptions[0]?.id ?? null
-    })
-  }, [connOptions])
-
-  async function loadSchemas(conn: DbConnOption) {
-    if (conn.type !== 'postgres') {
-      setSchemas([])
-      setSelectedSchema('')
-      return
-    }
-    try {
-      const r = await runDbSql({
-        type: conn.type,
-        connectionString: conn.connectionString,
-        sql: "select schema_name as name from information_schema.schemata where schema_name <> 'information_schema' and schema_name not like 'pg\\_%' escape '\\' order by case when schema_name='public' then 0 else 1 end, schema_name",
-        timeoutMs: 15_000,
-      })
-      const rows = r.ok ? (r.rows ?? null) : null
-      const names = rows
-        ? rows
-            .map(x => (x && typeof x === 'object' && 'name' in x ? String((x as Record<string, unknown>).name ?? '') : ''))
-            .filter(Boolean)
-        : []
-      setSchemas(names)
-      setSelectedSchema(prev => {
-        const stored = safeLoadString(SQL_TERMINAL_SCHEMA_KEY) ?? ''
-        const candidate = prev || stored
-        if (candidate && names.includes(candidate)) return candidate
-        if (names.includes('public')) return 'public'
-        return names[0] ?? ''
-      })
-    } catch (error) {
-      logError('SqlTerminal.loadSchemas', error, { connectionId: conn.id })
-      setSchemas([])
-      setSelectedSchema('')
-    }
-  }
-
-  async function loadTables(conn: DbConnOption, schema: string) {
-    if (conn.type !== 'postgres') {
-      setTables([])
-      return
-    }
-    if (!schema) {
-      setTables([])
-      return
-    }
-    try {
-      const sql = `select table_name as name from information_schema.tables where table_schema = ${quoteSqlStringLiteral(schema)} and table_type in ('BASE TABLE','VIEW') order by table_name`
-      const r = await runDbSql({
-        type: conn.type,
-        connectionString: conn.connectionString,
-        sql,
-        timeoutMs: 15_000,
-      })
-      const rows = r.ok ? (r.rows ?? null) : null
-      const names = rows
-        ? rows
-            .map(x => (x && typeof x === 'object' && 'name' in x ? String((x as Record<string, unknown>).name ?? '') : ''))
-            .filter(Boolean)
-        : []
-      setTables(names)
-      void preloadColumnsForSchema(conn, schema, names)
-    } catch (error) {
-      logError('SqlTerminal.loadTables', error, { connectionId: conn.id, schema })
-      setTables([])
-    }
-  }
-
-  async function preloadColumnsForSchema(conn: DbConnOption, schema: string, tableNames: string[]) {
-    if (conn.type !== 'postgres') return
-    if (!schema || !tableNames.length) return
-    try {
-      const sql = `select table_name as table_name, column_name as column_name from information_schema.columns where table_schema = ${quoteSqlStringLiteral(schema)} order by table_name, ordinal_position`
-      const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql, timeoutMs: 20_000 })
-      const rows = r.ok ? (r.rows ?? null) : null
-      if (!rows) return
-
-      const nextMap: Record<string, string[]> = {}
-      for (const row of rows) {
-        if (!row || typeof row !== 'object') continue
-        const rec = row as Record<string, unknown>
-        const tableName = String(rec.table_name ?? '').trim()
-        const columnName = String(rec.column_name ?? '').trim()
-        if (!tableName || !columnName) continue
-        const key = `${schema}.${tableName}`
-        const list = nextMap[key] ?? []
-        list.push(columnName)
-        nextMap[key] = list
-      }
-
-      // Preserve explicit empty tables as empty arrays so UI can quickly conclude "No matches".
-      for (const t of tableNames) {
-        const k = `${schema}.${t}`
-        if (!nextMap[k]) nextMap[k] = []
-      }
-
-      setColumnsByTableKey(prev => ({ ...prev, ...nextMap }))
-    } catch (error) {
-      logWarn('SqlTerminal.preloadColumnsForSchema', 'Failed to preload columns', { error, schema })
-    }
-  }
-
-  useEffect(() => {
-    if (!open) return
-    if (!selectedConn) return
-    void loadSchemas(selectedConn)
-    setTables([])
-    setColumnsByTableKey({})
-  }, [open, selectedConnId])
-
-  useEffect(() => {
-    if (!open) return
-    if (!selectedConn) return
-    if (selectedConn.type !== 'postgres') return
-    // Keep preload/cache scoped to the currently selected schema.
-    setColumnsByTableKey({})
-    void loadTables(selectedConn, selectedSchema)
-  }, [open, selectedConnId, selectedSchema])
-
-  async function loadColumnsForTable(conn: DbConnOption, schema: string, tableName: string) {
-    if (conn.type !== 'postgres') return
-    if (!schema || !tableName) return
+  const loadColumnsForTable = useCallback(async (conn: DbConnOption, schema: string, tableName: string) => {
+    if (conn.type !== 'postgres' || !schema || !tableName) return
     const key = `${schema}.${tableName}`
     if (columnsByTableKey[key]) return
 
     setColumnLoading(true)
     try {
-      const sql = `select column_name as name from information_schema.columns where table_schema = ${quoteSqlStringLiteral(schema)} and table_name = ${quoteSqlStringLiteral(tableName)} order by ordinal_position`
-      const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql, timeoutMs: 15_000 })
-      const rows = r.ok ? (r.rows ?? null) : null
-      const names = rows
-        ? rows
-            .map(x => (x && typeof x === 'object' && 'name' in x ? String((x as Record<string, unknown>).name ?? '') : ''))
-            .filter(Boolean)
-        : []
+      const names = await loadSqlTerminalColumns(conn, schema, tableName)
       setColumnsByTableKey(prev => ({ ...prev, [key]: names }))
     } finally {
       setColumnLoading(false)
     }
-  }
+  }, [columnsByTableKey])
 
-  function onResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!open) return
-    e.preventDefault()
-    const handle = e.currentTarget
-    const pointerId = e.pointerId
-    const prevCursor = document.body.style.cursor
-    const prevUserSelect = document.body.style.userSelect
-    document.body.style.cursor = 'ns-resize'
-    document.body.style.userSelect = 'none'
-    const startY = e.clientY
-    const max = getSqlTerminalMaxHeightPx()
-    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, max))
-
-    const min = SQL_TERMINAL_MIN_HEIGHT_PX
-
-    function clamp(n: number) {
-      return Math.max(min, Math.min(max, n))
-    }
-
-    function onMove(ev: PointerEvent) {
-      if ((ev.buttons & 1) === 0) {
-        cleanup()
-        return
-      }
-      const dy = ev.clientY - startY
-      const next = clamp(Math.round(startHeight - dy))
-      setHeightPx(next)
-    }
-
-    function cleanup() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('pointercancel', onCancel, true)
-      window.removeEventListener('blur', onCancel)
-      handle.removeEventListener('lostpointercapture', onCancel)
-      document.body.style.cursor = prevCursor
-      document.body.style.userSelect = prevUserSelect
-      try {
-        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch (error) {
-        logWarn('SqlTerminal.releasePointerCapture.vertical', 'Failed to release pointer capture', { error })
-      }
-    }
-
-    function onUp() {
-      cleanup()
-    }
-
-    function onCancel() {
-      cleanup()
-    }
-
-    try {
-      handle.setPointerCapture(pointerId)
-    } catch (error) {
-      logWarn('SqlTerminal.setPointerCapture.vertical', 'Failed to set pointer capture', { error })
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('pointercancel', onCancel, true)
-    window.addEventListener('blur', onCancel)
-    handle.addEventListener('lostpointercapture', onCancel)
-  }
-
-  function onResizeHandleDoubleClick() {
-    const max = getSqlTerminalMaxHeightPx()
-    const base = getSqlTerminalBaseHeightPx()
-    const current = heightPx ?? base
-    const isMaximized = Math.abs(current - max) <= 2
-    setHeightPx(isMaximized ? base : max)
-  }
-
-  function onRightResizeHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!open) return
-    if (drawerPosition !== 'left') return
-    e.preventDefault()
-    const handle = e.currentTarget
-    const pointerId = e.pointerId
-    const prevCursor = document.body.style.cursor
-    const prevUserSelect = document.body.style.userSelect
-    document.body.style.cursor = 'ew-resize'
-    document.body.style.userSelect = 'none'
-    const startX = e.clientX
-    const max = getSqlTerminalMaxWidthPx()
-    const startWidth = widthPx ?? getSqlTerminalBaseWidthPx()
-
-    function clamp(n: number) {
-      return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.min(max, n))
-    }
-
-    function onMove(ev: PointerEvent) {
-      if ((ev.buttons & 1) === 0) {
-        cleanup()
-        return
-      }
-      const dx = ev.clientX - startX
-      const next = clamp(Math.round(startWidth + dx))
-      setWidthPx(next)
-    }
-
-    function cleanup() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('pointercancel', onCancel, true)
-      window.removeEventListener('blur', onCancel)
-      handle.removeEventListener('lostpointercapture', onCancel)
-      document.body.style.cursor = prevCursor
-      document.body.style.userSelect = prevUserSelect
-      try {
-        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch (error) {
-        logWarn('SqlTerminal.releasePointerCapture.right', 'Failed to release pointer capture', { error })
-      }
-    }
-
-    function onUp() {
-      cleanup()
-    }
-
-    function onCancel() {
-      cleanup()
-    }
-
-    try {
-      handle.setPointerCapture(pointerId)
-    } catch (error) {
-      logWarn('SqlTerminal.setPointerCapture.right', 'Failed to set pointer capture', { error })
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('pointercancel', onCancel, true)
-    window.addEventListener('blur', onCancel)
-    handle.addEventListener('lostpointercapture', onCancel)
-  }
-
-  function pushOutput(add: OutputEntry[]) {
-    if (!add.length) return
-    setOutput(prev => [...prev, ...add])
-  }
-
-  function openSchemaMenu(anchorEl: HTMLElement) {
+  const openSchemaMenu = useCallback((anchorEl: HTMLElement) => {
     const margin = 8
     const gap = 6
     const minHeight = 96
@@ -1049,223 +305,20 @@ export function SqlTerminalDrawer(props: {
     setSchemaMenuPlacement('above')
     setSchemaMenuMaxHeight(availableAbove)
     setSchemaMenuOpen(true)
-  }
+  }, [])
 
-  function onSplitHandlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!open) return
-    e.preventDefault()
-    const handle = e.currentTarget
-    const pointerId = e.pointerId
-    const prevCursor = document.body.style.cursor
-    const prevUserSelect = document.body.style.userSelect
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    const wrap = bodyRef.current
-    if (!wrap) return
-
-    const rect = wrap.getBoundingClientRect()
-    const startX = e.clientX
-    const startFrac = splitLeftFraction
-
-    const minLeftPx = 260
-    const minRightPx = 320
-    const maxFracFromLeft = Math.max(0.1, Math.min(0.9, (rect.width - minRightPx) / rect.width))
-    const minFracFromLeft = Math.max(0.1, Math.min(0.9, minLeftPx / rect.width))
-
-    function clampFrac(n: number) {
-      return Math.max(minFracFromLeft, Math.min(maxFracFromLeft, n))
-    }
-
-    function onMove(ev: PointerEvent) {
-      if ((ev.buttons & 1) === 0) {
-        cleanup()
-        return
-      }
-      const dx = ev.clientX - startX
-      const next = clampFrac(startFrac + dx / rect.width)
-      setSplitLeftFraction(next)
-    }
-
-    function cleanup() {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp, true)
-      window.removeEventListener('pointercancel', onCancel, true)
-      window.removeEventListener('blur', onCancel)
-      handle.removeEventListener('lostpointercapture', onCancel)
-      document.body.style.cursor = prevCursor
-      document.body.style.userSelect = prevUserSelect
-      try {
-        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
-      } catch (error) {
-        logWarn('SqlTerminal.releasePointerCapture.horizontal', 'Failed to release pointer capture', { error })
-      }
-    }
-
-    function onUp() {
-      cleanup()
-    }
-
-    function onCancel() {
-      cleanup()
-    }
-
-    try {
-      handle.setPointerCapture(pointerId)
-    } catch (error) {
-      logWarn('SqlTerminal.setPointerCapture.horizontal', 'Failed to set pointer capture', { error })
-    }
-
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp, true)
-    window.addEventListener('pointercancel', onCancel, true)
-    window.addEventListener('blur', onCancel)
-    handle.addEventListener('lostpointercapture', onCancel)
-  }
-
-  const effectiveResultColumns = useMemo(() => {
-    if (resultColumns?.length) return resultColumns
-    const rows = resultRows
-    if (!rows || !rows.length) return []
-    const first = rows[0] ?? {}
-    return Object.keys(first)
-  }, [resultColumns, resultRows])
-
-  const tableSuggestions = useMemo(() => {
-    const p = (tableSuggestPrefix || '').toLowerCase()
-    if (!p) return tables.slice(0, 80)
-    return tables.filter(t => t.toLowerCase().includes(p)).slice(0, 80)
-  }, [tables, tableSuggestPrefix])
-
-  const columnSuggestions = useMemo(() => {
-    const key = columnTargetTableKey
-    if (!key) return []
-    const cols = columnsByTableKey[key] ?? []
-    const p = (tableSuggestPrefix || '').toLowerCase()
-    if (!p) return cols.slice(0, 120)
-    return cols.filter(c => c.toLowerCase().includes(p)).slice(0, 120)
-  }, [columnsByTableKey, columnTargetTableKey, tableSuggestPrefix])
-
-  const applyTableSuggestionAt = useCallback((index: number) => {
-    const range = tableSuggestReplaceRange
-    const t = tableSuggestions[index]
-    if (!range || !t) return
-    const needsLeadingSpace = /(from|into|join)$/i.test(sql.slice(0, range.start))
-    const tableRef = tableSuggestKind === 'into' ? t : `${t} ${makeTableAlias(t)}`
-    const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
-    const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
-    setSql(next)
-    setTableSuggestOpen(false)
-    requestAnimationFrame(() => {
-      const ta = sqlRef.current
-      if (!ta) return
-      const newPos = range.start + insert.length
-      ta.focus()
-      ta.selectionStart = newPos
-      ta.selectionEnd = newPos
-      setCursorPos(newPos)
-    })
-  }, [sql, tableSuggestKind, tableSuggestReplaceRange, tableSuggestions])
-
-  const applyColumnSuggestionAt = useCallback((index: number) => {
-    const range = tableSuggestReplaceRange
-    const c = columnSuggestions[index]
-    if (!range || !c) return
-    const next = `${sql.slice(0, range.start)}${c}${sql.slice(range.end)}`
-    setSql(next)
-    setTableSuggestOpen(false)
-    requestAnimationFrame(() => {
-      const ta = sqlRef.current
-      if (!ta) return
-      const newPos = range.start + c.length
-      ta.focus()
-      ta.selectionStart = newPos
-      ta.selectionEnd = newPos
-      setCursorPos(newPos)
-    })
-  }, [columnSuggestions, sql, tableSuggestReplaceRange])
-
-  useEffect(() => {
-    if (!tableSuggestOpen) return
-    setTableSuggestActiveIndex(null)
-  }, [tableSuggestOpen, suggestMode, tableSuggestPrefix])
-
-  useEffect(() => {
-    if (!tableSuggestOpen) {
-      setTableSuggestPopupPos(null)
-      return
-    }
-    requestAnimationFrame(updateTableSuggestPopupPosition)
-  }, [tableSuggestOpen, suggestMode, cursorPos, sql, tableSuggestions.length, columnSuggestions.length, updateTableSuggestPopupPosition])
-
-  useEffect(() => {
-    if (!open) return
-    const ta = sqlRef.current
-    if (!ta) return
-
-    const pos = ta.selectionStart ?? cursorPos
-    const before = sql.slice(0, pos)
-    const currentLineBefore = before.slice(before.lastIndexOf('\n') + 1)
-
-    // Column suggestion: <alias_or_table>.<prefix>
-    const colMatch = before.match(/(?:^|[^a-zA-Z0-9_"])([a-zA-Z0-9_"]+)\.([a-zA-Z0-9_"]*)$/i)
-    if (colMatch) {
-      const token = stripQuotes(colMatch[1] ?? '')
-      const colPrefix = stripQuotes(colMatch[2] ?? '')
-      const aliases = parseFromAndJoinAliases(sql)
-      const tableName = aliases[token]
-      if (tableName && selectedConn?.type === 'postgres' && selectedSchema) {
-        const key = `${selectedSchema}.${tableName}`
-        setSuggestMode('column')
-        setColumnTargetTableKey(key)
-        setTableSuggestPrefix(colPrefix)
-        setTableSuggestReplaceRange({ start: pos - (colMatch[2] ?? '').length, end: pos })
-        setTableSuggestPopupPos(null)
-        setTableSuggestActiveIndex(null)
-        void loadColumnsForTable(selectedConn, selectedSchema, tableName)
-        setTableSuggestOpen(true)
-        return
-      }
-    }
-
-    // Table suggestion: FROM/INTO/JOIN ...<prefix>
-    const tableMatch = currentLineBefore.match(/(?:^|[\s(])(from|into|join)(?:\s+([a-zA-Z0-9_".]*))?$/i)
-    if (!tableMatch || !tables.length) {
-      setTableSuggestOpen(false)
-      setTableSuggestReplaceRange(null)
-      setTableSuggestPrefix('')
-      setColumnTargetTableKey(null)
-      setTableSuggestActiveIndex(null)
-      return
-    }
-
-    const matchKind = (tableMatch[1] || 'from').toLowerCase()
-    const kind: 'from' | 'into' | 'join' = matchKind === 'into' ? 'into' : (matchKind === 'join' ? 'join' : 'from')
-    const prefix = tableMatch[2] ?? ''
-    const start = pos - prefix.length
-    const end = pos
-    setSuggestMode('table')
-    setTableSuggestKind(kind)
-    setTableSuggestPrefix(prefix.replaceAll('"', ''))
-    setTableSuggestReplaceRange({ start, end })
-    setColumnTargetTableKey(null)
-    setTableSuggestPopupPos(null)
-    setTableSuggestActiveIndex(null)
-    setTableSuggestOpen(true)
-  }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
-
-  async function executeSqlRaw(raw: string, options: ExecuteSqlOptions) {
+  const runQuery = useCallback(async (raw: string, options: ExecuteSqlOptions) => {
     const conn = selectedConn
     if (!conn) {
       pushOutput([{ kind: 'err', text: 'No database connection selected. Configure connection in App Settings or Collection Environment.' }])
       return
     }
-
     if (!raw) {
       pushOutput([{ kind: 'sys', text: 'Nothing to run.' }])
       return
     }
-    setLastRunSchemaTableLabel(extractSchemaTableLabel(raw, selectedSchema))
 
+    setLastRunSchemaTableLabel(extractSchemaTableLabel(raw, selectedSchema))
     const startedAt = new Date()
     resetTableScrollOnNextResultRef.current = true
     pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type}) [${options.scopeLabel}]` }])
@@ -1279,81 +332,65 @@ export function SqlTerminalDrawer(props: {
     try {
       let hasFreshTableResult = false
       const renderedSql = applyVariables(raw, conn.variables)
-      const renderedSqlWithSchema =
-        conn.type === 'postgres' && selectedSchema
-          ? applySchemaToTableRefs(renderedSql, selectedSchema)
-          : renderedSql
-      const isSelectLike = looksLikeSelectOrWith(renderedSqlWithSchema)
-      const isPagedSelect = conn.type === 'postgres' && isSelectLike
+      const renderedSqlWithSchema = conn.type === 'postgres' && selectedSchema ? applySchemaToTableRefs(renderedSql, selectedSchema) : renderedSql
+      const isPagedSelect = conn.type === 'postgres' && looksLikeSelectOrWith(renderedSqlWithSchema)
       const baseSql = trimTrailingSemicolons(renderedSqlWithSchema)
       const sqlForResultFetch = isPagedSelect ? wrapSqlForPage(baseSql, 0, SQL_TERMINAL_PAGE_SIZE + 1) : renderedSqlWithSchema
-      const sqlToRun =
-        conn.type === 'postgres' && selectedSchema
-          ? (looksLikeSelectOrWith(sqlForResultFetch)
-              ? (sqlForResultFetch.trimStart().toLowerCase().startsWith('with')
-                  ? sqlForResultFetch.replace(
-                      /^\s*with\b/i,
-                      m => `${m} __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true)),`,
-                    )
-                  : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true))\n${sqlForResultFetch}`)
-              : `set search_path to ${quoteIdentPostgres(selectedSchema)};\n${sqlForResultFetch}`)
-          : sqlForResultFetch
-      const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
-      const prefix = r.ok ? 'OK' : 'ERROR'
-      pushOutput([{ kind: r.ok ? 'out' : 'err', text: `${prefix}: ${r.message || ''} (${r.durationMs}ms)` }])
-      const rows = r.rows ?? null
-      if (r.ok && Array.isArray(r.columns) && r.columns.length) {
-        setResultColumns(r.columns)
+      const sqlToRun = conn.type === 'postgres' && selectedSchema ? buildSchemaAwareSql(sqlForResultFetch, selectedSchema) : sqlForResultFetch
+      const result = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
+
+      pushOutput([{ kind: result.ok ? 'out' : 'err', text: `${result.ok ? 'OK' : 'ERROR'}: ${result.message || ''} (${result.durationMs}ms)` }])
+
+      if (result.ok && Array.isArray(result.columns) && result.columns.length) {
+        setResultColumns(result.columns)
         hasFreshTableResult = true
       }
 
-      if (r.ok && Array.isArray(rows)) {
-        const hasMore = isPagedSelect && rows.length > SQL_TERMINAL_PAGE_SIZE
-        const visibleRows = hasMore ? rows.slice(0, SQL_TERMINAL_PAGE_SIZE) : rows
+      if (result.ok && Array.isArray(result.rows)) {
+        const hasMore = isPagedSelect && result.rows.length > SQL_TERMINAL_PAGE_SIZE
+        const visibleRows = hasMore ? result.rows.slice(0, SQL_TERMINAL_PAGE_SIZE) : result.rows
         if (visibleRows.length && typeof visibleRows[0] === 'object' && visibleRows[0] != null && !Array.isArray(visibleRows[0])) {
           setResultRows(visibleRows as Array<Record<string, unknown>>)
           setResultHint(`${visibleRows.length} row(s)${hasMore ? '+' : ''}`)
           setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
           hasFreshTableResult = true
-        } else if (!rows.length && (r.columns?.length ?? 0) > 0) {
-          setResultRows([])
-          setResultHint('0 row(s)')
+        } else if (!result.rows.length) {
+          setResultHint((result.columns?.length ?? 0) > 0 ? '0 row(s)' : '0 row(s)')
           setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
-          hasFreshTableResult = true
-        } else if (!rows.length) {
-          setResultHint('0 row(s)')
-          setPaging(isPagedSelect ? { enabled: true, loading: false, hasMore: false, loadAll: false, baseSql } : { enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
+          if ((result.columns?.length ?? 0) > 0) {
+            setResultRows([])
+            hasFreshTableResult = true
+          }
         }
-      } else if (r.ok && typeof r.rowsAffected === 'number') {
-        setResultHint(`${r.rowsAffected} affected`)
+      } else if (result.ok && typeof result.rowsAffected === 'number') {
+        setResultHint(`${result.rowsAffected} affected`)
       }
+
       if (!hasFreshTableResult) resetTableScrollOnNextResultRef.current = false
-    } catch (e: unknown) {
+    } catch (error) {
       resetTableScrollOnNextResultRef.current = false
-      pushOutput([{ kind: 'err', text: e instanceof Error ? e.message : String(e) }])
+      pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
     } finally {
       setBusy(false)
-      requestAnimationFrame(() => sqlRef.current?.focus())
+      focusEditorSoon()
     }
-  }
+  }, [focusEditorSoon, pushOutput, selectedConn, selectedSchema])
 
-  async function run() {
+  const run = useCallback(async () => {
     if (editorBusy) return
-    const ta = sqlRef.current
-    const selectionStart = ta ? Math.max(0, Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
-    const selectionEnd = ta ? Math.max(0, Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
+    const textarea = sqlRef.current
+    const selectionStart = textarea ? Math.max(0, Math.min(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)) : 0
+    const selectionEnd = textarea ? Math.max(0, Math.max(textarea.selectionStart ?? 0, textarea.selectionEnd ?? 0)) : 0
     const selectedSql = selectionEnd > selectionStart ? sql.slice(selectionStart, selectionEnd).trim() : ''
-    const statementSql = selectedSql ? '' : (getCurrentSqlStatement(sql, ta?.selectionStart ?? cursorPos) ?? '')
+    const statementSql = selectedSql ? '' : (getCurrentSqlStatement(sql, textarea?.selectionStart ?? cursorPos) ?? '')
     const raw = (selectedSql || statementSql || sql).trim()
     const scopeLabel: ExecuteSqlOptions['scopeLabel'] = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
-    await executeSqlRaw(raw, { scopeLabel })
-  }
+    await runQuery(raw, { scopeLabel })
+  }, [cursorPos, editorBusy, runQuery, sql])
 
-  async function loadMoreRows(loadAll: boolean) {
-    if (editorBusy) return
-    if (!paging.enabled || !paging.hasMore || paging.loading) return
-    const conn = selectedConn
-    if (!conn || conn.type !== 'postgres') return
+  const loadMoreRows = useCallback(async (loadAll: boolean) => {
+    if (editorBusy || !paging.enabled || !paging.hasMore || paging.loading) return
+    if (!selectedConn || selectedConn.type !== 'postgres') return
 
     const alreadyLoaded = resultRows?.length ?? 0
     const currentBaseSql = paging.baseSql
@@ -1366,26 +403,16 @@ export function SqlTerminalDrawer(props: {
     try {
       while (true) {
         const sqlForResultFetch = wrapSqlForPage(currentBaseSql, offset, SQL_TERMINAL_PAGE_SIZE + 1)
-        const sqlToRun =
-          selectedSchema
-            ? (looksLikeSelectOrWith(sqlForResultFetch)
-                ? (sqlForResultFetch.trimStart().toLowerCase().startsWith('with')
-                    ? sqlForResultFetch.replace(
-                        /^\s*with\b/i,
-                        m => `${m} __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true)),`,
-                      )
-                    : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(selectedSchema)}, true))\n${sqlForResultFetch}`)
-                : `set search_path to ${quoteIdentPostgres(selectedSchema)};\n${sqlForResultFetch}`)
-            : sqlForResultFetch
+        const sqlToRun = selectedSchema ? buildSchemaAwareSql(sqlForResultFetch, selectedSchema) : sqlForResultFetch
+        const result = await runDbSql({ type: selectedConn.type, connectionString: selectedConn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
 
-        const r = await runDbSql({ type: conn.type, connectionString: conn.connectionString, sql: sqlToRun, timeoutMs: 30_000 })
-        if (!r.ok) {
-          pushOutput([{ kind: 'err', text: `ERROR: ${r.message || ''} (${r.durationMs}ms)` }])
+        if (!result.ok) {
+          pushOutput([{ kind: 'err', text: `ERROR: ${result.message || ''} (${result.durationMs}ms)` }])
           hasMore = true
           break
         }
 
-        const rows = r.rows ?? []
+        const rows = result.rows ?? []
         if (!Array.isArray(rows) || !rows.length) {
           hasMore = false
           break
@@ -1393,7 +420,7 @@ export function SqlTerminalDrawer(props: {
 
         const nextHasMore = rows.length > SQL_TERMINAL_PAGE_SIZE
         const visibleRows = (nextHasMore ? rows.slice(0, SQL_TERMINAL_PAGE_SIZE) : rows).filter(
-          x => typeof x === 'object' && x != null && !Array.isArray(x),
+          row => typeof row === 'object' && row != null && !Array.isArray(row),
         ) as Array<Record<string, unknown>>
 
         if (!visibleRows.length) {
@@ -1407,30 +434,28 @@ export function SqlTerminalDrawer(props: {
 
         if (!loadAll || !nextHasMore) break
       }
-    } catch (e: unknown) {
-      pushOutput([{ kind: 'err', text: e instanceof Error ? e.message : String(e) }])
+    } catch (error) {
+      pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
       hasMore = true
     } finally {
       setResultRows(prev => {
-        const base = prev ?? []
-        const next = [...base, ...loadedChunks]
+        const next = [...(prev ?? []), ...loadedChunks]
         setResultHint(`${next.length} row(s)${hasMore ? '+' : ''}`)
         return next
       })
       setPaging(prev => ({ ...prev, loading: false, hasMore, loadAll: loadAll && hasMore }))
     }
-  }
+  }, [editorBusy, paging, pushOutput, resultRows, selectedConn, selectedSchema])
 
-  function onOutputScroll() {
-    const el = outputRef.current
-    if (!el) return
-    if (editorBusy || paging.loading || !paging.enabled || !paging.hasMore || paging.loadAll) return
-    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
+  const onOutputScroll = useCallback(() => {
+    const element = outputRef.current
+    if (!element || editorBusy || paging.loading || !paging.enabled || !paging.hasMore || paging.loadAll) return
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight
     if (remaining > 120) return
     void loadMoreRows(false)
-  }
+  }, [editorBusy, loadMoreRows, paging])
 
-  async function handleEnhanceSqlWithAi() {
+  const handleEnhanceSqlWithAi = useCallback(async () => {
     const rawSql = sql.trim()
     setAiMenuOpen(false)
 
@@ -1439,58 +464,42 @@ export function SqlTerminalDrawer(props: {
       pushOutput([{ kind: 'sys', text: 'Nothing to enhance.' }])
       return
     }
-
     if (!props.aiSettings.enabled) {
       pushOutput([{ kind: 'err', text: 'AI is disabled in Settings.' }])
       return
     }
 
-    const conn = selectedConn
-    const dialect = conn?.type ?? 'postgres'
     setAiBusy(true)
     pushOutput([{ kind: 'sys', text: 'AI is checking the SQL script…' }])
 
     try {
       const result = await enhanceSqlWithYandex(props.aiSettings, {
         sql,
-        dialect,
-        schema: conn?.type === 'postgres' ? selectedSchema : undefined,
+        dialect: selectedConn?.type ?? 'postgres',
+        schema: selectedConn?.type === 'postgres' ? selectedSchema : undefined,
       })
-
       applySqlText(result.sql)
       pushOutput([{ kind: 'out', text: result.summary || 'AI enhancement completed.' }])
     } catch (error) {
       pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
     } finally {
       setAiBusy(false)
-      requestAnimationFrame(() => sqlRef.current?.focus())
+      focusEditorSoon()
     }
-  }
+  }, [aiBusy, applySqlText, busy, focusEditorSoon, props.aiSettings, pushOutput, selectedConn, selectedSchema, sql])
 
-  function handleCreateSqlWithAi() {
-    setAiMenuOpen(false)
-    requestAnimationFrame(() => {
-      setSqlAiDialogOpen(true)
-    })
-  }
-
-  async function getSqlAiInlineContext() {
+  const getSqlAiInlineContext = useCallback(async () => {
     if (sqlAiInlineContext && sqlAiInlineContextSignature === sqlAiInitSignature) {
       return sqlAiInlineContext
     }
 
     try {
-      const nextContext = await initializeSqlAiAssistantContext(props.mcpSettings, {
-        selectedSchema,
-      })
+      const nextContext = await initializeSqlAiAssistantContext(props.mcpSettings, { selectedSchema })
       setSqlAiInlineContext(nextContext)
       setSqlAiInlineContextSignature(sqlAiInitSignature)
       return nextContext
     } catch (mcpError) {
-      const fallbackConnectionString = resolveFallbackPostgresConnectionString(
-        props.mcpSettings,
-        selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null,
-      )
+      const fallbackConnectionString = resolveFallbackPostgresConnectionString(props.mcpSettings, selectedConnection)
       if (!fallbackConnectionString) throw mcpError
 
       const nextContext = await initializeSqlAiAssistantContextFromDb({
@@ -1501,9 +510,9 @@ export function SqlTerminalDrawer(props: {
       setSqlAiInlineContextSignature(sqlAiInitSignature)
       return nextContext
     }
-  }
+  }, [props.mcpSettings, selectedConnection, selectedSchema, sqlAiInitSignature, sqlAiInlineContext, sqlAiInlineContextSignature])
 
-  async function handleInlineSqlAiPrompt() {
+  const handleInlineSqlAiPrompt = useCallback(async () => {
     const userMessage = sqlAiPrompt.trim()
     if (editorBusy || !userMessage) return
 
@@ -1538,27 +547,348 @@ export function SqlTerminalDrawer(props: {
       appendSqlText(result.sqlToInsert)
       setSqlAiPrompt('')
       pushOutput([{ kind: 'out', text: result.reply }])
-      await executeSqlRaw(result.sqlToInsert.trim(), { scopeLabel: 'ai' })
+      await runQuery(result.sqlToInsert.trim(), { scopeLabel: 'ai' })
     } catch (error) {
       pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
     } finally {
       setAiBusy(false)
       requestAnimationFrame(() => sqlAiPromptRef.current?.focus())
     }
-  }
+  }, [appendSqlText, editorBusy, getSqlAiInlineContext, props.aiSettings, pushOutput, runQuery, sql, sqlAiInitSignature, sqlAiPrompt, selectedSchema])
 
-  const selectedLabel = selectedConn ? `${selectedConn.label}: ${selectedConn.connectionPreview}` : (connOptions.length ? 'Select DB…' : 'No DB connections')
+  const applyTableSuggestionAt = useCallback((index: number) => {
+    const range = tableSuggestReplaceRange
+    const table = tableSuggestions[index]
+    if (!range || !table) return
+    const needsLeadingSpace = /(from|into|join)$/i.test(sql.slice(0, range.start))
+    const tableRef = tableSuggestKind === 'into' ? table : `${table} ${makeTableAlias(table)}`
+    const insert = `${needsLeadingSpace ? ' ' : ''}${tableRef}`
+    const next = `${sql.slice(0, range.start)}${insert}${sql.slice(range.end)}`
+    setTableSuggestActiveIndex(index)
+    setTableSuggestOpen(false)
+    applySqlText(next, range.start + insert.length)
+  }, [applySqlText, sql, tableSuggestKind, tableSuggestReplaceRange, tableSuggestions])
+
+  const applyColumnSuggestionAt = useCallback((index: number) => {
+    const range = tableSuggestReplaceRange
+    const column = columnSuggestions[index]
+    if (!range || !column) return
+    const next = `${sql.slice(0, range.start)}${column}${sql.slice(range.end)}`
+    setTableSuggestActiveIndex(index)
+    setTableSuggestOpen(false)
+    applySqlText(next, range.start + column.length)
+  }, [applySqlText, columnSuggestions, sql, tableSuggestReplaceRange])
+
+  const handleEditorKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const isUndo = (event.ctrlKey && !event.shiftKey && !event.metaKey && event.key.toLowerCase() === 'z') || (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 'z')
+    const isRedo =
+      (event.ctrlKey && !event.shiftKey && !event.metaKey && event.key.toLowerCase() === 'y')
+      || (event.metaKey && event.shiftKey && event.key.toLowerCase() === 'z')
+      || (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z')
+
+    if (isUndo) {
+      event.preventDefault()
+      event.stopPropagation()
+      const entry = undo()
+      if (entry) {
+        setSql(entry.text)
+        requestAnimationFrame(finishApplying)
+      }
+      return
+    }
+
+    if (isRedo) {
+      event.preventDefault()
+      event.stopPropagation()
+      const entry = redo()
+      if (entry) {
+        setSql(entry.text)
+        requestAnimationFrame(finishApplying)
+      }
+      return
+    }
+
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault()
+      event.stopPropagation()
+      void run()
+      return
+    }
+
+    const activeSuggestions = suggestMode === 'column' ? columnSuggestions : tableSuggestions
+    if (!tableSuggestOpen || !activeSuggestions.length) return
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      event.stopPropagation()
+      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev + 1) % activeSuggestions.length))
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      event.stopPropagation()
+      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev - 1 + activeSuggestions.length) % activeSuggestions.length))
+      return
+    }
+    if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      if (tableSuggestActiveIndex == null) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (suggestMode === 'column') applyColumnSuggestionAt(tableSuggestActiveIndex)
+      else applyTableSuggestionAt(tableSuggestActiveIndex)
+    }
+  }, [applyColumnSuggestionAt, applyTableSuggestionAt, columnSuggestions, finishApplying, redo, run, suggestMode, tableSuggestActiveIndex, tableSuggestOpen, tableSuggestions, undo])
+
+  useEffect(() => {
+    if (!open) return
+    focusEditorSoon()
+  }, [focusEditorSoon, open])
+
+  useEffect(() => {
+    if (open) return
+    setSqlAiDialogOpen(false)
+  }, [open])
+
+  useEffect(() => {
+    runRef.current = () => void run()
+  }, [run])
+
+  useEffect(() => {
+    const pendingCaret = pendingCaretRef.current
+    if (pendingCaret == null) return
+    pendingCaretRef.current = null
+    const textarea = sqlRef.current
+    if (!textarea) return
+    textarea.focus()
+    textarea.selectionStart = pendingCaret
+    textarea.selectionEnd = pendingCaret
+    setCursorPos(pendingCaret)
+    requestAnimationFrame(syncLineNumberScroll)
+  }, [sql, pendingCaretRef, syncLineNumberScroll])
+
+  useEffect(() => {
+    requestAnimationFrame(syncLineNumberScroll)
+  }, [lineCount, open, syncLineNumberScroll])
+
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose, open])
+
+  useDismissibleLayer({
+    open: menuOpen,
+    onDismiss: () => setMenuOpen(false),
+    isInsideTarget: target => !!(target && menuWrapRef.current?.contains(target)),
+  })
+
+  useDismissibleLayer({
+    open: schemaMenuOpen,
+    onDismiss: () => setSchemaMenuOpen(false),
+    isInsideTarget: target => !!(target && schemaMenuWrapRef.current?.contains(target)),
+  })
+
+  useDismissibleLayer({
+    open: aiMenuOpen,
+    onDismiss: () => setAiMenuOpen(false),
+    isInsideTarget: target => !!(target && aiMenuWrapRef.current?.contains(target)),
+  })
+
+  useEffect(() => {
+    if (heightPx != null) safeSave(SQL_TERMINAL_HEIGHT_KEY, String(heightPx))
+  }, [heightPx])
+
+  useEffect(() => {
+    if (widthPx != null) safeSave(SQL_TERMINAL_WIDTH_KEY, String(widthPx))
+  }, [widthPx])
+
+  useEffect(() => {
+    safeSave(SQL_TERMINAL_POSITION_KEY, drawerPosition)
+  }, [drawerPosition])
 
   useEffect(() => {
     if (!open) return
 
-    function onGlobalKeyDown(e: KeyboardEvent) {
-      if (!(e.ctrlKey || e.metaKey) || e.key !== 'Enter') return
+    function clampToViewport() {
+      const maxHeight = getSqlTerminalMaxHeightPx()
+      setHeightPx(prev => (prev == null ? prev : Math.min(prev, maxHeight)))
+      const maxWidth = getSqlTerminalMaxWidthPx()
+      setWidthPx(prev => (prev == null ? prev : Math.min(prev, maxWidth)))
+    }
+
+    clampToViewport()
+    window.addEventListener('resize', clampToViewport)
+    return () => window.removeEventListener('resize', clampToViewport)
+  }, [open])
+
+  useEffect(() => {
+    if (!selectedConnId) safeRemove(SQL_TERMINAL_SELECTED_CONN_KEY)
+    else safeSave(SQL_TERMINAL_SELECTED_CONN_KEY, selectedConnId)
+  }, [selectedConnId])
+
+  useEffect(() => {
+    safeSave(SQL_TERMINAL_SQL_KEY, sql)
+  }, [sql])
+
+  useEffect(() => {
+    if (!sqlAiPrompt.trim()) {
+      safeRemove(SQL_AI_INLINE_PROMPT_KEY)
+      return
+    }
+    safeSave(SQL_AI_INLINE_PROMPT_KEY, sqlAiPrompt)
+  }, [sqlAiPrompt])
+
+  useEffect(() => {
+    safeSave(SQL_TERMINAL_SPLIT_KEY, String(splitLeftFraction))
+  }, [splitLeftFraction])
+
+  useEffect(() => {
+    if (!selectedSchema) safeRemove(SQL_TERMINAL_SCHEMA_KEY)
+    else safeSave(SQL_TERMINAL_SCHEMA_KEY, selectedSchema)
+  }, [selectedSchema])
+
+  useEffect(() => {
+    const element = outputRef.current
+    if (!element) return
+    const hasTableResult = (resultColumns?.length ?? 0) > 0 || (resultRows?.length ?? 0) > 0
+    if (hasTableResult) {
+      if (!resetTableScrollOnNextResultRef.current) return
+      element.scrollTop = 0
+      resetTableScrollOnNextResultRef.current = false
+      return
+    }
+    element.scrollTop = element.scrollHeight
+  }, [open, output.length, resultColumns, resultRows])
+
+  useEffect(() => {
+    if (!connOptions.length) return
+    setSelectedConnId(prev => {
+      if (prev && connOptions.some(conn => conn.id === prev)) return prev
+      const stored = safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY)
+      if (stored && connOptions.some(conn => conn.id === stored)) return stored
+      return connOptions[0]?.id ?? null
+    })
+  }, [connOptions])
+
+  useEffect(() => {
+    if (!open || !selectedConn) return
+
+    void (async () => {
+      try {
+        const names = await loadSqlTerminalSchemas(selectedConn)
+        setSchemas(names)
+        setSelectedSchema(prev => {
+          const stored = safeLoadString(SQL_TERMINAL_SCHEMA_KEY) ?? ''
+          const candidate = prev || stored
+          if (candidate && names.includes(candidate)) return candidate
+          if (names.includes('public')) return 'public'
+          return names[0] ?? ''
+        })
+      } catch (error) {
+        logError('SqlTerminal.loadSchemas', error, { connectionId: selectedConn.id })
+        setSchemas([])
+        setSelectedSchema('')
+      }
+    })()
+
+    setTables([])
+    setColumnsByTableKey({})
+  }, [open, selectedConn])
+
+  useEffect(() => {
+    if (!open || !selectedConn || selectedConn.type !== 'postgres') return
+
+    setColumnsByTableKey({})
+    void (async () => {
+      try {
+        const nextTables = await loadSqlTerminalTables(selectedConn, selectedSchema)
+        setTables(nextTables)
+        const nextColumns = await preloadSqlTerminalColumns(selectedConn, selectedSchema, nextTables)
+        setColumnsByTableKey(nextColumns)
+      } catch (error) {
+        logError('SqlTerminal.loadTables', error, { connectionId: selectedConn.id, schema: selectedSchema })
+        setTables([])
+      }
+    })()
+  }, [open, selectedConn, selectedSchema])
+
+  useEffect(() => {
+    if (!tableSuggestOpen) {
+      setTableSuggestPopupPos(null)
+      return
+    }
+    requestAnimationFrame(updateTableSuggestPopupPosition)
+  }, [columnSuggestions.length, cursorPos, sql, suggestMode, tableSuggestOpen, tableSuggestions.length, updateTableSuggestPopupPosition])
+
+  useEffect(() => {
+    if (!tableSuggestOpen) return
+    setTableSuggestActiveIndex(null)
+  }, [suggestMode, tableSuggestOpen, tableSuggestPrefix])
+
+  useEffect(() => {
+    if (!open) return
+    const textarea = sqlRef.current
+    if (!textarea) return
+
+    const pos = textarea.selectionStart ?? cursorPos
+    const before = sql.slice(0, pos)
+    const currentLineBefore = before.slice(before.lastIndexOf('\n') + 1)
+    const columnMatch = before.match(/(?:^|[^a-zA-Z0-9_"])([a-zA-Z0-9_"]+)\.([a-zA-Z0-9_"]*)$/i)
+
+    if (columnMatch) {
+      const token = stripQuotes(columnMatch[1] ?? '')
+      const columnPrefix = stripQuotes(columnMatch[2] ?? '')
+      const aliases = parseFromAndJoinAliases(sql)
+      const tableName = aliases[token]
+      if (tableName && selectedConn?.type === 'postgres' && selectedSchema) {
+        const key = `${selectedSchema}.${tableName}`
+        setSuggestMode('column')
+        setColumnTargetTableKey(key)
+        setTableSuggestPrefix(columnPrefix)
+        setTableSuggestReplaceRange({ start: pos - (columnMatch[2] ?? '').length, end: pos })
+        setTableSuggestPopupPos(null)
+        setTableSuggestActiveIndex(null)
+        void loadColumnsForTable(selectedConn, selectedSchema, tableName)
+        setTableSuggestOpen(true)
+        return
+      }
+    }
+
+    const tableMatch = currentLineBefore.match(/(?:^|[\s(])(from|into|join)(?:\s+([a-zA-Z0-9_".]*))?$/i)
+    if (!tableMatch || !tables.length) {
+      setTableSuggestOpen(false)
+      setTableSuggestReplaceRange(null)
+      setTableSuggestPrefix('')
+      setColumnTargetTableKey(null)
+      setTableSuggestActiveIndex(null)
+      return
+    }
+
+    const matchKind = (tableMatch[1] || 'from').toLowerCase()
+    const kind: 'from' | 'into' | 'join' = matchKind === 'into' ? 'into' : (matchKind === 'join' ? 'join' : 'from')
+    const prefix = tableMatch[2] ?? ''
+    setSuggestMode('table')
+    setTableSuggestKind(kind)
+    setTableSuggestPrefix(prefix.replaceAll('"', ''))
+    setTableSuggestReplaceRange({ start: pos - prefix.length, end: pos })
+    setColumnTargetTableKey(null)
+    setTableSuggestPopupPos(null)
+    setTableSuggestActiveIndex(null)
+    setTableSuggestOpen(true)
+  }, [cursorPos, loadColumnsForTable, open, selectedConn, selectedSchema, sql, tables.length])
+
+  useEffect(() => {
+    if (!open) return
+    function onGlobalKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return
       const section = sectionRef.current
       const active = document.activeElement
       if (section && active && !section.contains(active)) return
-      e.preventDefault()
-      e.stopPropagation()
+      event.preventDefault()
+      event.stopPropagation()
       runRef.current?.()
     }
 
@@ -1566,6 +896,207 @@ export function SqlTerminalDrawer(props: {
     return () => window.removeEventListener('keydown', onGlobalKeyDown, true)
   }, [open])
 
+  const onResizeHandlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!open) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+    const startY = event.clientY
+    const max = getSqlTerminalMaxHeightPx()
+    const startHeight = heightPx ?? Math.round(Math.min(window.innerHeight * 0.38, max))
+
+    function clamp(nextHeight: number) {
+      return Math.max(SQL_TERMINAL_MIN_HEIGHT_PX, Math.min(max, nextHeight))
+    }
+
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.vertical', 'Failed to release pointer capture', { error })
+      }
+    }
+
+    function onMove(nextEvent: PointerEvent) {
+      if ((nextEvent.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
+      const dy = nextEvent.clientY - startY
+      setHeightPx(clamp(Math.round(startHeight - dy)))
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.vertical', 'Failed to set pointer capture', { error })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
+  }, [heightPx, open])
+
+  const onResizeHandleDoubleClick = useCallback(() => {
+    const max = getSqlTerminalMaxHeightPx()
+    const base = getSqlTerminalBaseHeightPx()
+    const current = heightPx ?? base
+    setHeightPx(Math.abs(current - max) <= 2 ? base : max)
+  }, [heightPx])
+
+  const onRightResizeHandlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!open || drawerPosition !== 'left') return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ew-resize'
+    document.body.style.userSelect = 'none'
+    const startX = event.clientX
+    const max = getSqlTerminalMaxWidthPx()
+    const startWidth = widthPx ?? getSqlTerminalBaseWidthPx()
+
+    function clamp(nextWidth: number) {
+      return Math.max(SQL_TERMINAL_MIN_WIDTH_PX, Math.min(max, nextWidth))
+    }
+
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.right', 'Failed to release pointer capture', { error })
+      }
+    }
+
+    function onMove(nextEvent: PointerEvent) {
+      if ((nextEvent.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
+      const dx = nextEvent.clientX - startX
+      setWidthPx(clamp(Math.round(startWidth + dx)))
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.right', 'Failed to set pointer capture', { error })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
+  }, [drawerPosition, open, widthPx])
+
+  const onSplitHandlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!open) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    const prevCursor = document.body.style.cursor
+    const prevUserSelect = document.body.style.userSelect
+    const wrap = bodyRef.current
+    if (!wrap) return
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const rect = wrap.getBoundingClientRect()
+    const startX = event.clientX
+    const startFrac = splitLeftFraction
+    const minLeftPx = 260
+    const minRightPx = 320
+    const maxFracFromLeft = Math.max(0.1, Math.min(0.9, (rect.width - minRightPx) / rect.width))
+    const minFracFromLeft = Math.max(0.1, Math.min(0.9, minLeftPx / rect.width))
+
+    function clampFrac(nextFraction: number) {
+      return Math.max(minFracFromLeft, Math.min(maxFracFromLeft, nextFraction))
+    }
+
+    function cleanup() {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+      window.removeEventListener('blur', onCancel)
+      handle.removeEventListener('lostpointercapture', onCancel)
+      document.body.style.cursor = prevCursor
+      document.body.style.userSelect = prevUserSelect
+      try {
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      } catch (error) {
+        logWarn('SqlTerminal.releasePointerCapture.horizontal', 'Failed to release pointer capture', { error })
+      }
+    }
+
+    function onMove(nextEvent: PointerEvent) {
+      if ((nextEvent.buttons & 1) === 0) {
+        cleanup()
+        return
+      }
+      const dx = nextEvent.clientX - startX
+      setSplitLeftFraction(clampFrac(startFrac + dx / rect.width))
+    }
+
+    function onUp() {
+      cleanup()
+    }
+
+    function onCancel() {
+      cleanup()
+    }
+
+    try {
+      handle.setPointerCapture(pointerId)
+    } catch (error) {
+      logWarn('SqlTerminal.setPointerCapture.horizontal', 'Failed to set pointer capture', { error })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
+    handle.addEventListener('lostpointercapture', onCancel)
+  }, [open, splitLeftFraction])
+
+  const selectedLabel = selectedConn ? `${selectedConn.label}: ${selectedConn.connectionPreview}` : (connOptions.length ? 'Select DB…' : 'No DB connections')
   const drawerMaxHeightPx = getSqlTerminalMaxHeightPx()
   const drawerHeightPx = heightPx == null ? null : Math.min(heightPx, drawerMaxHeightPx)
   const isLeftPosition = drawerPosition === 'left'
@@ -1582,13 +1113,15 @@ export function SqlTerminalDrawer(props: {
         currentSql={sql}
         selectedSchema={selectedSchema}
         onInsertSql={appendSqlText}
-        selectedConnection={selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null}
+        selectedConnection={selectedConnection}
       />
+
       <div
         className={open ? `terminalBackdrop terminalBackdropOpen ${isLeftPosition ? 'sqlTerminalBackdropLeft' : ''}`.trim() : 'terminalBackdrop'}
         onClick={onClose}
         style={isLeftPosition ? { width: `${drawerWidthPx}px` } : undefined}
       />
+
       <section
         ref={sectionRef}
         className={
@@ -1606,523 +1139,112 @@ export function SqlTerminalDrawer(props: {
         {!isLeftPosition ? <div className="terminalResizeHandle" onPointerDown={onResizeHandlePointerDown} onDoubleClick={onResizeHandleDoubleClick} /> : null}
         {isLeftPosition ? <div className="terminalResizeHandle sqlTerminalResizeHandleRight" onPointerDown={onRightResizeHandlePointerDown} /> : null}
 
-        <header className="terminalHeader">
-          <div className="terminalTitle mono" style={{ flex: '1 1 auto', minWidth: 0 }}>
-            SQL
-            <div ref={menuOpen ? menuWrapRef : null} className="selectMenuWrap sqlTerminalConnMenu">
-              <button
-                type="button"
-                className="selectMenuBtn mono"
-                onPointerDown={e => e.stopPropagation()}
-                onClick={e => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  if (!connOptions.length) return
-                  setMenuOpen(v => !v)
-                }}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-label="Database connection"
-                title={selectedConn?.connectionPreview ?? 'Database connection'}
-              >
-                {selectedLabel}
-              </button>
-
-              {menuOpen ? (
-                <div
-                  className="selectMenuPanel"
-                  role="menu"
-                  onPointerDown={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                >
-                  {connOptions.map(o => (
-                    <button
-                      key={o.id}
-                      type="button"
-                      className={`selectMenuItem ${selectedConnId === o.id ? 'selectMenuItemActive' : ''}`}
-                      role="menuitem"
-                      title={o.connectionPreview}
-                      onClick={() => {
-                        setMenuOpen(false)
-                        setSelectedConnId(o.id)
-                        requestAnimationFrame(() => sqlRef.current?.focus())
-                      }}
-                    >
-                      <span className="mono">{o.label}</span>
-                      <span style={{ opacity: 0.75 }}>{` — ${o.connectionPreview}`}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="terminalHeaderActions">
-            <button
-              type="button"
-              className="iconBtn"
-              onClick={() => setDrawerPosition(prev => (prev === 'left' ? 'bottom' : 'left'))}
-              aria-label={isLeftPosition ? 'Move terminal to bottom' : 'Move terminal to left'}
-              title={isLeftPosition ? 'Move to bottom' : 'Move to left'}
-              disabled={editorBusy || !open}
-            >
-              <SqlTerminalPositionIcon left={isLeftPosition} />
-            </button>
-            <button
-              type="button"
-              className="iconBtn terminalClearBtn"
-              onClick={() => {
-                setOutput([])
-                setResultRows(null)
-                setResultColumns(null)
-                setResultHint(null)
-                setLastRunSchemaTableLabel(null)
-                setPaging({ enabled: false, loading: false, hasMore: false, loadAll: false, baseSql: '' })
-                setLastRunSchemaTableLabel(null)
-                applySqlText('', 0)
-                requestAnimationFrame(() => sqlRef.current?.focus())
-              }}
-              aria-label="Clear output"
-              title="Clear"
-              disabled={editorBusy || !open}
-            >
-              <span className="terminalClearGlyph">⟲</span>
-            </button>
-            <button type="button" className="iconBtn headerDeleteBtn terminalCloseBtn" onClick={onClose} aria-label="Close" title="Close">
-              <CloseIcon size={18} />
-            </button>
-          </div>
-        </header>
+        <SqlTerminalHeader
+          open={open}
+          editorBusy={editorBusy}
+          menuOpen={menuOpen}
+          menuWrapRef={menuWrapRef}
+          connOptions={connOptions}
+          selectedConn={selectedConn}
+          selectedConnId={selectedConnId}
+          selectedLabel={selectedLabel}
+          isLeftPosition={isLeftPosition}
+          onClose={onClose}
+          onToggleMenu={() => setMenuOpen(prev => !prev)}
+          onSelectConnection={id => {
+            setMenuOpen(false)
+            setSelectedConnId(id)
+          }}
+          onToggleDrawerPosition={() => setDrawerPosition(prev => (prev === 'left' ? 'bottom' : 'left'))}
+          onClear={clearTerminal}
+          focusEditorSoon={focusEditorSoon}
+        />
 
         <div
           ref={bodyRef}
           className="sqlTerminalBody"
           style={{ gridTemplateColumns: `${Math.round(splitLeftFraction * 1000)}fr 8px ${Math.round((1 - splitLeftFraction) * 1000)}fr` }}
         >
-          <div className="sqlTerminalPane sqlTerminalPaneSql">
-            <div className="sqlTerminalPaneTitle mono">
-              <div className="sqlTerminalPaneTitleLeft">
-                <span>SQL</span>
-                <div ref={schemaMenuOpen ? schemaMenuWrapRef : null} className="selectMenuWrap sqlTerminalSchemaMenu">
-                  <button
-                    type="button"
-                    className="selectMenuBtn mono"
-                    disabled={!schemas.length || (selectedConn?.type !== 'postgres')}
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      if (!schemas.length) return
-                      if (schemaMenuOpen) {
-                        setSchemaMenuOpen(false)
-                        return
-                      }
-                      openSchemaMenu(e.currentTarget)
-                    }}
-                    aria-haspopup="menu"
-                    aria-expanded={schemaMenuOpen}
-                    aria-label="Schema"
-                    title="Schema"
-                  >
-                    {selectedConn?.type !== 'postgres' ? 'Schema' : (selectedSchema || 'Schema')}
-                  </button>
-                  {schemaMenuOpen ? (
-                    <div
-                      className={`selectMenuPanel sqlTerminalSchemaPanel ${schemaMenuPlacement === 'above' ? 'sqlTerminalSchemaPanelAbove' : ''}`.trim()}
-                      role="menu"
-                      style={{ maxHeight: `${schemaMenuMaxHeight}px`, overflowY: 'auto' }}
-                      onPointerDown={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                    >
-                      {schemas.map(s => (
-                        <button
-                          key={s}
-                          type="button"
-                          className={`selectMenuItem ${selectedSchema === s ? 'selectMenuItemActive' : ''}`}
-                          role="menuitem"
-                          onClick={() => {
-                            setSchemaMenuOpen(false)
-                            setSelectedSchema(s)
-                            requestAnimationFrame(() => sqlRef.current?.focus())
-                          }}
-                        >
-                          <span className="mono">{s}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="sqlTerminalPaneActions">
-                <div ref={aiMenuOpen ? aiMenuWrapRef : null} className="selectMenuWrap sqlTerminalAiMenu">
-                  <button
-                    type="button"
-                    className="responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn"
-                    disabled={!open || editorBusy}
-                    onPointerDown={e => e.stopPropagation()}
-                    onClick={e => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      if (editorBusy) return
-                      setAiMenuOpen(prev => !prev)
-                    }}
-                    aria-haspopup="menu"
-                    aria-expanded={aiMenuOpen}
-                    aria-label="AI actions"
-                    title={aiBusy ? 'AI is working…' : 'AI actions'}
-                  >
-                    <span className="aiEnhanceBtnSpark" aria-hidden="true">
-                      <StarIcon size={14} />
-                    </span>
-                    <span className="aiEnhanceBtnText">AI</span>
-                  </button>
-                  {aiMenuOpen ? (
-                    <div
-                      className="selectMenuPanel sqlTerminalAiMenuPanel"
-                      role="menu"
-                      onPointerDown={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                      onClick={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                      }}
-                    >
-                      <button
-                        type="button"
-                        className="selectMenuItem"
-                        role="menuitem"
-                        disabled={editorBusy || !sql.trim()}
-                        onClick={() => void handleEnhanceSqlWithAi()}
-                      >
-                        <span>Enchance with AI</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="selectMenuItem"
-                        role="menuitem"
-                        onClick={handleCreateSqlWithAi}
-                      >
-                        <span>Create SQL with AI</span>
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="iconBtn sqlTerminalPlayBtn"
-                  onClick={() => void run()}
-                  disabled={editorBusy || !open || !selectedConn || !sql.trim()}
-                  aria-label="Run SQL"
-                  title={busy ? 'Running…' : (aiBusy ? 'AI is working…' : 'Run (Ctrl+Enter). Selection/current statement. Trailing ; is optional.')}
-                >
-                  ▶
-                </button>
-              </div>
-            </div>
-            <div ref={editorWrapRef} className="sqlTerminalEditorWrap" style={editorWrapStyle}>
-              <div className="sqlTerminalLineNumbers" aria-hidden="true">
-                <pre ref={lineNumbersRef} className="sqlTerminalLineNumbersInner mono">
-                  {lineNumbers.map(n => (
-                    <span key={n} className={n === activeLine ? 'sqlTerminalLineNumber sqlTerminalLineNumberActive' : 'sqlTerminalLineNumber'}>
-                      {n}
-                    </span>
-                  ))}
-                </pre>
-              </div>
-              <textarea
-                ref={sqlRef}
-                className="sqlTerminalEditor mono"
-                value={sql}
-                disabled={!open || editorBusy}
-                onChange={e => {
-                  const nextText = e.target.value
-                  const caret = e.target.selectionStart ?? 0
+          <SqlTerminalEditorPane
+            open={open}
+            editorBusy={editorBusy}
+            busy={busy}
+            aiBusy={aiBusy}
+            connOptions={connOptions}
+            selectedConn={selectedConn}
+            selectedSchema={selectedSchema}
+            schemas={schemas}
+            schemaMenuOpen={schemaMenuOpen}
+            schemaMenuPlacement={schemaMenuPlacement}
+            schemaMenuMaxHeight={schemaMenuMaxHeight}
+            aiMenuOpen={aiMenuOpen}
+            sql={sql}
+            lineNumbers={lineNumbers}
+            activeLine={activeLine}
+            editorWrapStyle={editorWrapStyle}
+            tableSuggestOpen={tableSuggestOpen}
+            tableSuggestReplaceRange={tableSuggestReplaceRange}
+            tableSuggestPopupPos={tableSuggestPopupPos}
+            suggestMode={suggestMode}
+            tableSuggestions={tableSuggestions}
+            columnSuggestions={columnSuggestions}
+            columnLoading={columnLoading}
+            tableSuggestActiveIndex={tableSuggestActiveIndex}
+            sqlAiPrompt={sqlAiPrompt}
+            schemaMenuWrapRef={schemaMenuWrapRef}
+            aiMenuWrapRef={aiMenuWrapRef}
+            editorWrapRef={editorWrapRef}
+            lineNumbersRef={lineNumbersRef}
+            sqlRef={sqlRef}
+            sqlAiPromptRef={sqlAiPromptRef}
+            tableSuggestRef={tableSuggestRef}
+            onOpenSchemaMenu={openSchemaMenu}
+            onToggleSchemaMenu={() => setSchemaMenuOpen(prev => !prev)}
+            onSelectSchema={schema => {
+              setSchemaMenuOpen(false)
+              setSelectedSchema(schema)
+              focusEditorSoon()
+            }}
+            onToggleAiMenu={() => setAiMenuOpen(prev => !prev)}
+            onEnhanceSqlWithAi={() => void handleEnhanceSqlWithAi()}
+            onCreateSqlWithAi={() => {
+              setAiMenuOpen(false)
+              requestAnimationFrame(() => setSqlAiDialogOpen(true))
+            }}
+            onRun={() => void run()}
+            onSqlChange={(nextText, caret) => {
+              recordInputChange(nextText, caret)
+              setCursorPos(caret)
+              setSql(nextText)
+              requestAnimationFrame(refreshEditorCaretState)
+            }}
+            onRefreshEditorCaretState={refreshEditorCaretState}
+            onEditorScroll={() => {
+              syncLineNumberScroll()
+              updateTableSuggestPopupPosition()
+            }}
+            onEditorKeyDown={handleEditorKeyDown}
+            onApplyColumnSuggestionAt={applyColumnSuggestionAt}
+            onApplyTableSuggestionAt={applyTableSuggestionAt}
+            onSqlAiPromptChange={setSqlAiPrompt}
+            onSqlAiPromptSend={() => void handleInlineSqlAiPrompt()}
+          />
 
-                  const hist = editHistoryRef.current
-                  if (!hist.applying) {
-                    const current = hist.stack[hist.index]?.text ?? ''
-                    if (current !== nextText) {
-                      const nextEntry = { text: nextText, caret }
-                      const base = hist.stack.slice(0, hist.index + 1)
-                      const nextStack = clampHistory([...base, nextEntry], 20)
-                      const nextIndex = nextStack.length - 1
-                      editHistoryRef.current = { stack: nextStack, index: nextIndex, applying: false }
-                    }
-                  }
-
-                  setCursorPos(caret)
-                  setSql(nextText)
-                  requestAnimationFrame(refreshEditorCaretState)
-                }}
-                onKeyUp={refreshEditorCaretState}
-                onClick={refreshEditorCaretState}
-                onSelect={refreshEditorCaretState}
-                onScroll={() => {
-                  syncLineNumberScroll()
-                  updateTableSuggestPopupPosition()
-                }}
-                onKeyDown={e => {
-                  const isUndo = (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'z') || (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'z')
-                  const isRedo =
-                    (e.ctrlKey && !e.shiftKey && !e.metaKey && e.key.toLowerCase() === 'y') ||
-                    (e.metaKey && e.shiftKey && e.key.toLowerCase() === 'z') ||
-                    (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z')
-
-                  if (isUndo) {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const hist = editHistoryRef.current
-                    if (hist.index > 0) {
-                      const nextIndex = hist.index - 1
-                      const entry = hist.stack[nextIndex]
-                      editHistoryRef.current = { ...hist, index: nextIndex, applying: true }
-                      pendingCaretRef.current = entry.caret
-                      setSql(entry.text)
-                      requestAnimationFrame(() => {
-                        const h = editHistoryRef.current
-                        editHistoryRef.current = { ...h, applying: false }
-                      })
-                    }
-                    return
-                  }
-
-                  if (isRedo) {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const hist = editHistoryRef.current
-                    if (hist.index < hist.stack.length - 1) {
-                      const nextIndex = hist.index + 1
-                      const entry = hist.stack[nextIndex]
-                      editHistoryRef.current = { ...hist, index: nextIndex, applying: true }
-                      pendingCaretRef.current = entry.caret
-                      setSql(entry.text)
-                      requestAnimationFrame(() => {
-                        const h = editHistoryRef.current
-                        editHistoryRef.current = { ...h, applying: false }
-                      })
-                    }
-                    return
-                  }
-
-                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    void run()
-                    return
-                  }
-
-                  const activeSuggestions = suggestMode === 'column' ? columnSuggestions : tableSuggestions
-                  if (tableSuggestOpen && activeSuggestions.length) {
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev + 1) % activeSuggestions.length))
-                      return
-                    }
-                    if (e.key === 'ArrowUp') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      setTableSuggestActiveIndex(prev => (prev == null ? 0 : (prev - 1 + activeSuggestions.length) % activeSuggestions.length))
-                      return
-                    }
-                    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
-                      if (tableSuggestActiveIndex == null) return
-                      e.preventDefault()
-                      e.stopPropagation()
-                      if (suggestMode === 'column') applyColumnSuggestionAt(tableSuggestActiveIndex)
-                      else applyTableSuggestionAt(tableSuggestActiveIndex)
-                      return
-                    }
-                  }
-                }}
-                placeholder={
-                  connOptions.length
-                    ? 'Write SQL here… (Ctrl+Enter: selection/current statement; trailing ; optional)'
-                    : 'Configure DB connection in App Settings or Collection Environment…'
-                }
-                wrap="off"
-                spellCheck={false}
-              />
-
-              {open && tableSuggestOpen && tableSuggestReplaceRange && tableSuggestPopupPos ? (
-                <div
-                  ref={tableSuggestRef}
-                  className={`sqlTerminalTableSuggest selectMenuPanel ${suggestMode === 'table' ? 'sqlTerminalTableSuggestTable' : ''}`.trim()}
-                  role="listbox"
-                  style={{ top: `${tableSuggestPopupPos.top}px`, left: `${tableSuggestPopupPos.left}px`, right: 'auto' }}
-                  onPointerDown={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                  onClick={e => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                  }}
-                >
-                  {suggestMode === 'column' ? (
-                    columnSuggestions.length ? (
-                      columnSuggestions.map((c, idx) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className={`selectMenuItem ${idx === tableSuggestActiveIndex ? 'selectMenuItemActive' : ''}`.trim()}
-                          role="option"
-                          onClick={() => {
-                            setTableSuggestActiveIndex(idx)
-                            applyColumnSuggestionAt(idx)
-                          }}
-                        >
-                          <span className="mono">{c}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="selectMenuItem" style={{ cursor: 'default', opacity: 0.75 }}>
-                        {columnLoading ? 'Loading columns…' : 'No matches'}
-                      </div>
-                    )
-                  ) : (
-                    tableSuggestions.length ? (
-                      tableSuggestions.map((t, idx) => (
-                        <button
-                          key={t}
-                          type="button"
-                          className={`selectMenuItem ${idx === tableSuggestActiveIndex ? 'selectMenuItemActive' : ''}`.trim()}
-                          role="option"
-                          onClick={() => {
-                            setTableSuggestActiveIndex(idx)
-                            applyTableSuggestionAt(idx)
-                          }}
-                        >
-                          <span className="mono">{t}</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="selectMenuItem" style={{ cursor: 'default', opacity: 0.75 }}>
-                        No matches
-                      </div>
-                    )
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <div className="sqlTerminalAiPromptBar">
-              <input
-                ref={sqlAiPromptRef}
-                type="text"
-                className="sqlTerminalAiPromptInput mono"
-                value={sqlAiPrompt}
-                disabled={!open || editorBusy || !selectedConn}
-                onChange={event => setSqlAiPrompt(event.target.value)}
-                placeholder="SQL AI: опиши запрос естественным языком"
-                onKeyDown={event => {
-                  if (event.key !== 'Enter') return
-                  event.preventDefault()
-                  void handleInlineSqlAiPrompt()
-                }}
-              />
-              <button
-                type="button"
-                className={`responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn sqlTerminalAiPromptRunBtn ${aiBusy ? 'sqlTerminalAiPromptRunBtnBusy' : ''}`.trim()}
-                onClick={() => void handleInlineSqlAiPrompt()}
-                disabled={!open || editorBusy || !selectedConn || !sqlAiPrompt.trim()}
-                title={aiBusy ? 'AI is working…' : 'Generate SQL and run only the generated script'}
-              >
-                {aiBusy ? (
-                  <span className="sqlTerminalAiPromptRunBtnSpark" aria-hidden="true">
-                    <StarIcon size={14} />
-                  </span>
-                ) : (
-                  <span className="sqlTerminalAiPromptRunBtnLabel">Send</span>
-                )}
-              </button>
-            </div>
-          </div>
           <div className="sqlTerminalDivider" onPointerDown={onSplitHandlePointerDown} />
-          <div className="sqlTerminalPane">
-            <div className="sqlTerminalPaneTitle mono">
-              <span>Output</span>
-              {lastRunSchemaTableLabel ? <span className="sqlTerminalPaneTitleCenter" title={lastRunSchemaTableLabel}>{lastRunSchemaTableLabel}</span> : null}
-              {(resultHint || paging.enabled) ? (
-                <div className="sqlTerminalPaneTitleRight">
-                  {resultHint ? <span className="sqlTerminalRowsHint">{resultHint}</span> : null}
-                  {paging.enabled ? (
-                    <button
-                      type="button"
-                      className="iconBtn"
-                      disabled={editorBusy || paging.loading || !paging.hasMore}
-                      onClick={() => void loadMoreRows(true)}
-                      title={paging.hasMore ? 'Load full result' : 'All rows loaded'}
-                      aria-label="Load all rows"
-                    >
-                      {paging.loading && paging.loadAll ? '…' : 'All'}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <div
-              ref={outputRef}
-              className="sqlTerminalOutput mono"
-              role="log"
-              aria-live="polite"
-              onPointerDown={() => sqlRef.current?.focus()}
-              onScroll={onOutputScroll}
-            >
-              {effectiveResultColumns.length ? (
-                <div className="sqlTerminalTableWrap">
-                  <table className="sqlTerminalTable">
-                    <thead>
-                      <tr>
-                        {effectiveResultColumns.map(c => (
-                          <th key={c} className="mono" title={c}>
-                            {c}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(resultRows ?? []).map((row, idx) => (
-                        <tr key={idx}>
-                          {effectiveResultColumns.map(c => {
-                            const v = (row as Record<string, unknown>)[c]
-                            const text = v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v)
-                            return (
-                              <td key={c} title={text}>
-                                {text}
-                              </td>
-                            )
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {paging.loading && !paging.loadAll ? <div className="terminalLine terminalLine_sys" style={{ marginTop: 8 }}>Loading more…</div> : null}
-                </div>
-              ) : output.length ? (
-                output.map((e, i) => (
-                  <div key={i} className={`terminalLine terminalLine_${e.kind}`}>
-                    {e.text}
-                  </div>
-                ))
-              ) : (
-                <div className="terminalLine terminalLine_sys">Run a query to see output.</div>
-              )}
-            </div>
-          </div>
+
+          <SqlTerminalOutputPane
+            editorBusy={editorBusy}
+            output={output}
+            resultRows={resultRows}
+            effectiveResultColumns={effectiveResultColumns}
+            resultHint={resultHint}
+            lastRunSchemaTableLabel={lastRunSchemaTableLabel}
+            paging={paging}
+            outputRef={outputRef}
+            focusEditorSoon={focusEditorSoon}
+            onOutputScroll={onOutputScroll}
+            onLoadAllRows={() => void loadMoreRows(true)}
+          />
         </div>
       </section>
     </>

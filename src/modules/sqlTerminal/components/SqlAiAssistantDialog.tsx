@@ -4,7 +4,7 @@ import { CloseIcon } from '../../../shared/icons'
 import { getLogger } from '../../../shared/utils/logger'
 import { safeParseJson } from '../../../shared/utils/json'
 import { runDbSql } from '../../environment'
-import { getPostgresMcpDatabaseUri, getPostgresMcpServer } from '../../mcp/services/mcp'
+import { getPostgresMcpServer } from '../../mcp/services/mcp'
 import {
   initializeSqlAiAssistantContext,
   initializeSqlAiAssistantContextFromDb,
@@ -12,6 +12,8 @@ import {
   type SqlAiAssistantContext,
   type SqlAiConversationMessage,
 } from '../services/sqlAiAgent'
+import { resolveFallbackPostgresConnectionString } from '../utils/connections'
+import { applySchemaToTableRefs, buildSchemaAwareSql, looksLikeSelectOrWith } from '../utils/sql'
 
 type Props = {
   open: boolean
@@ -104,40 +106,6 @@ function buildDefaultPosition(size: DialogSize) {
   }
 }
 
-function resolveFallbackPostgresConnectionString(props: Props) {
-  if (props.selectedConnection?.type === 'postgres') {
-    const connectionString = props.selectedConnection.connectionString.trim()
-    if (connectionString) return connectionString
-  }
-
-  return getPostgresMcpDatabaseUri(getPostgresMcpServer(props.mcpSettings))
-}
-
-function quoteIdentPostgres(name: string) {
-  return `"${name.replaceAll('"', '""')}"`
-}
-
-function quoteSqlStringLiteral(value: string) {
-  return `'${value.replaceAll("'", "''")}'`
-}
-
-function looksLikeSelectOrWith(sql: string) {
-  const s = sql.trimStart()
-  return /^select\b/i.test(s) || /^with\b/i.test(s)
-}
-
-function applySchemaToTableRefs(sql: string, schema: string) {
-  if (!schema.trim()) return sql
-  const schemaIdent = quoteIdentPostgres(schema.trim())
-  const re = /\b(from|join|into)\s+((?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*)(?:\.(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?)(\s+(?:as\s+)?(?!(?:on|using|where|group|order|limit|inner|left|right|full|cross|join|set|values|returning|union|having|offset)\b)(?:"[^"]+"|[a-zA-Z_][a-zA-Z0-9_$]*))?/gi
-  return sql.replace(re, (match, kw: string, tableRef: string, aliasRaw: string | undefined) => {
-    const table = (tableRef || '').trim()
-    if (!table || table.startsWith('(') || table.includes('.')) return match
-    const alias = aliasRaw ?? ''
-    return `${kw} ${schemaIdent}.${table}${alias}`
-  })
-}
-
 function stringifyCell(value: unknown) {
   if (value == null) return 'null'
   if (typeof value === 'string') return value.replaceAll(/\s+/g, ' ').trim() || '(empty)'
@@ -224,7 +192,7 @@ export function SqlAiAssistantDialog(props: Props) {
     const postgresServer = getPostgresMcpServer(props.mcpSettings)
     return JSON.stringify({
       selectedSchema: props.selectedSchema?.trim() || '',
-      fallbackConnectionString: resolveFallbackPostgresConnectionString(props),
+      fallbackConnectionString: resolveFallbackPostgresConnectionString(props.mcpSettings, props.selectedConnection),
       postgresServer: postgresServer
         ? {
             command: postgresServer.command,
@@ -281,7 +249,7 @@ export function SqlAiAssistantDialog(props: Props) {
           pushTrace('init.mcp.failed', {
             error: mcpError instanceof Error ? mcpError.message : String(mcpError),
           })
-          const fallbackConnectionString = resolveFallbackPostgresConnectionString(props)
+          const fallbackConnectionString = resolveFallbackPostgresConnectionString(props.mcpSettings, props.selectedConnection)
           if (!fallbackConnectionString) {
             throw mcpError
           }
@@ -447,7 +415,7 @@ export function SqlAiAssistantDialog(props: Props) {
   }
 
   async function executeSqlInChat(sql: string, activeContext: SqlAiAssistantContext) {
-    const connectionString = activeContext.directDbConnectionString || resolveFallbackPostgresConnectionString(props)
+    const connectionString = activeContext.directDbConnectionString || resolveFallbackPostgresConnectionString(props.mcpSettings, props.selectedConnection)
     if (!connectionString) {
       throw new Error('SQL AI cannot execute the generated query because no PostgreSQL connection is available.')
     }
@@ -459,14 +427,7 @@ export function SqlAiAssistantDialog(props: Props) {
     const renderedSql = props.selectedSchema
       ? applySchemaToTableRefs(sql, props.selectedSchema)
       : sql
-    const sqlToRun = props.selectedSchema
-      ? (renderedSql.trimStart().toLowerCase().startsWith('with')
-          ? renderedSql.replace(
-              /^\s*with\b/i,
-              match => `${match} __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(props.selectedSchema ?? '')}, true)),`,
-            )
-          : `with __ruf_search_path as (select set_config('search_path', ${quoteSqlStringLiteral(props.selectedSchema ?? '')}, true))\n${renderedSql}`)
-      : renderedSql
+    const sqlToRun = props.selectedSchema ? buildSchemaAwareSql(renderedSql, props.selectedSchema) : renderedSql
 
     const result = await runDbSql({
       type: 'postgres',
