@@ -13,7 +13,9 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 type McpStdoutLines = tokio::io::Lines<BufReader<ChildStdout>>;
+const ATLASSIAN_MCP_SIDECAR_NAME: &str = "atlassian-mcp";
 const POSTGRES_MCP_SIDECAR_NAME: &str = "postgres-mcp";
+const ATLASSIAN_DEFAULT_REMOTE_URL: &str = "https://mcp.atlassian.com/v1/mcp/authv2";
 
 fn current_target_triple() -> &'static str {
     option_env!("TARGET").unwrap_or("unknown-target")
@@ -108,7 +110,7 @@ fn sanitize_server(server: &McpCommandServer) -> Result<SanitizedMcpServer, Stri
 
     let template = server.template.as_ref().map(|value| value.trim().to_ascii_lowercase());
     let command = server.command.trim();
-    if command.is_empty() && template.as_deref() != Some("postgres") {
+    if command.is_empty() && !matches!(template.as_deref(), Some("postgres" | "atlassian")) {
         return Err("MCP command is empty.".to_string());
     }
 
@@ -197,12 +199,12 @@ fn resolve_executable_path(command: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|path| is_executable_file(path))
 }
 
-fn bundled_postgres_mcp_path(app: &AppHandle) -> Option<PathBuf> {
+fn bundled_sidecar_path(app: &AppHandle, sidecar_name: &str) -> Option<PathBuf> {
     let extension = if cfg!(windows) { ".exe" } else { "" };
     let resource_dir = app.path().resource_dir().ok()?;
     let candidate = resource_dir
         .join("binaries")
-        .join(format!("{POSTGRES_MCP_SIDECAR_NAME}-{}{extension}", current_target_triple()));
+        .join(format!("{sidecar_name}-{}{extension}", current_target_triple()));
 
     is_executable_file(&candidate).then_some(candidate)
 }
@@ -220,9 +222,31 @@ fn normalize_postgres_spawn_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+fn normalize_atlassian_spawn_args(args: &[String]) -> Vec<String> {
+    let filtered = args
+        .iter()
+        .filter(|arg| {
+            const PACKAGE_PREFIX: &str = "mcp-remote";
+            let trimmed = arg.trim();
+            !trimmed.eq_ignore_ascii_case("-y")
+                && !trimmed.eq_ignore_ascii_case(PACKAGE_PREFIX)
+                && !trimmed
+                    .strip_prefix(PACKAGE_PREFIX)
+                    .is_some_and(|suffix| suffix.starts_with('@'))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if filtered.is_empty() {
+        vec![ATLASSIAN_DEFAULT_REMOTE_URL.to_string()]
+    } else {
+        filtered
+    }
+}
+
 fn resolve_spawn_command(server: &SanitizedMcpServer, app: &AppHandle) -> (String, Vec<String>) {
     if server.template.as_deref() == Some("postgres") {
-        if let Some(sidecar_path) = bundled_postgres_mcp_path(app) {
+        if let Some(sidecar_path) = bundled_sidecar_path(app, POSTGRES_MCP_SIDECAR_NAME) {
             return (
                 sidecar_path.to_string_lossy().to_string(),
                 normalize_postgres_spawn_args(&server.args),
@@ -230,10 +254,19 @@ fn resolve_spawn_command(server: &SanitizedMcpServer, app: &AppHandle) -> (Strin
         }
     }
 
-    let command = if server.template.as_deref() == Some("postgres") && server.command.trim().is_empty() {
-        POSTGRES_MCP_SIDECAR_NAME
-    } else {
-        server.command.as_str()
+    if server.template.as_deref() == Some("atlassian") {
+        if let Some(sidecar_path) = bundled_sidecar_path(app, ATLASSIAN_MCP_SIDECAR_NAME) {
+            return (
+                sidecar_path.to_string_lossy().to_string(),
+                normalize_atlassian_spawn_args(&server.args),
+            );
+        }
+    }
+
+    let command = match server.template.as_deref() {
+        Some("postgres") if server.command.trim().is_empty() => POSTGRES_MCP_SIDECAR_NAME,
+        Some("atlassian") if server.command.trim().is_empty() => ATLASSIAN_MCP_SIDECAR_NAME,
+        _ => server.command.as_str(),
     };
     let trimmed = command.trim();
     let normalized = trimmed.to_ascii_lowercase();

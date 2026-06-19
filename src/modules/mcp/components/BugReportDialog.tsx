@@ -244,7 +244,7 @@ export function BugReportDialog(props: Props) {
   const jiraConfigured = isMcpServerConfigured(atlassianServer)
   const canSendToJira = Boolean(jiraConfigured && serverRunning && summary.trim() && description.trim() && projectKey.trim() && !busyMode)
   const sendDisabledReason = !jiraConfigured
-    ? 'Configure Atlassian MCP command in Settings → MCP first.'
+    ? 'Open Settings → MCP and finish Atlassian MCP setup first.'
     : !serverRunning
       ? 'Start Atlassian MCP server in Settings → MCP first.'
       : !summary.trim()

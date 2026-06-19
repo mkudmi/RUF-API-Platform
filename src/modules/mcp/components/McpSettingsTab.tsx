@@ -444,7 +444,7 @@ export function McpSettingsTab(props: Props) {
                     </div>
                   </div>
 
-                  {server.template !== 'postgres' ? (
+                  {server.template === 'custom' ? (
                     <div className="settingsTableRow">
                       <div className="settingsTableLabel">Command</div>
                       <div className="settingsTableValue">
@@ -466,8 +466,19 @@ export function McpSettingsTab(props: Props) {
                         value={formatArgs(server.args)}
                         onChange={event => updateServer(server.id, { args: parseArgs(event.target.value) })}
                         rows={4}
-                        placeholder={server.template === 'postgres' ? '--access-mode=unrestricted' : '-y&#10;mcp-remote@latest&#10;https://mcp.atlassian.com/v1/mcp/authv2'}
+                        placeholder={
+                          server.template === 'postgres'
+                            ? '--access-mode=unrestricted'
+                            : server.template === 'atlassian'
+                              ? 'https://mcp.atlassian.com/v1/mcp/authv2'
+                              : '-y&#10;mcp-remote@latest&#10;https://mcp.atlassian.com/v1/mcp/authv2'
+                        }
                       />
+                      {server.template === 'atlassian' ? (
+                        <div className="small" style={{ opacity: 0.72 }}>
+                          Atlassian MCP is bundled with the app. Leave the default URL or add optional `mcp-remote` flags such as `--debug` or `--resource`.
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 

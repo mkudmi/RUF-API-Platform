@@ -101,7 +101,7 @@ export function getPostgresMcpDatabaseUri(server: McpServerSettings | null) {
 }
 
 export function isMcpServerConfigured(server: McpServerSettings | null) {
-  if (server?.template === 'postgres') return true
+  if (server?.template === 'postgres' || server?.template === 'atlassian') return true
   return Boolean(server?.command.trim())
 }
 
@@ -393,7 +393,7 @@ export async function sendBugReportToAtlassianMcp(
   const server = getAtlassianMcpServer(servers)
   if (!server) throw new Error('Atlassian MCP template is missing in Settings.')
   if (!isMcpServerConfigured(server)) {
-    throw new Error('Atlassian MCP is not configured yet. Open Settings -> MCP and finish the template setup.')
+    throw new Error('Atlassian MCP is not configured yet. Open Settings -> MCP and finish the Atlassian MCP setup.')
   }
 
   const status = await getMcpServerStatus(server)

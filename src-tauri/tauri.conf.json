@@ -30,6 +30,7 @@
   "bundle": {
     "active": true,
     "externalBin": [
+      "binaries/atlassian-mcp",
       "binaries/postgres-mcp"
     ],
     "targets": [
