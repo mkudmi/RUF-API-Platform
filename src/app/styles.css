@@ -1308,7 +1308,12 @@ button:hover { background: rgba(255,255,255,.10); }
   min-height: 0;
 }
 
-.sqlTerminalPaneSql { position: relative; }
+.sqlTerminalPaneSql {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
 .sqlTerminalDivider {
   width: 8px;
@@ -1403,6 +1408,47 @@ button:hover { background: rgba(255,255,255,.10); }
 
 .sqlTerminalEditorWrap > .sqlTerminalEditor {
   height: 100%;
+}
+
+.sqlTerminalAiPromptBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.03);
+  flex: 0 0 auto;
+}
+
+.sqlTerminalAiPromptInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 8px;
+  background: rgba(255,255,255,.04);
+  color: rgba(255,255,255,.92);
+  outline: none;
+}
+
+.sqlTerminalAiPromptInput::placeholder {
+  color: rgba(255,255,255,.48);
+}
+
+.sqlTerminalAiPromptInput:focus {
+  border-color: rgba(107, 161, 255, .46);
+  box-shadow: 0 0 0 1px rgba(107, 161, 255, .22);
+}
+
+.sqlTerminalAiPromptRunBtn {
+  min-width: 68px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 @keyframes sqlSuggestDropIn {
@@ -1554,6 +1600,137 @@ button:hover { background: rgba(255,255,255,.10); }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.sqlAiAssistantDialog {
+  position: fixed;
+  z-index: 1400;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  box-sizing: border-box;
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 14px;
+  background: rgba(16,18,28,.96);
+  box-shadow: 0 22px 80px rgba(0,0,0,.45);
+  overflow: hidden;
+  backdrop-filter: blur(14px);
+}
+
+.sqlAiAssistantHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  cursor: grab;
+  user-select: none;
+}
+
+.sqlAiAssistantHeader:active {
+  cursor: grabbing;
+}
+
+.sqlAiAssistantTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sqlAiAssistantBody {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  background:
+    radial-gradient(circle at top right, rgba(107, 161, 255, .12), transparent 34%),
+    linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));
+}
+
+.sqlAiAssistantEmpty {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: rgba(255,255,255,.72);
+  padding: 18px;
+}
+
+.sqlAiAssistantNotice {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.sqlAiAssistantNoticeError {
+  background: rgba(255, 107, 107, .12);
+  border: 1px solid rgba(255, 107, 107, .22);
+  color: rgba(255, 214, 214, .92);
+}
+
+.sqlAiAssistantMessage {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+
+.sqlAiAssistantMessageAssistant {
+  justify-self: start;
+  background: rgba(255,255,255,.05);
+  color: rgba(255,255,255,.92);
+}
+
+.sqlAiAssistantMessageUser {
+  justify-self: end;
+  background: rgba(107, 161, 255, .18);
+  color: rgba(242, 247, 255, .96);
+}
+
+.sqlAiAssistantComposer {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.02);
+}
+
+.sqlAiAssistantTextarea {
+  min-height: 88px;
+  max-height: 180px;
+}
+
+.sqlAiAssistantActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sqlAiAssistantResizeHandle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 1;
+}
+
+.sqlAiAssistantResizeHandle::before {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid rgba(255,255,255,.28);
+  border-bottom: 2px solid rgba(255,255,255,.28);
+  border-bottom-right-radius: 3px;
 }
 
 

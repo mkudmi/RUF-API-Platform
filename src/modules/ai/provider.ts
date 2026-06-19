@@ -39,6 +39,11 @@ type YandexChatCompletionResponse = {
 
 type YandexChatMessage = NonNullable<NonNullable<YandexChatCompletionResponse['choices']>[number]['message']>
 
+export type AiChatPromptMessage = {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
 function buildYandexModelUri(settings: AiProviderSettings) {
   const model = settings.model.trim()
   if (!model) return ''
@@ -506,6 +511,52 @@ export async function explainApiWithYandex(settings: AiProviderSettings, snapsho
     throw new Error(buildEmptyAiResponseError('AI returned an empty response.', text))
   }
   return content.trim()
+}
+
+export async function completeJsonWithYandex<T extends object>(
+  settings: AiProviderSettings,
+  options: {
+    messages: AiChatPromptMessage[]
+    temperature?: number
+    errorPrefix?: string
+  },
+): Promise<T> {
+  ensureYandexSettings(settings)
+
+  const errorPrefix = options.errorPrefix?.trim() || 'AI request'
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: options.temperature ?? 0.1,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: options.messages,
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`${errorPrefix} failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError(`${errorPrefix} returned an empty response.`, text))
+  }
+
+  const result = parseJsonFromAiText<T>(content)
+  if (!result || typeof result !== 'object') {
+    throw new Error(`${errorPrefix} returned invalid JSON.`)
+  }
+
+  return result
 }
 
 export async function generateResponseSearchQueryWithYandex(

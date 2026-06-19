@@ -42,6 +42,10 @@ function buildPostgresDatabaseUri(env: Record<string, string>) {
   return `postgresql://${userInfo}@${host}:${port}/${encodeURIComponent(database)}`
 }
 
+function hasDatabaseUriArg(args: string[]) {
+  return args.some(arg => /^postgres(?:ql)?:\/\//i.test(arg.trim()))
+}
+
 function getServerEnv(server: McpServerSettings) {
   if (!Array.isArray(server.envEntries)) return { ...server.env }
 
@@ -58,22 +62,40 @@ function materializeServerEnv(server: McpServerSettings) {
   const env = getServerEnv(server)
   if (server.template === 'postgres') {
     const databaseUri = buildPostgresDatabaseUri(env)
-    if (databaseUri) env.DATABASE_URI = databaseUri
+    if (databaseUri) {
+      env.DATABASE_URI = databaseUri
+      env.DATABASE_URL = databaseUri
+    }
   }
   return env
 }
 
 function toServerPayload(server: McpServerSettings): McpCommandServerPayload {
+  const env = materializeServerEnv(server)
+  const databaseUri = server.template === 'postgres' ? buildPostgresDatabaseUri(env) : ''
+  const args = server.template === 'postgres' && databaseUri && !hasDatabaseUriArg(server.args)
+    ? [...server.args, databaseUri]
+    : server.args
+
   return {
     id: server.id,
     command: server.command.trim(),
-    args: server.args,
-    env: materializeServerEnv(server),
+    args,
+    env,
   }
 }
 
 export function getAtlassianMcpServer(servers: McpServerSettings[]) {
   return servers.find(server => server.template === 'atlassian') ?? null
+}
+
+export function getPostgresMcpServer(servers: McpServerSettings[]) {
+  return servers.find(server => server.template === 'postgres') ?? null
+}
+
+export function getPostgresMcpDatabaseUri(server: McpServerSettings | null) {
+  if (!server || server.template !== 'postgres') return ''
+  return buildPostgresDatabaseUri(getServerEnv(server))
 }
 
 export function isMcpServerConfigured(server: McpServerSettings | null) {
@@ -108,6 +130,14 @@ export async function reconnectMcpServer(server: McpServerSettings) {
     } satisfies McpServerTestArgs,
   })
   return `Reconnected to ${result.serverName}. ${result.tools.length} tool${result.tools.length === 1 ? '' : 's'} available.`
+}
+
+export async function reconnectMcpServerWithTools(server: McpServerSettings): Promise<McpServerConnectionResult> {
+  return tauriInvoke<McpServerConnectionResult>('mcp_reconnect_server', {
+    args: {
+      server: toServerPayload(server),
+    } satisfies McpServerTestArgs,
+  })
 }
 
 export async function stopMcpServer(server: McpServerSettings) {

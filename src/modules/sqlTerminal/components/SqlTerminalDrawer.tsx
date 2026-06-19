@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Collection } from '../../collectionTree'
-import type { AiProviderSettings } from '../../../shared/utils/appSettings'
+import type { AiProviderSettings, McpServerSettings } from '../../../shared/utils/appSettings'
 import type { Environment, GlobalSqlConnectionItem } from '../../../shared/types/environment'
 import { resolveVariableValue } from '../../../shared/utils/variables'
 import { DB_ENV_KEYS, buildDbConnectionString, getDbConnectionStringPreview, getDbFormStateFromEnv, hasDbConfigInEnv, runDbSql } from '../../environment'
@@ -8,6 +8,15 @@ import { enhanceSqlWithYandex } from '../../ai/provider'
 import { useDismissibleLayer } from '../../../shared/hooks/useDismissibleLayer'
 import { logError, logWarn } from '../../../shared/utils/logger'
 import { CloseIcon, SqlTerminalPositionIcon, StarIcon } from '../../../shared/icons'
+import { getPostgresMcpDatabaseUri, getPostgresMcpServer } from '../../mcp/services/mcp'
+import { SqlAiAssistantDialog } from './SqlAiAssistantDialog'
+import {
+  initializeSqlAiAssistantContext,
+  initializeSqlAiAssistantContextFromDb,
+  respondWithSqlAiAssistant,
+  type SqlAiAssistantContext,
+  type SqlAiConversationMessage,
+} from '../services/sqlAiAgent'
 
 type DbConnOption = {
   id: string
@@ -32,6 +41,7 @@ const SQL_TERMINAL_MIN_HEIGHT_PX = 240
 const SQL_TERMINAL_MIN_WIDTH_PX = 360
 const WINDOW_TITLEBAR_FALLBACK_HEIGHT_PX = 38
 const SQL_TERMINAL_PAGE_SIZE = 200
+const SQL_AI_INLINE_PROMPT_KEY = 'ruf_sql_ai_inline_prompt_v1'
 
 type ResultPagingState = {
   enabled: boolean
@@ -39,6 +49,10 @@ type ResultPagingState = {
   hasMore: boolean
   loadAll: boolean
   baseSql: string
+}
+
+type ExecuteSqlOptions = {
+  scopeLabel: 'selection' | 'statement' | 'script' | 'ai'
 }
 
 function getWindowTitlebarHeightPx() {
@@ -225,6 +239,21 @@ function extractSchemaTableLabel(sql: string, selectedSchema: string): string | 
   return null
 }
 
+function resolveFallbackPostgresConnectionString(
+  mcpSettings: McpServerSettings[],
+  selectedConnection?: {
+    type: 'postgres' | 'mysql'
+    connectionString: string
+  } | null,
+) {
+  if (selectedConnection?.type === 'postgres') {
+    const connectionString = selectedConnection.connectionString.trim()
+    if (connectionString) return connectionString
+  }
+
+  return getPostgresMcpDatabaseUri(getPostgresMcpServer(mcpSettings))
+}
+
 function getCurrentSqlStatement(sql: string, caret: number): string | null {
   if (!sql) return null
 
@@ -386,11 +415,13 @@ export function SqlTerminalDrawer(props: {
   environmentsByCollection: Record<string, Environment>
   extraConnections?: GlobalSqlConnectionItem[]
   aiSettings: AiProviderSettings
+  mcpSettings: McpServerSettings[]
 }) {
   const { open, onClose } = props
 
   const [busy, setBusy] = useState(false)
   const [aiBusy, setAiBusy] = useState(false)
+  const [sqlAiDialogOpen, setSqlAiDialogOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [schemaMenuOpen, setSchemaMenuOpen] = useState(false)
   const [aiMenuOpen, setAiMenuOpen] = useState(false)
@@ -401,6 +432,7 @@ export function SqlTerminalDrawer(props: {
   const [drawerPosition, setDrawerPosition] = useState<'bottom' | 'left'>(() => (safeLoadString(SQL_TERMINAL_POSITION_KEY) === 'left' ? 'left' : 'bottom'))
   const [selectedConnId, setSelectedConnId] = useState<string | null>(() => safeLoadString(SQL_TERMINAL_SELECTED_CONN_KEY))
   const [sql, setSql] = useState(() => safeLoadString(SQL_TERMINAL_SQL_KEY) ?? '')
+  const [sqlAiPrompt, setSqlAiPrompt] = useState(() => safeLoadString(SQL_AI_INLINE_PROMPT_KEY) ?? '')
   const [output, setOutput] = useState<OutputEntry[]>([])
   const [resultRows, setResultRows] = useState<Array<Record<string, unknown>> | null>(null)
   const [resultColumns, setResultColumns] = useState<string[] | null>(null)
@@ -422,6 +454,8 @@ export function SqlTerminalDrawer(props: {
   const [tableSuggestReplaceRange, setTableSuggestReplaceRange] = useState<{ start: number; end: number } | null>(null)
   const [tableSuggestActiveIndex, setTableSuggestActiveIndex] = useState<number | null>(null)
   const [tableSuggestPopupPos, setTableSuggestPopupPos] = useState<PopupPosition | null>(null)
+  const [sqlAiInlineContext, setSqlAiInlineContext] = useState<SqlAiAssistantContext | null>(null)
+  const [sqlAiInlineContextSignature, setSqlAiInlineContextSignature] = useState<string | null>(null)
 
   const menuWrapRef = useRef<HTMLDivElement | null>(null)
   const schemaMenuWrapRef = useRef<HTMLDivElement | null>(null)
@@ -429,6 +463,7 @@ export function SqlTerminalDrawer(props: {
   const editorWrapRef = useRef<HTMLDivElement | null>(null)
   const sqlRef = useRef<HTMLTextAreaElement | null>(null)
   const lineNumbersRef = useRef<HTMLPreElement | null>(null)
+  const sqlAiPromptRef = useRef<HTMLInputElement | null>(null)
   const tableSuggestRef = useRef<HTMLDivElement | null>(null)
   const outputRef = useRef<HTMLDivElement | null>(null)
   const resetTableScrollOnNextResultRef = useRef(false)
@@ -447,6 +482,24 @@ export function SqlTerminalDrawer(props: {
     [props.collections, props.environmentsByCollection, props.extraConnections],
   )
   const selectedConn = useMemo(() => connOptions.find(c => c.id === selectedConnId) ?? null, [connOptions, selectedConnId])
+  const sqlAiInitSignature = useMemo(() => {
+    const postgresServer = getPostgresMcpServer(props.mcpSettings)
+    return JSON.stringify({
+      selectedSchema: selectedSchema.trim(),
+      fallbackConnectionString: resolveFallbackPostgresConnectionString(
+        props.mcpSettings,
+        selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null,
+      ),
+      postgresServer: postgresServer
+        ? {
+            command: postgresServer.command,
+            args: postgresServer.args,
+            envEntries: postgresServer.envEntries ?? [],
+            env: postgresServer.env,
+          }
+        : null,
+    })
+  }, [props.mcpSettings, selectedConn, selectedSchema])
   const lineCount = useMemo(() => Math.max(1, sql.split('\n').length), [sql])
   const lineNumberDigits = useMemo(() => Math.max(2, String(lineCount).length), [lineCount])
   const lineNumbers = useMemo(() => Array.from({ length: lineCount }, (_x, i) => i + 1), [lineCount])
@@ -515,6 +568,11 @@ export function SqlTerminalDrawer(props: {
   useEffect(() => {
     if (!open) return
     requestAnimationFrame(() => sqlRef.current?.focus())
+  }, [open])
+
+  useEffect(() => {
+    if (open) return
+    setSqlAiDialogOpen(false)
   }, [open])
 
   useEffect(() => {
@@ -630,9 +688,31 @@ export function SqlTerminalDrawer(props: {
     setSql(nextText)
   }, [])
 
+  const appendSqlText = useCallback((snippet: string) => {
+    const cleanSnippet = snippet.trim()
+    if (!cleanSnippet) return
+
+    const hasExistingSql = sql.trim().length > 0
+    let nextText = sql
+    if (hasExistingSql) {
+      if (!nextText.endsWith('\n')) nextText += '\n'
+      if (!nextText.endsWith('\n\n')) nextText += '\n'
+    }
+    nextText += cleanSnippet
+    applySqlText(nextText, nextText.length)
+  }, [applySqlText, sql])
+
   useEffect(() => {
     safeSave(SQL_TERMINAL_SQL_KEY, sql)
   }, [sql])
+
+  useEffect(() => {
+    if (!sqlAiPrompt.trim()) {
+      safeRemove(SQL_AI_INLINE_PROMPT_KEY)
+      return
+    }
+    safeSave(SQL_AI_INLINE_PROMPT_KEY, sqlAiPrompt)
+  }, [sqlAiPrompt])
 
   useEffect(() => {
     safeSave(SQL_TERMINAL_SPLIT_KEY, String(splitLeftFraction))
@@ -1173,20 +1253,13 @@ export function SqlTerminalDrawer(props: {
     setTableSuggestOpen(true)
   }, [open, sql, cursorPos, tables.length, selectedConnId, selectedSchema])
 
-  async function run() {
-    if (editorBusy) return
+  async function executeSqlRaw(raw: string, options: ExecuteSqlOptions) {
     const conn = selectedConn
     if (!conn) {
       pushOutput([{ kind: 'err', text: 'No database connection selected. Configure connection in App Settings or Collection Environment.' }])
       return
     }
 
-    const ta = sqlRef.current
-    const selectionStart = ta ? Math.max(0, Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
-    const selectionEnd = ta ? Math.max(0, Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
-    const selectedSql = selectionEnd > selectionStart ? sql.slice(selectionStart, selectionEnd).trim() : ''
-    const statementSql = selectedSql ? '' : (getCurrentSqlStatement(sql, ta?.selectionStart ?? cursorPos) ?? '')
-    const raw = (selectedSql || statementSql || sql).trim()
     if (!raw) {
       pushOutput([{ kind: 'sys', text: 'Nothing to run.' }])
       return
@@ -1194,9 +1267,8 @@ export function SqlTerminalDrawer(props: {
     setLastRunSchemaTableLabel(extractSchemaTableLabel(raw, selectedSchema))
 
     const startedAt = new Date()
-    const scopeLabel = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
     resetTableScrollOnNextResultRef.current = true
-    pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type}) [${scopeLabel}]` }])
+    pushOutput([{ kind: 'in', text: `-- ${formatTime(startedAt)} ${conn.label} (${conn.type}) [${options.scopeLabel}]` }])
     setResultRows(null)
     setResultColumns(null)
     setResultHint(null)
@@ -1263,6 +1335,18 @@ export function SqlTerminalDrawer(props: {
       setBusy(false)
       requestAnimationFrame(() => sqlRef.current?.focus())
     }
+  }
+
+  async function run() {
+    if (editorBusy) return
+    const ta = sqlRef.current
+    const selectionStart = ta ? Math.max(0, Math.min(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
+    const selectionEnd = ta ? Math.max(0, Math.max(ta.selectionStart ?? 0, ta.selectionEnd ?? 0)) : 0
+    const selectedSql = selectionEnd > selectionStart ? sql.slice(selectionStart, selectionEnd).trim() : ''
+    const statementSql = selectedSql ? '' : (getCurrentSqlStatement(sql, ta?.selectionStart ?? cursorPos) ?? '')
+    const raw = (selectedSql || statementSql || sql).trim()
+    const scopeLabel: ExecuteSqlOptions['scopeLabel'] = selectedSql ? 'selection' : (statementSql ? 'statement' : 'script')
+    await executeSqlRaw(raw, { scopeLabel })
   }
 
   async function loadMoreRows(loadAll: boolean) {
@@ -1385,6 +1469,82 @@ export function SqlTerminalDrawer(props: {
 
   function handleCreateSqlWithAi() {
     setAiMenuOpen(false)
+    requestAnimationFrame(() => {
+      setSqlAiDialogOpen(true)
+    })
+  }
+
+  async function getSqlAiInlineContext() {
+    if (sqlAiInlineContext && sqlAiInlineContextSignature === sqlAiInitSignature) {
+      return sqlAiInlineContext
+    }
+
+    try {
+      const nextContext = await initializeSqlAiAssistantContext(props.mcpSettings, {
+        selectedSchema,
+      })
+      setSqlAiInlineContext(nextContext)
+      setSqlAiInlineContextSignature(sqlAiInitSignature)
+      return nextContext
+    } catch (mcpError) {
+      const fallbackConnectionString = resolveFallbackPostgresConnectionString(
+        props.mcpSettings,
+        selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null,
+      )
+      if (!fallbackConnectionString) throw mcpError
+
+      const nextContext = await initializeSqlAiAssistantContextFromDb({
+        connectionString: fallbackConnectionString,
+        selectedSchema,
+      })
+      setSqlAiInlineContext(nextContext)
+      setSqlAiInlineContextSignature(sqlAiInitSignature)
+      return nextContext
+    }
+  }
+
+  async function handleInlineSqlAiPrompt() {
+    const userMessage = sqlAiPrompt.trim()
+    if (editorBusy || !userMessage) return
+
+    if (!props.aiSettings.enabled) {
+      pushOutput([{ kind: 'err', text: 'AI is disabled in Settings.' }])
+      return
+    }
+
+    setAiBusy(true)
+    pushOutput([{ kind: 'sys', text: 'SQL AI is preparing a script…' }])
+
+    try {
+      const context = await getSqlAiInlineContext()
+      const conversation: SqlAiConversationMessage[] = []
+      const result = await respondWithSqlAiAssistant({
+        aiSettings: props.aiSettings,
+        context,
+        conversation,
+        userMessage,
+        selectedSchema,
+        currentSql: sql,
+      })
+
+      setSqlAiInlineContext(result.context)
+      setSqlAiInlineContextSignature(sqlAiInitSignature)
+
+      if (!result.sqlToInsert) {
+        pushOutput([{ kind: 'out', text: result.reply }])
+        return
+      }
+
+      appendSqlText(result.sqlToInsert)
+      setSqlAiPrompt('')
+      pushOutput([{ kind: 'out', text: result.reply }])
+      await executeSqlRaw(result.sqlToInsert.trim(), { scopeLabel: 'ai' })
+    } catch (error) {
+      pushOutput([{ kind: 'err', text: error instanceof Error ? error.message : String(error) }])
+    } finally {
+      setAiBusy(false)
+      requestAnimationFrame(() => sqlAiPromptRef.current?.focus())
+    }
   }
 
   const selectedLabel = selectedConn ? `${selectedConn.label}: ${selectedConn.connectionPreview}` : (connOptions.length ? 'Select DB…' : 'No DB connections')
@@ -1414,6 +1574,16 @@ export function SqlTerminalDrawer(props: {
 
   return (
     <>
+      <SqlAiAssistantDialog
+        open={sqlAiDialogOpen}
+        onClose={() => setSqlAiDialogOpen(false)}
+        aiSettings={props.aiSettings}
+        mcpSettings={props.mcpSettings}
+        currentSql={sql}
+        selectedSchema={selectedSchema}
+        onInsertSql={appendSqlText}
+        selectedConnection={selectedConn ? { type: selectedConn.type, connectionString: selectedConn.connectionString } : null}
+      />
       <div
         className={open ? `terminalBackdrop terminalBackdropOpen ${isLeftPosition ? 'sqlTerminalBackdropLeft' : ''}`.trim() : 'terminalBackdrop'}
         onClick={onClose}
@@ -1647,7 +1817,6 @@ export function SqlTerminalDrawer(props: {
                         onClick={handleCreateSqlWithAi}
                       >
                         <span>Create SQL with AI</span>
-                        <span style={{ opacity: 0.58 }}>Soon</span>
                       </button>
                     </div>
                   ) : null}
@@ -1849,6 +2018,31 @@ export function SqlTerminalDrawer(props: {
                   )}
                 </div>
               ) : null}
+            </div>
+            <div className="sqlTerminalAiPromptBar">
+              <input
+                ref={sqlAiPromptRef}
+                type="text"
+                className="sqlTerminalAiPromptInput mono"
+                value={sqlAiPrompt}
+                disabled={!open || editorBusy || !selectedConn}
+                onChange={event => setSqlAiPrompt(event.target.value)}
+                placeholder="SQL AI: опиши запрос естественным языком"
+                onKeyDown={event => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  void handleInlineSqlAiPrompt()
+                }}
+              />
+              <button
+                type="button"
+                className="responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn sqlTerminalAiPromptRunBtn"
+                onClick={() => void handleInlineSqlAiPrompt()}
+                disabled={!open || editorBusy || !selectedConn || !sqlAiPrompt.trim()}
+                title={aiBusy ? 'AI is working…' : 'Generate SQL and run only the generated script'}
+              >
+                Send
+              </button>
             </div>
           </div>
           <div className="sqlTerminalDivider" onPointerDown={onSplitHandlePointerDown} />

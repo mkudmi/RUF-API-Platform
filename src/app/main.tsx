@@ -93,10 +93,16 @@ function renderBootstrapFailure(rootEl: HTMLElement, error: unknown) {
   `
 }
 
-function bootstrap() {
+async function bootstrap() {
   applyPlatformClass()
   const rootEl = document.getElementById('root')
   if (!rootEl) throw new Error('Missing #root element.')
+
+  try {
+    await initPersistentLocalStorageBridge()
+  } catch (error) {
+    logError('bootstrap.initPersistentLocalStorageBridge', error)
+  }
 
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
@@ -105,15 +111,9 @@ function bootstrap() {
       </StartupErrorBoundary>
     </React.StrictMode>,
   )
-
-  void initPersistentLocalStorageBridge().catch(error => {
-    logError('bootstrap.initPersistentLocalStorageBridge', error)
-  })
 }
 
-try {
-  bootstrap()
-} catch (error) {
+void bootstrap().catch(error => {
   logError('bootstrap', error)
   const rootEl = document.getElementById('root')
   if (rootEl) {
@@ -121,4 +121,4 @@ try {
   } else {
     throw error
   }
-}
+})

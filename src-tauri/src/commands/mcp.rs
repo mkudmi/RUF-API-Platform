@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -154,6 +156,60 @@ fn apply_hidden_window_tokio(_cmd: &mut TokioCommand) {}
 fn session_registry() -> &'static Mutex<HashMap<String, Arc<Mutex<McpSession>>>> {
     static SESSION_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<Mutex<McpSession>>>>> = OnceLock::new();
     SESSION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn resolve_executable_path(command: &str) -> Option<PathBuf> {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let direct = PathBuf::from(trimmed);
+    if direct.components().count() > 1 || direct.is_absolute() {
+        return is_executable_file(&direct).then_some(direct);
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(home) = env::var_os("HOME") {
+        candidates.push(PathBuf::from(home).join(".local/bin").join(trimmed));
+    }
+
+    if let Some(path_var) = env::var_os("PATH") {
+        candidates.extend(env::split_paths(&path_var).map(|dir| dir.join(trimmed)));
+    }
+
+    candidates.into_iter().find(|path| is_executable_file(path))
+}
+
+fn resolve_spawn_command(command: &str, args: &[String]) -> (String, Vec<String>) {
+    let trimmed = command.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+
+    if normalized == "uvx"
+        && args
+            .first()
+            .map(|arg| arg.trim().eq_ignore_ascii_case("postgres-mcp"))
+            .unwrap_or(false)
+    {
+        if let Some(resolved) = resolve_executable_path("postgres-mcp") {
+            return (
+                resolved.to_string_lossy().to_string(),
+                args.iter().skip(1).cloned().collect::<Vec<_>>(),
+            );
+        }
+    }
+
+    if normalized == "postgres-mcp" {
+        if let Some(resolved) = resolve_executable_path(trimmed) {
+            return (resolved.to_string_lossy().to_string(), args.to_vec());
+        }
+    }
+
+    (trimmed.to_string(), args.to_vec())
 }
 
 async fn send_json_line(stdin: &mut ChildStdin, value: Value) -> Result<(), String> {
@@ -323,8 +379,9 @@ async fn shutdown_session_handle(session_handle: Arc<Mutex<McpSession>>) {
 }
 
 async fn spawn_mcp_session(server: SanitizedMcpServer) -> Result<McpSession, String> {
-    let mut proc = TokioCommand::new(&server.command);
-    proc.args(&server.args)
+    let (resolved_command, resolved_args) = resolve_spawn_command(&server.command, &server.args);
+    let mut proc = TokioCommand::new(&resolved_command);
+    proc.args(&resolved_args)
         .envs(&server.env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
