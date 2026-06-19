@@ -2036,12 +2036,18 @@ export function SqlTerminalDrawer(props: {
               />
               <button
                 type="button"
-                className="responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn sqlTerminalAiPromptRunBtn"
+                className={`responseSearchModeBtn aiMagicBtn sqlTerminalAiBtn sqlTerminalAiPromptRunBtn ${aiBusy ? 'sqlTerminalAiPromptRunBtnBusy' : ''}`.trim()}
                 onClick={() => void handleInlineSqlAiPrompt()}
                 disabled={!open || editorBusy || !selectedConn || !sqlAiPrompt.trim()}
                 title={aiBusy ? 'AI is working…' : 'Generate SQL and run only the generated script'}
               >
-                Send
+                {aiBusy ? (
+                  <span className="sqlTerminalAiPromptRunBtnSpark" aria-hidden="true">
+                    <StarIcon size={14} />
+                  </span>
+                ) : (
+                  <span className="sqlTerminalAiPromptRunBtnLabel">Send</span>
+                )}
               </button>
             </div>
           </div>

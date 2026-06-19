@@ -1449,6 +1449,51 @@ button:hover { background: rgba(255,255,255,.10); }
   border-radius: 8px;
   white-space: nowrap;
   flex: 0 0 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.sqlTerminalAiPromptRunBtnLabel {
+  position: relative;
+  z-index: 1;
+}
+
+.sqlTerminalAiPromptRunBtnSpark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+  animation: sqlAiPromptSparkPulse 900ms ease-in-out infinite;
+}
+
+.sqlTerminalAiPromptRunBtnBusy {
+  box-shadow: 0 0 0 1px rgba(107, 161, 255, .20), 0 0 18px rgba(107, 161, 255, .16);
+}
+
+.sqlTerminalAiPromptRunBtnBusy::before {
+  opacity: 1;
+  animation: sqlAiPromptSweep 1.25s linear infinite;
+}
+
+@keyframes sqlAiPromptSparkPulse {
+  0%, 100% {
+    opacity: 0.72;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes sqlAiPromptSweep {
+  0% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(130%);
+  }
 }
 
 @keyframes sqlSuggestDropIn {
