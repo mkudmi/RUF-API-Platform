@@ -95,8 +95,8 @@ export const DEFAULT_POSTGRES_MCP_SERVER_SETTINGS: McpServerSettings = {
   name: 'Postgres MCP',
   enabled: false,
   template: 'postgres',
-  command: 'uvx',
-  args: ['postgres-mcp', '--access-mode=unrestricted'],
+  command: '',
+  args: ['--access-mode=unrestricted'],
   env: {},
   envEntries: [
     { key: 'DB_USER', value: '' },

@@ -1,7 +1,7 @@
 import type { AiProviderSettings, McpServerSettings } from '../../../shared/utils/appSettings'
 import { getLogger } from '../../../shared/utils/logger'
 import { completeJsonWithYandex, type AiChatPromptMessage } from '../../ai/provider'
-import { callMcpTool, getPostgresMcpServer, isMcpServerConfigured, reconnectMcpServerWithTools } from '../../mcp/services/mcp'
+import { callMcpTool, getPostgresMcpServer, hasMcpServerConnectionConfig, reconnectMcpServerWithTools } from '../../mcp/services/mcp'
 import { runDbSql } from '../../environment'
 
 type SqlAiAgentPlan = {
@@ -331,8 +331,8 @@ export async function initializeSqlAiAssistantContext(
   })
   const server = getPostgresMcpServer(mcpSettings)
   if (!server) throw new Error('Postgres MCP template is missing in Settings.')
-  if (!isMcpServerConfigured(server)) {
-    throw new Error('Postgres MCP is not configured yet. Open Settings → MCP and fill its command and connection settings.')
+  if (!hasMcpServerConnectionConfig(server)) {
+    throw new Error('Postgres MCP is not configured yet. Open Settings → MCP and fill its connection settings.')
   }
 
   sqlAiLogger.info('initializeSqlAiAssistantContext.reconnect.start', {

@@ -427,7 +427,7 @@ export function McpSettingsTab(props: Props) {
                           onChange={event => updateServer(server.id, { enabled: event.target.checked })}
                         />
                         <span className="checkBox" aria-hidden="true" />
-                        <span>Keep this MCP server available when used</span>
+                        <span>Auto-start on app launch</span>
                       </label>
                     </div>
                   </div>
@@ -444,17 +444,19 @@ export function McpSettingsTab(props: Props) {
                     </div>
                   </div>
 
-                  <div className="settingsTableRow">
-                    <div className="settingsTableLabel">Command</div>
-                    <div className="settingsTableValue">
-                      <input
-                        className="mono"
-                        value={server.command}
-                        onChange={event => updateServer(server.id, { command: event.target.value })}
-                        placeholder="npx"
-                      />
+                  {server.template !== 'postgres' ? (
+                    <div className="settingsTableRow">
+                      <div className="settingsTableLabel">Command</div>
+                      <div className="settingsTableValue">
+                        <input
+                          className="mono"
+                          value={server.command}
+                          onChange={event => updateServer(server.id, { command: event.target.value })}
+                          placeholder="npx"
+                        />
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
 
                   <div className="settingsTableRow">
                     <div className="settingsTableLabel">Arguments</div>
@@ -464,7 +466,7 @@ export function McpSettingsTab(props: Props) {
                         value={formatArgs(server.args)}
                         onChange={event => updateServer(server.id, { args: parseArgs(event.target.value) })}
                         rows={4}
-                        placeholder="-y&#10;mcp-remote@latest&#10;https://mcp.atlassian.com/v1/mcp/authv2"
+                        placeholder={server.template === 'postgres' ? '--access-mode=unrestricted' : '-y&#10;mcp-remote@latest&#10;https://mcp.atlassian.com/v1/mcp/authv2'}
                       />
                     </div>
                   </div>
@@ -494,6 +496,9 @@ export function McpSettingsTab(props: Props) {
                           ))}
                           <div className="small" style={{ opacity: 0.72 }}>
                             DATABASE_URI is built automatically as `postgresql://user:password@host:port/db`
+                          </div>
+                          <div className="small" style={{ opacity: 0.72 }}>
+                            The `postgres-mcp` executable is bundled with the app. You only need connection settings and optional arguments.
                           </div>
                         </div>
                       ) : (

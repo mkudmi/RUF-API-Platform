@@ -74,6 +74,7 @@ import {
   type McpServerSettings,
 } from '../shared/utils/appSettings'
 import { testYandexAiStudioConnection } from '../modules/ai/provider'
+import { getMcpServerStatus, shouldAutostartMcpServer, startMcpServer } from '../modules/mcp/services/mcp'
 import { platformFetch } from '../shared/utils/platformFetch'
 import { isAbsoluteUrl } from '../shared/utils/url'
 import { tauriInvoke } from '../shared/utils/tauri'
@@ -680,6 +681,34 @@ export default function App() {
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function autoStartConfiguredMcpServers() {
+      const serversToStart = (initialAppSettings.mcp ?? []).filter(shouldAutostartMcpServer)
+      for (const server of serversToStart) {
+        try {
+          const status = await getMcpServerStatus(server)
+          if (cancelled || status.running) continue
+          await startMcpServer(server)
+        } catch (error) {
+          if (cancelled) return
+          logWarn('App.autoStartConfiguredMcpServers', 'Failed to auto-start MCP server.', {
+            serverId: server.id,
+            serverName: server.name,
+            error,
+          })
+        }
+      }
+    }
+
+    void autoStartConfiguredMcpServers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [initialAppSettings])
 
   function refreshCacheSize() {
     setCacheSizeBytes(getLocalStorageCacheSizeBytes())

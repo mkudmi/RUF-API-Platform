@@ -44,6 +44,7 @@ Thumbs.db
 
 # Tauri / Rust
 src-tauri/target/
+src-tauri/binaries/
 
 # Test Files
 testfiles

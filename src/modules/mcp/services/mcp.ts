@@ -1,4 +1,4 @@
-import type { McpServerSettings } from '../../../shared/utils/appSettings'
+import type { McpServerSettings, McpServerTemplate } from '../../../shared/utils/appSettings'
 import { tauriInvoke } from '../../../shared/utils/tauri'
 import type {
   McpServerConnectionResult,
@@ -11,6 +11,7 @@ import type {
 
 type McpCommandServerPayload = {
   id: string
+  template?: McpServerTemplate
   command: string
   args: string[]
   env: Record<string, string>
@@ -79,6 +80,7 @@ function toServerPayload(server: McpServerSettings): McpCommandServerPayload {
 
   return {
     id: server.id,
+    template: server.template,
     command: server.command.trim(),
     args,
     env,
@@ -99,7 +101,20 @@ export function getPostgresMcpDatabaseUri(server: McpServerSettings | null) {
 }
 
 export function isMcpServerConfigured(server: McpServerSettings | null) {
+  if (server?.template === 'postgres') return true
   return Boolean(server?.command.trim())
+}
+
+export function hasMcpServerConnectionConfig(server: McpServerSettings | null) {
+  if (!server || !isMcpServerConfigured(server)) return false
+  if (server.template !== 'postgres') return true
+
+  const env = getServerEnv(server)
+  return Boolean(buildPostgresDatabaseUri(env) || hasDatabaseUriArg(server.args))
+}
+
+export function shouldAutostartMcpServer(server: McpServerSettings | null) {
+  return Boolean(server?.enabled) && hasMcpServerConnectionConfig(server)
 }
 
 export async function listMcpServerTools(server: McpServerSettings): Promise<McpServerConnectionResult> {

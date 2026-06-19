@@ -5,6 +5,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
+use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command as TokioCommand};
 use tokio::sync::Mutex;
@@ -12,10 +13,17 @@ use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 type McpStdoutLines = tokio::io::Lines<BufReader<ChildStdout>>;
+const POSTGRES_MCP_SIDECAR_NAME: &str = "postgres-mcp";
+
+fn current_target_triple() -> &'static str {
+    option_env!("TARGET").unwrap_or("unknown-target")
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct McpCommandServer {
     pub id: String,
+    #[serde(default)]
+    pub template: Option<String>,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -26,6 +34,7 @@ pub struct McpCommandServer {
 #[derive(Debug, Clone)]
 struct SanitizedMcpServer {
     id: String,
+    template: Option<String>,
     command: String,
     args: Vec<String>,
     env: HashMap<String, String>,
@@ -97,8 +106,9 @@ fn sanitize_server(server: &McpCommandServer) -> Result<SanitizedMcpServer, Stri
         return Err("MCP server id is empty.".to_string());
     }
 
+    let template = server.template.as_ref().map(|value| value.trim().to_ascii_lowercase());
     let command = server.command.trim();
-    if command.is_empty() {
+    if command.is_empty() && template.as_deref() != Some("postgres") {
         return Err("MCP command is empty.".to_string());
     }
 
@@ -126,6 +136,7 @@ fn sanitize_server(server: &McpCommandServer) -> Result<SanitizedMcpServer, Stri
     let mut env_entries = env.iter().collect::<Vec<_>>();
     env_entries.sort_by(|(left, _), (right, _)| left.cmp(right));
     let signature = serde_json::to_string(&json!({
+        "template": template,
         "command": command,
         "args": args,
         "env": env_entries
@@ -137,6 +148,7 @@ fn sanitize_server(server: &McpCommandServer) -> Result<SanitizedMcpServer, Stri
 
     Ok(SanitizedMcpServer {
         id: id.to_string(),
+        template,
         command: command.to_string(),
         args,
         env,
@@ -185,31 +197,72 @@ fn resolve_executable_path(command: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|path| is_executable_file(path))
 }
 
-fn resolve_spawn_command(command: &str, args: &[String]) -> (String, Vec<String>) {
-    let trimmed = command.trim();
-    let normalized = trimmed.to_ascii_lowercase();
+fn bundled_postgres_mcp_path(app: &AppHandle) -> Option<PathBuf> {
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    let resource_dir = app.path().resource_dir().ok()?;
+    let candidate = resource_dir
+        .join("binaries")
+        .join(format!("{POSTGRES_MCP_SIDECAR_NAME}-{}{extension}", current_target_triple()));
 
-    if normalized == "uvx"
-        && args
-            .first()
-            .map(|arg| arg.trim().eq_ignore_ascii_case("postgres-mcp"))
-            .unwrap_or(false)
-    {
-        if let Some(resolved) = resolve_executable_path("postgres-mcp") {
+    is_executable_file(&candidate).then_some(candidate)
+}
+
+fn normalize_postgres_spawn_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .enumerate()
+        .filter_map(|(index, arg)| {
+            if index == 0 && arg.trim().eq_ignore_ascii_case(POSTGRES_MCP_SIDECAR_NAME) {
+                None
+            } else {
+                Some(arg.clone())
+            }
+        })
+        .collect()
+}
+
+fn resolve_spawn_command(server: &SanitizedMcpServer, app: &AppHandle) -> (String, Vec<String>) {
+    if server.template.as_deref() == Some("postgres") {
+        if let Some(sidecar_path) = bundled_postgres_mcp_path(app) {
             return (
-                resolved.to_string_lossy().to_string(),
-                args.iter().skip(1).cloned().collect::<Vec<_>>(),
+                sidecar_path.to_string_lossy().to_string(),
+                normalize_postgres_spawn_args(&server.args),
             );
         }
     }
 
-    if normalized == "postgres-mcp" {
-        if let Some(resolved) = resolve_executable_path(trimmed) {
-            return (resolved.to_string_lossy().to_string(), args.to_vec());
+    let command = if server.template.as_deref() == Some("postgres") && server.command.trim().is_empty() {
+        POSTGRES_MCP_SIDECAR_NAME
+    } else {
+        server.command.as_str()
+    };
+    let trimmed = command.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+
+    if normalized == "uvx"
+        && server
+            .args
+            .first()
+            .map(|arg| arg.trim().eq_ignore_ascii_case(POSTGRES_MCP_SIDECAR_NAME))
+            .unwrap_or(false)
+    {
+        if let Some(resolved) = resolve_executable_path(POSTGRES_MCP_SIDECAR_NAME) {
+            return (
+                resolved.to_string_lossy().to_string(),
+                server.args.iter().skip(1).cloned().collect::<Vec<_>>(),
+            );
         }
     }
 
-    (trimmed.to_string(), args.to_vec())
+    if normalized == POSTGRES_MCP_SIDECAR_NAME {
+        if let Some(resolved) = resolve_executable_path(trimmed) {
+            return (
+                resolved.to_string_lossy().to_string(),
+                normalize_postgres_spawn_args(&server.args),
+            );
+        }
+    }
+
+    (trimmed.to_string(), server.args.to_vec())
 }
 
 async fn send_json_line(stdin: &mut ChildStdin, value: Value) -> Result<(), String> {
@@ -378,8 +431,8 @@ async fn shutdown_session_handle(session_handle: Arc<Mutex<McpSession>>) {
     shutdown_session_locked(&mut session).await;
 }
 
-async fn spawn_mcp_session(server: SanitizedMcpServer) -> Result<McpSession, String> {
-    let (resolved_command, resolved_args) = resolve_spawn_command(&server.command, &server.args);
+async fn spawn_mcp_session(server: SanitizedMcpServer, app: &AppHandle) -> Result<McpSession, String> {
+    let (resolved_command, resolved_args) = resolve_spawn_command(&server, app);
     let mut proc = TokioCommand::new(&resolved_command);
     proc.args(&resolved_args)
         .envs(&server.env)
@@ -474,7 +527,7 @@ async fn remove_session(server_id: &str) -> Option<Arc<Mutex<McpSession>>> {
     registry.remove(server_id)
 }
 
-async fn ensure_mcp_session(server: McpCommandServer, force_restart: bool) -> Result<Arc<Mutex<McpSession>>, String> {
+async fn ensure_mcp_session(server: McpCommandServer, force_restart: bool, app: &AppHandle) -> Result<Arc<Mutex<McpSession>>, String> {
     let sanitized = sanitize_server(&server)?;
     let server_id = sanitized.id.clone();
     let signature = sanitized.signature.clone();
@@ -499,7 +552,7 @@ async fn ensure_mcp_session(server: McpCommandServer, force_restart: bool) -> Re
         }
     }
 
-    let session_handle = Arc::new(Mutex::new(spawn_mcp_session(sanitized).await?));
+    let session_handle = Arc::new(Mutex::new(spawn_mcp_session(sanitized, app).await?));
     let mut registry = session_registry().lock().await;
     registry.insert(server_id, Arc::clone(&session_handle));
     Ok(session_handle)
@@ -508,10 +561,11 @@ async fn ensure_mcp_session(server: McpCommandServer, force_restart: bool) -> Re
 async fn with_session_request<T>(
     server: McpCommandServer,
     force_restart: bool,
+    app: AppHandle,
     operation: impl FnOnce(&mut McpSession) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + '_>>,
 ) -> Result<T, String> {
     let server_id = server.id.trim().to_string();
-    let session_handle = ensure_mcp_session(server, force_restart).await?;
+    let session_handle = ensure_mcp_session(server, force_restart, &app).await?;
     let mut session = session_handle.lock().await;
     let result = operation(&mut session).await;
     if result.is_err() {
@@ -545,8 +599,8 @@ async fn with_session_request<T>(
     }
 }
 
-async fn session_tools_result(server: McpCommandServer, force_restart: bool) -> Result<McpListToolsResult, String> {
-    with_session_request(server, force_restart, |session| {
+async fn session_tools_result(server: McpCommandServer, force_restart: bool, app: AppHandle) -> Result<McpListToolsResult, String> {
+    with_session_request(server, force_restart, app, |session| {
         Box::pin(async move {
             let response = session_request(session, "tools/list", json!({})).await?;
             Ok(McpListToolsResult {
@@ -559,13 +613,13 @@ async fn session_tools_result(server: McpCommandServer, force_restart: bool) -> 
 }
 
 #[tauri::command]
-pub async fn mcp_start_server(args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
-    session_tools_result(args.server, false).await
+pub async fn mcp_start_server(app: AppHandle, args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, false, app).await
 }
 
 #[tauri::command]
-pub async fn mcp_reconnect_server(args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
-    session_tools_result(args.server, true).await
+pub async fn mcp_reconnect_server(app: AppHandle, args: McpServerLifecycleArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, true, app).await
 }
 
 #[tauri::command]
@@ -607,13 +661,13 @@ pub async fn mcp_get_server_status(args: McpServerLifecycleArgs) -> Result<McpSe
 }
 
 #[tauri::command]
-pub async fn mcp_list_tools(args: McpListToolsArgs) -> Result<McpListToolsResult, String> {
-    session_tools_result(args.server, false).await
+pub async fn mcp_list_tools(app: AppHandle, args: McpListToolsArgs) -> Result<McpListToolsResult, String> {
+    session_tools_result(args.server, false, app).await
 }
 
 #[tauri::command]
-pub async fn mcp_call_tool(args: McpCallToolArgs) -> Result<McpToolCallResult, String> {
-    with_session_request(args.server, false, |session| {
+pub async fn mcp_call_tool(app: AppHandle, args: McpCallToolArgs) -> Result<McpToolCallResult, String> {
+    with_session_request(args.server, false, app, |session| {
         let tool_name = args.tool_name.clone();
         let tool_args = args.arguments.clone();
         Box::pin(async move {
