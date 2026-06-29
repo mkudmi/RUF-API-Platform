@@ -2,6 +2,7 @@ import type { AiProviderSettings } from '../../shared/utils/appSettings'
 import jsonata from 'jsonata'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { safeJsonParse } from '../../shared/utils/http'
+import { tauriInvoke } from '../../shared/utils/tauri'
 import { buildBugReportPrompt, buildExplainApiPrompt, buildResponseSchemaDiffPrompt, buildResponseSearchPrompt, buildSqlEnhancementPrompt } from './prompts'
 import { buildSchemaDiffTesterSummary } from './responseSchemaSummary'
 import { buildHeuristicResponseSearchQuery } from './responseSearchHeuristics'
@@ -44,6 +45,12 @@ export type AiChatPromptMessage = {
   content: string
 }
 
+type LocalCliExecResult = {
+  stdout: string
+  stderr: string
+  status: number
+}
+
 function buildYandexModelUri(settings: AiProviderSettings) {
   const model = settings.model.trim()
   if (!model) return ''
@@ -57,6 +64,103 @@ function buildYandexHeaders(settings: AiProviderSettings) {
     Authorization: `Api-Key ${settings.apiKey.trim()}`,
     'OpenAI-Project': settings.folderId.trim(),
   }
+}
+
+function buildLocalCliPrompt(messages: AiChatPromptMessage[]) {
+  return messages
+    .map(message => {
+      const role = message.role === 'system'
+        ? 'System'
+        : message.role === 'assistant'
+          ? 'Assistant'
+          : 'User'
+      return `${role}:\n${message.content.trim()}`
+    })
+    .join('\n\n')
+    .trim()
+}
+
+function extractLocalCliContent(result: LocalCliExecResult, errorPrefix: string) {
+  const stdout = result.stdout.trim()
+  const stderr = result.stderr.trim()
+  const content = stdout || stderr
+  if (result.status !== 0) {
+    throw new Error(`${errorPrefix} failed (exit ${result.status}): ${trimBody(content || '(empty)', 800)}`)
+  }
+  if (!content) {
+    throw new Error(`${errorPrefix} returned an empty response.`)
+  }
+  return content
+}
+
+function ensureLocalCliSettings(settings: AiProviderSettings) {
+  if (!settings.enabled) throw new Error('AI is disabled in Settings.')
+  if (!settings.localCliCommand.trim()) throw new Error('Missing local CLI command.')
+}
+
+async function completeTextWithLocalCli(
+  settings: AiProviderSettings,
+  options: {
+    messages: AiChatPromptMessage[]
+    errorPrefix?: string
+  },
+) {
+  ensureLocalCliSettings(settings)
+  const errorPrefix = options.errorPrefix?.trim() || 'AI request'
+  const prompt = buildLocalCliPrompt(options.messages)
+  const result = await tauriInvoke<LocalCliExecResult>('ai_local_cli_exec', {
+    args: {
+      command: settings.localCliCommand.trim(),
+      args: settings.localCliArgs,
+      cwd: settings.localCliWorkingDir.trim() || null,
+      prompt,
+      timeout_ms: settings.timeoutMs,
+    },
+  })
+  return extractLocalCliContent(result, errorPrefix)
+}
+
+async function completeTextWithAi(
+  settings: AiProviderSettings,
+  options: {
+    messages: AiChatPromptMessage[]
+    temperature?: number
+    errorPrefix?: string
+  },
+) {
+  if (settings.provider === 'local-cli') {
+    return await completeTextWithLocalCli(settings, options)
+  }
+
+  ensureYandexSettings(settings)
+  const errorPrefix = options.errorPrefix?.trim() || 'AI request'
+  const body = {
+    model: buildYandexModelUri(settings),
+    temperature: options.temperature ?? settings.temperature,
+    max_completion_tokens: settings.maxCompletionTokens,
+    stream: false,
+    messages: options.messages,
+  }
+
+  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: buildYandexHeaders(settings),
+    body: JSON.stringify(body),
+  }, {
+    timeoutMs: settings.timeoutMs,
+  })
+
+  const text = await response.text()
+  if (!response.ok) {
+    throw new Error(`${errorPrefix} failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
+  }
+
+  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
+  const content = messageToText(parsed?.choices?.[0]?.message)
+  if (!content.trim()) {
+    throw new Error(buildEmptyAiResponseError(`${errorPrefix} returned an empty response.`, text))
+  }
+  return content.trim()
 }
 
 export type AiResponseSearchSnapshot = {
@@ -425,12 +529,20 @@ async function requestBugReportEnhancement(
   input: { summary: string, description: string },
   options?: { retry?: boolean },
 ): Promise<string> {
+  if (settings.provider === 'local-cli') {
+    return await completeTextWithLocalCli(settings, {
+      messages: buildBugReportPrompt(input, options) as AiChatPromptMessage[],
+      errorPrefix: 'AI bug report enhancement',
+    })
+  }
+
+  ensureYandexSettings(settings)
   const body = {
     model: buildYandexModelUri(settings),
     temperature: 0,
     max_completion_tokens: settings.maxCompletionTokens,
     stream: false,
-    messages: buildBugReportPrompt(input, options),
+    messages: buildBugReportPrompt(input, options) as AiChatPromptMessage[],
   }
 
   const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -463,6 +575,21 @@ function ensureYandexSettings(settings: AiProviderSettings) {
 }
 
 export async function testYandexAiStudioConnection(settings: AiProviderSettings): Promise<string> {
+  if (settings.provider === 'local-cli') {
+    ensureLocalCliSettings(settings)
+    const result = await tauriInvoke<LocalCliExecResult>('ai_local_cli_exec', {
+      args: {
+        command: settings.localCliCommand.trim(),
+        args: settings.localCliArgs,
+        cwd: settings.localCliWorkingDir.trim() || null,
+        prompt: 'Reply with exactly: OK',
+        timeout_ms: settings.timeoutMs,
+      },
+    })
+    const content = extractLocalCliContent(result, 'Local CLI connection test')
+    return content ? 'Connected to local CLI.' : 'Connected.'
+  }
+
   ensureYandexSettings(settings)
   const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/models`, {
     method: 'GET',
@@ -482,35 +609,10 @@ export async function testYandexAiStudioConnection(settings: AiProviderSettings)
 }
 
 export async function explainApiWithYandex(settings: AiProviderSettings, snapshot: AiExplainSnapshot): Promise<string> {
-  ensureYandexSettings(settings)
-
-  const body = {
-    model: buildYandexModelUri(settings),
+  return await completeTextWithAi(settings, {
+    messages: buildExplainApiPrompt(snapshot, { stringifyHeaders, trimBody }) as AiChatPromptMessage[],
     temperature: settings.temperature,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
-    messages: buildExplainApiPrompt(snapshot, { stringifyHeaders, trimBody }),
-  }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
   })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`AI request failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = messageToText(parsed?.choices?.[0]?.message)
-  if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError('AI returned an empty response.', text))
-  }
-  return content.trim()
 }
 
 export async function completeJsonWithYandex<T extends object>(
@@ -521,35 +623,12 @@ export async function completeJsonWithYandex<T extends object>(
     errorPrefix?: string
   },
 ): Promise<T> {
-  ensureYandexSettings(settings)
-
   const errorPrefix = options.errorPrefix?.trim() || 'AI request'
-  const body = {
-    model: buildYandexModelUri(settings),
-    temperature: options.temperature ?? 0.1,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
+  const content = stripMarkdownCodeFence(await completeTextWithAi(settings, {
     messages: options.messages,
-  }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
-  })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`${errorPrefix} failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
-  if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError(`${errorPrefix} returned an empty response.`, text))
-  }
+    temperature: options.temperature ?? 0.1,
+    errorPrefix,
+  }))
 
   const result = parseJsonFromAiText<T>(content)
   if (!result || typeof result !== 'object') {
@@ -571,33 +650,13 @@ export async function generateResponseSearchQueryWithYandex(
     return { query: heuristic, error: null }
   }
 
-  ensureYandexSettings(settings)
-
-  const body = {
-    model: buildYandexModelUri(settings),
+  const content = stripMarkdownCodeFence(await completeTextWithAi(settings, {
+    messages: buildResponseSearchPrompt(snapshot, userQuery, { stringifyHeaders, trimBody }) as AiChatPromptMessage[],
     temperature: 0,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
-    messages: buildResponseSearchPrompt(snapshot, userQuery, { stringifyHeaders, trimBody }),
-  }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
-  })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`AI search failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+    errorPrefix: 'AI search',
+  }))
   if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError('AI search returned an empty response.', text))
+    throw new Error('AI search returned an empty response.')
   }
 
   const result = parseJsonFromAiText<AiGeneratedSearchPlan>(content)
@@ -633,33 +692,13 @@ export async function compareResponseSchemaWithYandex(
   settings: AiProviderSettings,
   snapshot: AiResponseSchemaDiffSnapshot,
 ): Promise<string> {
-  ensureYandexSettings(settings)
-
-  const body = {
-    model: buildYandexModelUri(settings),
+  const content = await completeTextWithAi(settings, {
+    messages: buildResponseSchemaDiffPrompt(snapshot) as AiChatPromptMessage[],
     temperature: 0,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
-    messages: buildResponseSchemaDiffPrompt(snapshot),
-  }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
+    errorPrefix: 'AI schema diff',
   })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`AI schema diff failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = messageToText(parsed?.choices?.[0]?.message)
   if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError('AI schema diff returned an empty response.', text))
+    throw new Error('AI schema diff returned an empty response.')
   }
 
   const trimmed = content.trim()
@@ -678,7 +717,6 @@ export async function enhanceBugReportWithYandex(
   settings: AiProviderSettings,
   input: { summary: string, description: string },
 ): Promise<AiEnhancedBugReport> {
-  ensureYandexSettings(settings)
   const normalizedInputSummary = normalizeBugReportField(input.summary)
   const normalizedInputDescription = normalizeBugReportField(input.description)
 
@@ -700,33 +738,13 @@ export async function enhanceSqlWithYandex(
   settings: AiProviderSettings,
   snapshot: AiSqlEnhancementSnapshot,
 ): Promise<AiSqlEnhancementResult> {
-  ensureYandexSettings(settings)
-
-  const body = {
-    model: buildYandexModelUri(settings),
+  const content = stripMarkdownCodeFence(await completeTextWithAi(settings, {
+    messages: buildSqlEnhancementPrompt(snapshot) as AiChatPromptMessage[],
     temperature: 0.1,
-    max_completion_tokens: settings.maxCompletionTokens,
-    stream: false,
-    messages: buildSqlEnhancementPrompt(snapshot),
-  }
-
-  const response = await platformFetch(`${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: buildYandexHeaders(settings),
-    body: JSON.stringify(body),
-  }, {
-    timeoutMs: settings.timeoutMs,
-  })
-
-  const text = await response.text()
-  if (!response.ok) {
-    throw new Error(`AI SQL enhancement failed (${response.status} ${response.statusText}): ${trimBody(text, 800)}`)
-  }
-
-  const parsed = safeJsonParse(text) as YandexChatCompletionResponse | null
-  const content = stripMarkdownCodeFence(messageToText(parsed?.choices?.[0]?.message))
+    errorPrefix: 'AI SQL enhancement',
+  }))
   if (!content.trim()) {
-    throw new Error(buildEmptyAiResponseError('AI SQL enhancement returned an empty response.', text))
+    throw new Error('AI SQL enhancement returned an empty response.')
   }
 
   const result = parseJsonFromAiText<Partial<AiSqlEnhancementResult>>(content)

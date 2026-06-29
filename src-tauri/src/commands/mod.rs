@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod cert;
 pub mod db;
 pub mod http;

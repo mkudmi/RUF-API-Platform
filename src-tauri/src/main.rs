@@ -34,6 +34,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::ai::ai_local_cli_exec,
             commands::db::db_test,
             commands::db::db_exec,
             commands::http::http_request,

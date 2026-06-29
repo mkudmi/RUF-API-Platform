@@ -21,7 +21,7 @@ export type ClientTlsIdentity = {
 
 export type AiProviderSettings = {
   enabled: boolean
-  provider: 'yandex'
+  provider: 'yandex' | 'local-cli'
   baseUrl: string
   apiKey: string
   folderId: string
@@ -29,6 +29,9 @@ export type AiProviderSettings = {
   temperature: number
   maxCompletionTokens: number
   timeoutMs: number
+  localCliCommand: string
+  localCliArgs: string[]
+  localCliWorkingDir: string
 }
 
 export type McpServerTemplate = 'atlassian' | 'postgres' | 'custom'
@@ -74,6 +77,9 @@ export const DEFAULT_AI_PROVIDER_SETTINGS: AiProviderSettings = {
   temperature: 0.2,
   maxCompletionTokens: 900,
   timeoutMs: 30_000,
+  localCliCommand: '',
+  localCliArgs: [],
+  localCliWorkingDir: '',
 }
 
 export const DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS: McpServerSettings = {
@@ -247,7 +253,9 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
   const ai: AiProviderSettings = (() => {
     if (!rawAi || typeof rawAi !== 'object') return { ...DEFAULT_AI_PROVIDER_SETTINGS }
     const aiRec = rawAi as Record<string, unknown>
-    const provider = aiRec.provider === 'yandex' ? 'yandex' : DEFAULT_AI_PROVIDER_SETTINGS.provider
+    const provider = aiRec.provider === 'local-cli' || aiRec.provider === 'yandex'
+      ? aiRec.provider
+      : DEFAULT_AI_PROVIDER_SETTINGS.provider
     const baseUrl = typeof aiRec.baseUrl === 'string' && aiRec.baseUrl.trim()
       ? aiRec.baseUrl.trim()
       : DEFAULT_AI_PROVIDER_SETTINGS.baseUrl
@@ -265,6 +273,16 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
     const timeoutMs = typeof aiRec.timeoutMs === 'number' && Number.isFinite(aiRec.timeoutMs)
       ? Math.max(1_000, Math.min(300_000, Math.round(aiRec.timeoutMs)))
       : DEFAULT_AI_PROVIDER_SETTINGS.timeoutMs
+    const localCliCommand = typeof aiRec.localCliCommand === 'string'
+      ? aiRec.localCliCommand
+      : DEFAULT_AI_PROVIDER_SETTINGS.localCliCommand
+    const localCliArgs = Array.isArray(aiRec.localCliArgs)
+      ? aiRec.localCliArgs
+        .filter((arg): arg is string => typeof arg === 'string')
+      : DEFAULT_AI_PROVIDER_SETTINGS.localCliArgs
+    const localCliWorkingDir = typeof aiRec.localCliWorkingDir === 'string'
+      ? aiRec.localCliWorkingDir
+      : DEFAULT_AI_PROVIDER_SETTINGS.localCliWorkingDir
 
     return {
       enabled: typeof aiRec.enabled === 'boolean' ? aiRec.enabled : DEFAULT_AI_PROVIDER_SETTINGS.enabled,
@@ -276,6 +294,9 @@ export function loadAppSettings(storage: Storage = localStorage): AppSettings {
       temperature,
       maxCompletionTokens,
       timeoutMs,
+      localCliCommand,
+      localCliArgs,
+      localCliWorkingDir,
     }
   })()
 
