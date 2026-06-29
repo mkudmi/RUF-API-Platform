@@ -15,6 +15,7 @@
     "mocker-java",
     "storage-access",
     "system-open-url",
+    "ai-local-cli",
     "terminal-exec"
   ]
 }

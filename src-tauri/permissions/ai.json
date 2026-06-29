@@ -1,0 +1,11 @@
+{
+  "permission": [
+    {
+      "identifier": "ai-local-cli",
+      "description": "Allows executing the built-in local AI CLI bridge.",
+      "commands": {
+        "allow": ["ai_local_cli_exec"]
+      }
+    }
+  ]
+}

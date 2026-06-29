@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows executing the built-in local AI CLI bridge.",
+          "type": "string",
+          "const": "ai-local-cli",
+          "markdownDescription": "Allows executing the built-in local AI CLI bridge."
+        },
+        {
           "description": "Allows executing built-in DB commands.",
           "type": "string",
           "const": "db-access",
