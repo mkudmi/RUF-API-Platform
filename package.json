@@ -1,7 +1,7 @@
 {
   "name": "ruf",
   "private": true,
-  "version": "0.5.26",
+  "version": "0.5.27",
   "type": "module",
   "scripts": {
     "atlassian-mcp:sidecar": "node scripts/build-atlassian-mcp-sidecar.mjs",
