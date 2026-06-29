@@ -470,13 +470,13 @@ export function McpSettingsTab(props: Props) {
                           server.template === 'postgres'
                             ? '--access-mode=unrestricted'
                             : server.template === 'atlassian'
-                              ? 'https://mcp.atlassian.com/v1/mcp/authv2'
+                              ? '--debug'
                               : '-y&#10;mcp-remote@latest&#10;https://mcp.atlassian.com/v1/mcp/authv2'
                         }
                       />
                       {server.template === 'atlassian' ? (
                         <div className="small" style={{ opacity: 0.72 }}>
-                          Atlassian MCP is bundled with the app. Leave the default URL or add optional `mcp-remote` flags such as `--debug` or `--resource`.
+                          Atlassian MCP is bundled with the app and runs locally. Add only optional local flags if you need them.
                         </div>
                       ) : null}
                     </div>

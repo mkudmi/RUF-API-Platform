@@ -15,7 +15,7 @@ use tokio::time::{timeout, Duration};
 type McpStdoutLines = tokio::io::Lines<BufReader<ChildStdout>>;
 const ATLASSIAN_MCP_SIDECAR_NAME: &str = "atlassian-mcp";
 const POSTGRES_MCP_SIDECAR_NAME: &str = "postgres-mcp";
-const ATLASSIAN_DEFAULT_REMOTE_URL: &str = "https://mcp.atlassian.com/v1/mcp/authv2";
+const ATLASSIAN_LEGACY_REMOTE_URL: &str = "https://mcp.atlassian.com/v1/mcp/authv2";
 
 fn current_target_triple() -> &'static str {
     option_env!("TARGET").unwrap_or("unknown-target")
@@ -223,25 +223,19 @@ fn normalize_postgres_spawn_args(args: &[String]) -> Vec<String> {
 }
 
 fn normalize_atlassian_spawn_args(args: &[String]) -> Vec<String> {
-    let filtered = args
+    args
         .iter()
         .filter(|arg| {
-            const PACKAGE_PREFIX: &str = "mcp-remote";
             let trimmed = arg.trim();
             !trimmed.eq_ignore_ascii_case("-y")
-                && !trimmed.eq_ignore_ascii_case(PACKAGE_PREFIX)
+                && !trimmed.eq_ignore_ascii_case("mcp-remote")
                 && !trimmed
-                    .strip_prefix(PACKAGE_PREFIX)
+                    .strip_prefix("mcp-remote")
                     .is_some_and(|suffix| suffix.starts_with('@'))
+                && !trimmed.eq_ignore_ascii_case(ATLASSIAN_LEGACY_REMOTE_URL)
         })
         .cloned()
-        .collect::<Vec<_>>();
-
-    if filtered.is_empty() {
-        vec![ATLASSIAN_DEFAULT_REMOTE_URL.to_string()]
-    } else {
-        filtered
-    }
+        .collect::<Vec<_>>()
 }
 
 fn resolve_spawn_command(server: &SanitizedMcpServer, app: &AppHandle) -> (String, Vec<String>) {

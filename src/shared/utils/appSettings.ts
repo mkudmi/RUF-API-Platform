@@ -82,7 +82,7 @@ export const DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS: McpServerSettings = {
   enabled: false,
   template: 'atlassian',
   command: '',
-  args: ['https://mcp.atlassian.com/v1/mcp/authv2'],
+  args: [],
   env: {},
   envEntries: [],
   bugReportCloudId: '',

@@ -5,10 +5,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-const MCP_REMOTE_VERSION = '0.1.38'
-const PKG_VERSION = '6.20.0'
-const SIDE_CAR_NAME = 'atlassian-mcp'
-const DEFAULT_ATLASSIAN_URL = 'https://mcp.atlassian.com/v1/mcp/authv2'
+const MCP_ATLASSIAN_VERSION = '0.21.0'
+const REDIS_VERSION = '7.2.1'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outputDir = path.join(repoRoot, 'src-tauri', 'binaries')
 const extension = process.platform === 'win32' ? '.exe' : ''
@@ -41,18 +39,40 @@ function getTargetTriple() {
   }
 }
 
-function mapRustTargetToPkgTarget(targetTriple) {
-  const map = {
-    'aarch64-apple-darwin': 'node20-macos-arm64',
-    'x86_64-apple-darwin': 'node20-macos-x64',
-    'x86_64-unknown-linux-gnu': 'node20-linux-x64',
-    'aarch64-unknown-linux-gnu': 'node20-linux-arm64',
-    'x86_64-pc-windows-msvc': 'node20-win-x64',
-    'aarch64-pc-windows-msvc': 'node20-win-arm64',
+function getPythonVersion(command) {
+  try {
+    const raw = runQuiet(command, ['-c', 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")'])
+    const [majorRaw, minorRaw] = raw.split('.')
+    const major = Number(majorRaw)
+    const minor = Number(minorRaw)
+    if (!Number.isFinite(major) || !Number.isFinite(minor)) return null
+    return { major, minor }
+  } catch {
+    return null
   }
-  const target = map[targetTriple]
-  if (!target) throw new Error(`Unsupported target triple for Atlassian sidecar packaging: ${targetTriple}`)
-  return target
+}
+
+function findPython312OrNewer() {
+  const candidates = [
+    process.env.PYTHON_3_12_BIN,
+    'python3.12',
+    'python3',
+    'python',
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const version = getPythonVersion(candidate)
+    if (!version) continue
+    if (version.major === 3 && version.minor >= 12) return candidate
+  }
+
+  throw new Error('Python 3.12+ is required to bundle mcp-atlassian 0.21.0. Install Python 3.12 or set PYTHON_3_12_BIN.')
+}
+
+function getVenvPythonPath(venvDir) {
+  return process.platform === 'win32'
+    ? path.join(venvDir, 'Scripts', 'python.exe')
+    : path.join(venvDir, 'bin', 'python')
 }
 
 function ensureDir(dir) {
@@ -64,64 +84,84 @@ function removeDirIfExists(dir) {
 }
 
 const targetTriple = getTargetTriple()
-const pkgTarget = mapRustTargetToPkgTarget(targetTriple)
-const outputPath = path.join(outputDir, `${SIDE_CAR_NAME}-${targetTriple}${extension}`)
+const outputPath = path.join(outputDir, `atlassian-mcp-${targetTriple}${extension}`)
 
 if (fs.existsSync(outputPath)) {
   console.log(`Atlassian MCP sidecar already exists: ${outputPath}`)
   process.exit(0)
 }
 
+const python = findPython312OrNewer()
 const workRoot = path.join(os.tmpdir(), `ruf-atlassian-mcp-sidecar-${targetTriple}`)
-const entryPath = path.join(workRoot, 'entry.cjs')
-const packageJsonPath = path.join(workRoot, 'package.json')
+const venvDir = path.join(workRoot, 'venv')
+const buildDir = path.join(workRoot, 'build')
+const distDir = path.join(workRoot, 'dist')
+const specDir = path.join(workRoot, 'spec')
+const entryPath = path.join(workRoot, 'atlassian-mcp-entry.py')
+const builtBinaryPath = path.join(distDir, `atlassian-mcp${extension}`)
 
-console.log(`Building Atlassian MCP sidecar using mcp-remote ${MCP_REMOTE_VERSION} for ${targetTriple}`)
+console.log(`Building mcp-atlassian ${MCP_ATLASSIAN_VERSION} sidecar for ${targetTriple}`)
 removeDirIfExists(workRoot)
 ensureDir(workRoot)
 ensureDir(outputDir)
 
-fs.writeFileSync(
-  packageJsonPath,
-  JSON.stringify({
-    private: true,
-    type: 'commonjs',
-    dependencies: {
-      'mcp-remote': MCP_REMOTE_VERSION,
-      '@yao-pkg/pkg': PKG_VERSION,
-    },
-  }, null, 2),
-  'utf8',
-)
+run(python, ['-m', 'venv', venvDir])
+
+const venvPython = getVenvPythonPath(venvDir)
+run(venvPython, ['-m', 'pip', 'install', '--upgrade', 'pip'])
+run(venvPython, [
+  '-m',
+  'pip',
+  'install',
+  `mcp-atlassian==${MCP_ATLASSIAN_VERSION}`,
+  `redis==${REDIS_VERSION}`,
+  'pyinstaller',
+])
 
 fs.writeFileSync(
   entryPath,
   [
-    "const path = require('node:path')",
-    `const defaultUrl = ${JSON.stringify(DEFAULT_ATLASSIAN_URL)}`,
+    'from mcp_atlassian import main',
     '',
-    'const rawArgs = process.argv.slice(2)',
-    "const normalizedArgs = rawArgs.length ? rawArgs : [defaultUrl]",
-    'process.argv = [process.argv[0], path.join(process.cwd(), "mcp-remote"), ...normalizedArgs]',
-    "require('mcp-remote/dist/proxy.js')",
+    "if __name__ == '__main__':",
+    '    main()',
     '',
   ].join('\n'),
   'utf8',
 )
 
-run('npm', ['install', '--no-package-lock', '--no-save'], { cwd: workRoot })
-run(path.join(workRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'pkg.cmd' : 'pkg'), [
+run(venvPython, [
+  '-m',
+  'PyInstaller',
+  '--noconfirm',
+  '--clean',
+  '--onefile',
+  '--name',
+  'atlassian-mcp',
+  '--copy-metadata',
+  'mcp-atlassian',
+  '--copy-metadata',
+  'mcp',
+  '--copy-metadata',
+  'redis',
+  '--collect-submodules',
+  'mcp_atlassian',
+  '--collect-submodules',
+  'redis',
+  '--distpath',
+  distDir,
+  '--workpath',
+  buildDir,
+  '--specpath',
+  specDir,
   entryPath,
-  '--targets',
-  pkgTarget,
-  '--output',
-  outputPath,
-], { cwd: workRoot })
+])
 
-if (!fs.existsSync(outputPath)) {
-  throw new Error(`pkg did not produce ${outputPath}`)
+if (!fs.existsSync(builtBinaryPath)) {
+  throw new Error(`PyInstaller did not produce ${builtBinaryPath}`)
 }
 
+fs.copyFileSync(builtBinaryPath, outputPath)
 if (process.platform !== 'win32') {
   fs.chmodSync(outputPath, 0o755)
 }
