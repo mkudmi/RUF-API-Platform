@@ -124,7 +124,6 @@ fn existing_file(path: &Path) -> bool {
 #[cfg(windows)]
 fn expand_windows_command_candidates(path: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    out.push(path.to_path_buf());
     if path.extension().is_none() {
         for ext in windows_command_extensions() {
             let mut candidate = path.to_path_buf();
@@ -132,6 +131,7 @@ fn expand_windows_command_candidates(path: &Path) -> Vec<PathBuf> {
             out.push(candidate);
         }
     }
+    out.push(path.to_path_buf());
     out
 }
 
@@ -216,6 +216,7 @@ pub async fn ai_local_cli_exec(args: AiLocalCliExecArgs) -> Result<AiLocalCliExe
     if let Some(dir) = current_dir {
         proc.current_dir(dir);
     }
+    proc.kill_on_drop(true);
     proc.stdout(std::process::Stdio::piped());
     proc.stderr(std::process::Stdio::piped());
     if uses_prompt_file || uses_prompt_arg {

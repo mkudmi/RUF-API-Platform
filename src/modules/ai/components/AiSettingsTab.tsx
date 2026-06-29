@@ -15,8 +15,8 @@ export function AiSettingsTab(props: Props) {
     props.onChange(prev => ({
       ...prev,
       localCliCommand: prev.localCliCommand.trim() || '~/.gigacode/bin/gigacode',
-      localCliArgs: ['exec', '{{prompt}}'],
-      localCliWorkingDir: prev.localCliWorkingDir.trim() || '~/.gigacode',
+      localCliArgs: ['--channel', 'CI', '--output-format', 'text', '--max-session-turns', '1'],
+      localCliWorkingDir: prev.localCliWorkingDir.trim() || '~',
     }))
   }
 
@@ -164,13 +164,13 @@ export function AiSettingsTab(props: Props) {
                       .map(item => item.trim())
                       .filter(Boolean),
                   }))}
-                  placeholder={'One argument per line\nexec\n{{prompt}}'}
+                  placeholder={'One argument per line\n--channel\nCI\n--output-format\ntext\n--max-session-turns\n1'}
                 />
                 <div className="small" style={{ marginTop: 6, opacity: 0.74 }}>
                   Use one argument per line. {'{{promptFile}}'} inserts a temporary UTF-8 file with the prompt. {'{{prompt}}'} inserts the prompt directly into the argument. If neither placeholder is used, the prompt is sent through stdin.
                 </div>
                 <div className="small" style={{ marginTop: 6, opacity: 0.74 }}>
-                  Gigacode example: command `~/.gigacode/bin/gigacode`, args `exec` and {'{{prompt}}'}.
+                  Gigacode example: command `~/.gigacode/bin/gigacode`, args `--channel`, `CI`, `--output-format`, `text`, `--max-session-turns`, `1`; leave out prompt placeholders to send the prompt through stdin.
                 </div>
               </div>
             </div>
@@ -182,7 +182,7 @@ export function AiSettingsTab(props: Props) {
                   className="mono"
                   value={props.value.localCliWorkingDir}
                   onChange={e => props.onChange(prev => ({ ...prev, localCliWorkingDir: e.target.value }))}
-                  placeholder="~/.gigacode"
+                  placeholder="~"
                 />
               </div>
             </div>
