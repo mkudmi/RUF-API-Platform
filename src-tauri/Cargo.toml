@@ -1,6 +1,6 @@
 [package]
 name = "ruf"
-version = "0.5.27"
+version = "0.5.28"
 description = "Ruf desktop app"
 authors = ["you"]
 edition = "2021"
