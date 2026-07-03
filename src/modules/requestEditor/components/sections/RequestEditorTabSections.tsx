@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 import type { RequestParam } from '../../../collectionTree'
-import { PlusIcon, ReloadIcon } from '../../../../shared/icons'
+import { CopyIcon, PlusIcon, ReloadIcon } from '../../../../shared/icons'
 import type { ValueHistoryStore } from '../../state/headers/valueHistory'
 import type { VariableSuggestion } from '../../../../shared/utils/variables'
 import { HeaderDraftRow, HeaderRow, ParamRow, QueryDraftRow, QueryRow, type MenuAnchor } from '../rows/RequestEditorRows'
@@ -46,20 +46,54 @@ export function RequestEditorParamsTab(props: SharedMenuProps & {
   addQueryDraftRow: () => void
   recordValueHistory: (kind: 'query' | 'path', key: string, value: string) => void
   deleteValueHistoryItem: (kind: 'query' | 'path', key: string, value: string) => void
+  onCopyParams: () => void
+  onPasteParams: () => void
+  onRestoreParams: () => void
+  paramsCopyOk: boolean
+  paramsPasteOk: boolean
 }) {
   return (
     <div className="accordion">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <div style={{ fontWeight: 600, opacity: 0.95 }}>Params</div>
-        <button
-          type="button"
-          className="iconBtn addRowBtn"
-          onClick={props.addQueryDraftRow}
-          aria-label="Add query param"
-          title="Add query param"
-        >
-          <PlusIcon size={16} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            className="iconBtn"
+            onClick={props.onCopyParams}
+            aria-label="Copy params"
+            title="Copy params"
+          >
+            {props.paramsCopyOk ? 'OK' : <CopyIcon size={16} />}
+          </button>
+          <button
+            type="button"
+            className="mcpTextActionBtn"
+            onClick={props.onPasteParams}
+            aria-label="Paste params"
+            title="Paste params"
+          >
+            {props.paramsPasteOk ? 'OK' : 'Paste'}
+          </button>
+          <button
+            type="button"
+            className="iconBtn addRowBtn"
+            onClick={props.onRestoreParams}
+            aria-label="Restore params from schema"
+            title="Restore params from schema"
+          >
+            <ReloadIcon size={16} />
+          </button>
+          <button
+            type="button"
+            className="iconBtn addRowBtn"
+            onClick={props.addQueryDraftRow}
+            aria-label="Add query param"
+            title="Add query param"
+          >
+            <PlusIcon size={16} />
+          </button>
+        </div>
       </div>
 
       {props.pathParamsList.length > 0 && (

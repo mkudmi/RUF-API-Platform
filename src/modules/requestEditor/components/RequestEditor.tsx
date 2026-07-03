@@ -28,6 +28,7 @@ import { RequestEditorHeadersTab, RequestEditorParamsTab } from './sections/Requ
 import { loadRequestDraft, saveRequestDraft } from '../state/draft/draftStorage'
 import {
   buildHeaderDraftState,
+  defaultInactiveQueryParamNamesFromSpec,
   createFileRowsRestorer,
   hydrateRequestEditorDraft,
   toRequestDraft,
@@ -53,6 +54,7 @@ import { useRequestEditorSend } from '../hooks/useRequestEditorSend'
 import { beautifyBody, type BeautifyBodyFormat } from '../utils/bodyBeautify'
 import { contentTypeForBodyFormat, inferBodyFormatFromBodyText, inferBodyFormatFromContentType, labelForBodyFormat, templateForBodyFormat, type BodyFormat } from '../utils/bodyFormat'
 import { buildEditedFile, inferEditableFileFormat, isEditableTextFile, openSingleFileWithHandle, saveTextToFileHandle } from '../utils/fileEditing'
+import { formatParamsForClipboard, parseParamsFromClipboard } from '../utils/paramsClipboard'
 import { applyPathParamsForDisplay, applySchemeIfHostLike, applyVariablesForDisplay, extractPathParamNamesFromTemplate, normalizeMockRoutePath, parseUrlInput, shouldDefaultOpenFileTab } from '../utils/requestUrl'
 import { buildRequestEditorSqlConnections } from '../utils/sqlConnections'
 import type { TestFunctionRef } from '../../tests'
@@ -132,6 +134,8 @@ export function RequestEditor(props: {
   const [copyMenuOpen, setCopyMenuOpen] = useState(false)
   const copyMenuWrapRef = useRef<HTMLDivElement | null>(null)
   const [copyOk, setCopyOk] = useState(false)
+  const [paramsCopyOk, setParamsCopyOk] = useState(false)
+  const [paramsPasteOk, setParamsPasteOk] = useState(false)
   const [urlTemplateOverride, setUrlTemplateOverride] = useState('')
   const [isEditingUrl, setIsEditingUrl] = useState(false)
   const [urlDraftText, setUrlDraftText] = useState('')
@@ -1120,6 +1124,111 @@ export function RequestEditor(props: {
 
     return ordered
   }, [disabledQuerySpecNames, grouped.query, queryKeyOrder, queryParams, queryParamKeyOverrides, querySpecNames])
+
+  function restoreParamsFromSchema() {
+    setPathParams({})
+    setQueryParams({})
+    setQueryParamKeyOverrides({})
+    setDisabledQueryParamNames({})
+    setInactiveQueryParamNames(defaultInactiveQueryParamNamesFromSpec(props.request.params))
+    setQueryKeyOrder(grouped.query.map(param => param.name).filter(Boolean))
+    setQueryDraftRows(grouped.query.length ? [] : [{ id: uid('qrow'), name: '', value: '', isActive: true }])
+  }
+
+  async function copyParamsText() {
+    const pathEntries = pathParamsList
+      .map(param => ({ name: param.name.trim(), value: String(pathParams[param.name] ?? '').trim() }))
+      .filter(param => !!param.name && param.value !== '')
+
+    const queryEntries = queryParamsList
+      .map(param => {
+        const rawName = param.name
+        const isSpec = querySpecNames.has(rawName)
+        const effectiveName = isSpec && !param.required
+          ? (queryParamKeyOverrides[rawName] ?? rawName)
+          : rawName
+        const value = String(queryParams[effectiveName] ?? '').trim()
+        return {
+          name: effectiveName.trim(),
+          value,
+          isActive: !inactiveQueryParamNames[effectiveName],
+        }
+      })
+      .filter(param => !!param.name && param.isActive && param.value !== '')
+      .map(({ name, value }) => ({ name, value }))
+
+    const draftEntries = queryDraftRows
+      .map(row => ({ name: row.name.trim(), value: row.value.trim(), isActive: row.isActive }))
+      .filter(row => !!row.name && row.isActive && row.value !== '')
+      .map(({ name, value }) => ({ name, value }))
+
+    await copyText(formatParamsForClipboard([...pathEntries, ...queryEntries, ...draftEntries]))
+    setParamsCopyOk(true)
+    window.setTimeout(() => setParamsCopyOk(false), 1200)
+  }
+
+  async function pasteParamsText() {
+    let raw = ''
+
+    try {
+      if (globalThis.isSecureContext && navigator.clipboard?.readText) {
+        raw = await navigator.clipboard.readText()
+      }
+    } catch {
+      raw = ''
+    }
+
+    if (!raw.trim()) {
+      raw = window.prompt('Paste params in "key: value" format', '') ?? ''
+    }
+
+    const parsedEntries = parseParamsFromClipboard(raw)
+    if (!parsedEntries.length) return
+
+    const pathSpecNames = new Set(pathParamsList.map(param => param.name).filter(Boolean))
+    const querySpecMap = new Map(grouped.query.map(param => [param.name, param] as const))
+    const nextPathParams: Record<string, string> = {}
+    const nextQueryParams: Record<string, string> = {}
+    const nextDisabledQueryParamNames: Record<string, true> = {}
+    const nextInactiveQueryParamNames: Record<string, true> = {}
+    const nextQueryKeyOrder: string[] = []
+
+    for (const param of grouped.query) {
+      if (!param.required) nextDisabledQueryParamNames[param.name] = true
+    }
+
+    for (const entry of parsedEntries) {
+      const name = entry.name.trim()
+      if (!name) continue
+
+      if (pathSpecNames.has(name)) {
+        nextPathParams[name] = entry.value
+        continue
+      }
+
+      nextQueryParams[name] = entry.value
+      if (!nextQueryKeyOrder.includes(name)) nextQueryKeyOrder.push(name)
+
+      const specParam = querySpecMap.get(name)
+      if (specParam) delete nextDisabledQueryParamNames[specParam.name]
+    }
+
+    for (const param of grouped.query) {
+      if (!param.required) continue
+      if (Object.prototype.hasOwnProperty.call(nextQueryParams, param.name)) continue
+      nextQueryParams[param.name] = ''
+    }
+
+    setPathParams(nextPathParams)
+    setQueryParams(nextQueryParams)
+    setQueryDraftRows(!Object.keys(nextQueryParams).length && !grouped.query.length ? [{ id: uid('qrow'), name: '', value: '', isActive: true }] : [])
+    setQueryParamKeyOverrides({})
+    setDisabledQueryParamNames(nextDisabledQueryParamNames)
+    setInactiveQueryParamNames(nextInactiveQueryParamNames)
+    setQueryKeyOrder(nextQueryKeyOrder)
+    setParamsPasteOk(true)
+    window.setTimeout(() => setParamsPasteOk(false), 1200)
+  }
 
   useEffect(() => {
     const requiredSpecNames = grouped.query
@@ -2293,6 +2402,11 @@ export function RequestEditor(props: {
           addQueryDraftRow={addQueryDraftRow}
           recordValueHistory={recordValueHistory}
           deleteValueHistoryItem={deleteValueHistoryItem}
+          onCopyParams={() => { void copyParamsText() }}
+          onPasteParams={() => { void pasteParamsText() }}
+          onRestoreParams={restoreParamsFromSchema}
+          paramsCopyOk={paramsCopyOk}
+          paramsPasteOk={paramsPasteOk}
           enumMenuOpenId={enumMenuOpenId}
           enumMenuAnchor={enumMenuAnchor}
           onToggleEnumMenu={toggleEnumMenu}
