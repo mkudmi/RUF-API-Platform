@@ -1,6 +1,6 @@
 import type { RequestItem } from '../collectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
-import { loadAppSettings } from '../../shared/utils/appSettings'
+import { getClientTlsFetchOptions, loadAppSettings } from '../../shared/utils/appSettings'
 import { resolveVariableValue } from '../../shared/utils/variables'
 import { platformFetch } from '../../shared/utils/platformFetch'
 import { logWarn } from '../../shared/utils/logger'
@@ -113,12 +113,7 @@ function getCaCertsPem(): string[] {
 
 function getClientTlsIdentity(): { clientPkcs12Base64?: string; clientPkcs12Password?: string } {
   try {
-    const identity = loadAppSettings().clientTlsIdentity
-    if (!identity?.pkcs12Base64?.trim()) return {}
-    return {
-      clientPkcs12Base64: identity.pkcs12Base64,
-      clientPkcs12Password: identity.password,
-    }
+    return getClientTlsFetchOptions(loadAppSettings())
   } catch (error) {
     logWarn('getClientTlsIdentity', 'Failed to read client TLS identity from settings', { error })
     return {}

@@ -19,7 +19,7 @@ enum HttpError {
     RequestFailed(String),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct HttpRequestArgs {
     pub url: String,
     pub method: Option<String>,
@@ -36,10 +36,14 @@ pub struct HttpRequestArgs {
     pub client_pkcs12_base64: Option<String>,
     #[serde(rename = "clientPkcs12Password")]
     pub client_pkcs12_password: Option<String>,
+    #[serde(rename = "systemClientCertThumbprint")]
+    pub system_client_cert_thumbprint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct HttpResponseData {
+    #[serde(rename = "manualRedirects")]
+    pub manual_redirects: bool,
     pub ok: bool,
     pub status: u16,
     #[serde(rename = "statusText")]
@@ -53,7 +57,7 @@ fn clamp_ms(value: u64, min: u64, max: u64) -> u64 {
     value.max(min).min(max)
 }
 
-fn normalize_timeout_ms(value: Option<u64>) -> Option<u64> {
+pub(super) fn normalize_timeout_ms(value: Option<u64>) -> Option<u64> {
     match value {
         Some(0) => None,
         Some(ms) => Some(clamp_ms(ms, 300, 600_000)),
@@ -61,7 +65,7 @@ fn normalize_timeout_ms(value: Option<u64>) -> Option<u64> {
     }
 }
 
-fn should_drop_header(name_lower: &str) -> bool {
+pub(super) fn should_drop_header(name_lower: &str) -> bool {
     matches!(
         name_lower,
         "origin"
@@ -110,6 +114,16 @@ fn format_reqwest_error(e: &reqwest::Error) -> String {
 
 #[tauri::command]
 pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, String> {
+    #[cfg(windows)]
+    if args.system_client_cert_thumbprint.as_ref().is_some_and(|s| !s.is_empty())
+        || (args.client_pkcs12_base64.as_ref().is_none_or(|s| s.trim().is_empty())
+            && (args.insecure_tls.unwrap_or(false)
+                || args.ca_certs_pem.as_ref().is_none_or(|certs| certs.iter().all(|c| c.trim().is_empty()))))
+    {
+        return tauri::async_runtime::spawn_blocking(move || super::http_windows::request(args))
+            .await
+            .map_err(|e| format!("Windows HTTP task failed: {e}"))?;
+    }
     async fn inner(args: HttpRequestArgs) -> Result<HttpResponseData, HttpError> {
         let mut url = args.url.trim().to_string();
         // tolerate common typo: "http:/host/..." or "https:/host/..."
@@ -142,6 +156,7 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
         let insecure_tls = args.insecure_tls.unwrap_or(false);
         let client_pkcs12_base64 = args.client_pkcs12_base64.unwrap_or_default();
         let client_pkcs12_password = args.client_pkcs12_password.unwrap_or_default();
+        let system_client_cert_thumbprint = args.system_client_cert_thumbprint.unwrap_or_default();
 
         let mut client_builder = reqwest::Client::builder()
             .use_native_tls()
@@ -168,6 +183,9 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
             }
         }
 
+        if !system_client_cert_thumbprint.trim().is_empty() {
+            return Err(HttpError::RequestFailed("System client certificates require Windows".into()));
+        }
         if !client_pkcs12_base64.trim().is_empty() {
             let pkcs12_der = BASE64
                 .decode(client_pkcs12_base64.trim())
@@ -237,6 +255,7 @@ pub async fn http_request(args: HttpRequestArgs) -> Result<HttpResponseData, Str
             .map_err(|e| HttpError::RequestFailed(format_reqwest_error(&e)))?;
 
         Ok(HttpResponseData {
+            manual_redirects: false,
             ok: status.is_success(),
             status: status.as_u16(),
             status_text,

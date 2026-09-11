@@ -19,6 +19,13 @@ export type ClientTlsIdentity = {
   fileName?: string
 }
 
+export function getClientTlsFetchOptions(settings: { clientTlsIdentity: ClientTlsIdentity | null }) {
+  return {
+    clientPkcs12Base64: settings.clientTlsIdentity?.pkcs12Base64,
+    clientPkcs12Password: settings.clientTlsIdentity?.password,
+  }
+}
+
 export type AiProviderSettings = {
   enabled: boolean
   provider: 'yandex' | 'local-cli'

@@ -25,5 +25,10 @@ tiny_http = "0.12"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 
+[target.'cfg(windows)'.dependencies]
+brotli = "8"
+schannel = "0.1"
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinHttp", "Win32_Security_Cryptography_UI"] }
+
 [features]
 custom-protocol = ["tauri/custom-protocol"]

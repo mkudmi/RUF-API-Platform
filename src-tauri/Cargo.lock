@@ -3334,7 +3334,9 @@ name = "ruf"
 version = "0.5.28"
 dependencies = [
  "base64 0.22.1",
+ "brotli",
  "reqwest",
+ "schannel",
  "serde",
  "serde_json",
  "sha2",
@@ -3346,6 +3348,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tiny_http",
  "tokio",
+ "windows-sys 0.61.2",
  "x509-parser",
 ]
 

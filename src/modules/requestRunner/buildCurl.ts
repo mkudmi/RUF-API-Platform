@@ -1,3 +1,4 @@
+import { getSystemClientTlsThumbprint } from '../../shared/utils/systemClientTls'
 import type { RequestItem } from '../collectionTree'
 import { isAbsoluteUrl, joinUrlParts } from '../../shared/utils/url'
 import { loadAppSettings } from '../../shared/utils/appSettings'
@@ -164,7 +165,10 @@ export function buildCurlCommand(args: {
     const settings = loadAppSettings()
     const validateCertificates = settings.validateCertificates
     if (!validateCertificates) curlBase.push('--insecure')
-    if (settings.clientTlsIdentity?.pkcs12Base64?.trim()) {
+    const systemThumbprint = getSystemClientTlsThumbprint(url)
+    if (systemThumbprint) {
+      curlBase.push('--cert', bashQuote(`CurrentUser\\MY\\${systemThumbprint}`))
+    } else if (settings.clientTlsIdentity?.pkcs12Base64?.trim()) {
       curlBase.push('--cert-type', 'P12')
       curlBase.push('--cert', bashQuote(`/path/to/${settings.clientTlsIdentity.fileName || 'client-cert.p12'}:password`))
     }

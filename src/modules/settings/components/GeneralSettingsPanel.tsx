@@ -1,3 +1,4 @@
+import { SystemClientTlsSettings } from './SystemClientTlsSettings'
 import { BroomIcon, CloseIcon } from '../../../shared/icons'
 import type { CaCertificate, ClientTlsIdentity } from '../../../shared/utils/appSettings'
 
@@ -149,6 +150,8 @@ export function GeneralSettingsPanel(props: GeneralSettingsPanelProps) {
           </div>
         </div>
       </div>
+
+      <SystemClientTlsSettings />
 
       <div className="settingsTableRow">
         <div className="settingsTableLabel">Application cache</div>

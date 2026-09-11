@@ -66,6 +66,7 @@ import { appendRequestHistoryItem, loadRequestHistoryByRequestId, saveRequestHis
 import {
   DEFAULT_AI_PROVIDER_SETTINGS,
   DEFAULT_ATLASSIAN_MCP_SERVER_SETTINGS,
+  getClientTlsFetchOptions,
   loadAppSettings,
   saveAppSettings,
   type AiProviderSettings,
@@ -1738,8 +1739,7 @@ export default function App() {
       const res = await platformFetch(u.toString(), undefined, {
         insecureTls: !validateCertificates,
         caCertsPem: caCertificates.map(c => c.pem),
-        clientPkcs12Base64: clientTlsIdentity?.pkcs12Base64,
-        clientPkcs12Password: clientTlsIdentity?.password,
+        ...getClientTlsFetchOptions({ clientTlsIdentity }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`)
       const text = await res.text()
@@ -3976,10 +3976,10 @@ export default function App() {
   const swaggerUiBaseCacheRef = useRef<Record<string, string>>({})
   const swaggerOperationCacheRef = useRef<Record<string, { tag: string; operationId: string }>>({})
   const caCertificatesPem = useMemo(() => caCertificates.map(c => c.pem), [caCertificates])
-  const clientTlsFetchOpts = useMemo(() => ({
-    clientPkcs12Base64: clientTlsIdentity?.pkcs12Base64,
-    clientPkcs12Password: clientTlsIdentity?.password,
-  }), [clientTlsIdentity])
+  const clientTlsFetchOpts = useMemo(
+    () => getClientTlsFetchOptions({ clientTlsIdentity }),
+    [clientTlsIdentity],
+  )
 
   async function detectSwaggerUiBase(candidates: string[], requestTimeoutMs = 2500) {
     for (const candidate of candidates) {

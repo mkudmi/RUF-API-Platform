@@ -4,9 +4,8 @@
       "identifier": "http-raw",
       "description": "Allows making HTTP requests from the Rust backend (CORS-free).",
       "commands": {
-        "allow": ["http_request"]
+        "allow": ["http_request", "cert_select_system_client_identity"]
       }
     }
   ]
 }
-

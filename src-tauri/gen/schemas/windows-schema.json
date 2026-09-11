@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows executing the built-in local AI CLI bridge.",
+          "type": "string",
+          "const": "ai-local-cli",
+          "markdownDescription": "Allows executing the built-in local AI CLI bridge."
+        },
+        {
           "description": "Allows executing built-in DB commands.",
           "type": "string",
           "const": "db-access",
@@ -187,6 +193,12 @@
           "type": "string",
           "const": "http-raw",
           "markdownDescription": "Allows making HTTP requests from the Rust backend (CORS-free)."
+        },
+        {
+          "description": "Allows using built-in MCP bridge commands.",
+          "type": "string",
+          "const": "mcp-access",
+          "markdownDescription": "Allows using built-in MCP bridge commands."
         },
         {
           "description": "Allows running Java request mock scripts and local mock server controls.",

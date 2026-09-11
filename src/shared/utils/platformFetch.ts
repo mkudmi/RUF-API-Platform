@@ -1,4 +1,4 @@
-import { tauriInvoke } from './tauri'
+import { desktopHttpRequest, type DesktopHttpResult } from './desktopHttpRequest'
 import { logError, logWarn } from './logger'
 
 function getUrlString(input: RequestInfo | URL): string | null {
@@ -154,16 +154,7 @@ export async function platformFetch(
           if (!hasContentType) headers.push(['Content-Type', inferredContentType])
         }
 
-      type HttpRequestResult = {
-        ok: boolean
-        status: number
-        statusText: string
-        headers: [string, string][]
-        bodyBase64: string
-      }
-
-      const requestPromise = tauriInvoke<HttpRequestResult>('http_request', {
-        args: {
+      const requestPromise = desktopHttpRequest({
           url,
           method,
           headers,
@@ -173,11 +164,10 @@ export async function platformFetch(
           caCertsPem: opts?.caCertsPem,
           clientPkcs12Base64: opts?.clientPkcs12Base64,
           clientPkcs12Password: opts?.clientPkcs12Password,
-        },
-      })
+      }, signal)
 
-      const result: HttpRequestResult = await (signal
-        ? new Promise<HttpRequestResult>((resolve, reject) => {
+      const result: DesktopHttpResult = await (signal
+        ? new Promise<DesktopHttpResult>((resolve, reject) => {
           let settled = false
           const onAbort = () => {
             if (settled) return
@@ -206,7 +196,7 @@ export async function platformFetch(
       const bytes = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
 
-      return new Response(bytes, {
+      return new Response([204, 205, 304].includes(result.status) || method === 'HEAD' ? null : bytes, {
         status: result.status,
         statusText: result.statusText || '',
         headers: new Headers(result.headers || []),

@@ -56,6 +56,7 @@ fn main() {
             commands::mocker::mocker_server_delete_route,
             commands::mocker::mocker_server_logs,
             commands::cert::cert_inspect,
+            commands::cert::cert_select_system_client_identity,
             commands::storage::storage_load,
             commands::storage::storage_save,
             commands::system::system_open_url,
